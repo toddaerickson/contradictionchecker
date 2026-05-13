@@ -1,0 +1,342 @@
+"""Tests for the SQLite-backed audit logger."""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from pathlib import Path
+
+import pytest
+
+from consistency_checker.audit.logger import AuditLogger, Finding
+from consistency_checker.check.gate import AllPairsGate, CandidatePair
+from consistency_checker.check.llm_judge import FixtureJudge, JudgeVerdict
+from consistency_checker.check.nli_checker import FixtureNliChecker, NliResult
+from consistency_checker.extract.schema import Assertion, Document
+from consistency_checker.index.assertion_store import AssertionStore
+
+
+def _seed_two_docs(store: AssertionStore) -> tuple[Document, Document]:
+    doc_a = Document.from_content("Body A.", source_path="a.txt")
+    doc_b = Document.from_content("Body B.", source_path="b.txt")
+    store.add_document(doc_a)
+    store.add_document(doc_b)
+    a1 = Assertion.build(doc_a.doc_id, "Revenue grew 12% in fiscal 2025.")
+    b1 = Assertion.build(doc_b.doc_id, "Revenue declined 5% in fiscal 2025.")
+    store.add_assertions([a1, b1])
+    return doc_a, doc_b
+
+
+@pytest.fixture
+def store(tmp_path: Path) -> AssertionStore:
+    s = AssertionStore(tmp_path / "store.db")
+    s.migrate()
+    return s
+
+
+# --- migration -------------------------------------------------------------
+
+
+def test_audit_migration_creates_tables(tmp_path: Path) -> None:
+    s = AssertionStore(tmp_path / "x.db")
+    s.migrate()
+    conn = sqlite3.connect(tmp_path / "x.db")
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert {"pipeline_runs", "findings"} <= tables
+
+
+# --- begin / end run --------------------------------------------------------
+
+
+def test_begin_run_returns_id(store: AssertionStore) -> None:
+    logger = AuditLogger(store)
+    run_id = logger.begin_run()
+    assert isinstance(run_id, str) and run_id
+    run = logger.get_run(run_id)
+    assert run is not None
+    assert run.run_id == run_id
+    assert run.started_at is not None
+    assert run.finished_at is None
+
+
+def test_begin_run_persists_config(store: AssertionStore) -> None:
+    logger = AuditLogger(store)
+    cfg = {"top_k": 5, "threshold": 0.5, "model": "claude-sonnet-4-6"}
+    run_id = logger.begin_run(config=cfg, notes="smoke run")
+    run = logger.get_run(run_id)
+    assert run is not None
+    assert run.config_json is not None
+    assert json.loads(run.config_json) == cfg
+    assert run.notes == "smoke run"
+
+
+def test_end_run_sets_totals_and_finished_at(store: AssertionStore) -> None:
+    logger = AuditLogger(store)
+    run_id = logger.begin_run()
+    logger.end_run(run_id, n_assertions=10, n_pairs_gated=15, n_pairs_judged=8, n_findings=2)
+    run = logger.get_run(run_id)
+    assert run is not None
+    assert run.finished_at is not None
+    assert run.n_assertions == 10
+    assert run.n_pairs_gated == 15
+    assert run.n_pairs_judged == 8
+    assert run.n_findings == 2
+
+
+def test_end_run_counts_findings_automatically(store: AssertionStore) -> None:
+    logger = AuditLogger(store)
+    _seed_two_docs(store)
+    a, b = list(store.iter_assertions())
+    run_id = logger.begin_run()
+    logger.record_finding(
+        run_id,
+        candidate=CandidatePair(a=a, b=b, score=0.9),
+        nli=NliResult.from_scores(p_contradiction=0.8, p_entailment=0.05, p_neutral=0.15),
+        verdict=JudgeVerdict(
+            assertion_a_id=a.assertion_id,
+            assertion_b_id=b.assertion_id,
+            verdict="contradiction",
+            confidence=0.85,
+            rationale="opposite signs",
+        ),
+    )
+    logger.end_run(run_id, n_assertions=2, n_pairs_gated=1, n_pairs_judged=1)
+    run = logger.get_run(run_id)
+    assert run is not None
+    assert run.n_findings == 1
+
+
+# --- record_finding --------------------------------------------------------
+
+
+def test_record_finding_persists_all_fields(store: AssertionStore) -> None:
+    logger = AuditLogger(store)
+    _seed_two_docs(store)
+    a, b = list(store.iter_assertions())
+    run_id = logger.begin_run()
+
+    candidate = CandidatePair(a=a, b=b, score=0.91)
+    nli = NliResult.from_scores(p_contradiction=0.82, p_entailment=0.05, p_neutral=0.13)
+    verdict = JudgeVerdict(
+        assertion_a_id=a.assertion_id,
+        assertion_b_id=b.assertion_id,
+        verdict="contradiction",
+        confidence=0.9,
+        rationale="opposite signs at the same scope",
+        evidence_spans=["grew 12%", "declined 5%"],
+    )
+    finding_id = logger.record_finding(run_id, candidate=candidate, nli=nli, verdict=verdict)
+    fetched = logger.get_finding(finding_id)
+    assert fetched is not None
+    assert fetched.assertion_a_id == a.assertion_id
+    assert fetched.assertion_b_id == b.assertion_id
+    assert fetched.gate_score == pytest.approx(0.91)
+    assert fetched.nli_label == "contradiction"
+    assert fetched.nli_p_contradiction == pytest.approx(0.82)
+    assert fetched.judge_verdict == "contradiction"
+    assert fetched.judge_confidence == pytest.approx(0.9)
+    assert fetched.evidence_spans == ["grew 12%", "declined 5%"]
+
+
+def test_record_finding_is_idempotent_within_run(store: AssertionStore) -> None:
+    """Re-recording the same pair in the same run should not duplicate rows."""
+    logger = AuditLogger(store)
+    _seed_two_docs(store)
+    a, b = list(store.iter_assertions())
+    run_id = logger.begin_run()
+    candidate = CandidatePair(a=a, b=b, score=0.5)
+    verdict = JudgeVerdict(
+        assertion_a_id=a.assertion_id,
+        assertion_b_id=b.assertion_id,
+        verdict="uncertain",
+        confidence=0.0,
+        rationale="repeated",
+    )
+    logger.record_finding(run_id, candidate=candidate, nli=None, verdict=verdict)
+    logger.record_finding(run_id, candidate=candidate, nli=None, verdict=verdict)
+    assert len(list(logger.iter_findings(run_id=run_id))) == 1
+
+
+def test_record_finding_handles_no_nli(store: AssertionStore) -> None:
+    logger = AuditLogger(store)
+    _seed_two_docs(store)
+    a, b = list(store.iter_assertions())
+    run_id = logger.begin_run()
+    verdict = JudgeVerdict(
+        assertion_a_id=a.assertion_id,
+        assertion_b_id=b.assertion_id,
+        verdict="not_contradiction",
+        confidence=0.5,
+        rationale="no nli stage",
+    )
+    fid = logger.record_finding(
+        run_id, candidate=CandidatePair(a=a, b=b, score=1.0), nli=None, verdict=verdict
+    )
+    fetched = logger.get_finding(fid)
+    assert fetched is not None
+    assert fetched.nli_label is None
+    assert fetched.nli_p_contradiction is None
+
+
+def test_record_finding_requires_existing_assertions(store: AssertionStore) -> None:
+    """Foreign key check on assertions table — orphan finding must fail."""
+    logger = AuditLogger(store)
+    run_id = logger.begin_run()
+    orphan_a = Assertion.build("nonexistent", "x")
+    orphan_b = Assertion.build("nonexistent", "y")
+    candidate = CandidatePair(a=orphan_a, b=orphan_b, score=0.5)
+    verdict = JudgeVerdict(
+        assertion_a_id=orphan_a.assertion_id,
+        assertion_b_id=orphan_b.assertion_id,
+        verdict="uncertain",
+        confidence=0.0,
+        rationale="r",
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        logger.record_finding(run_id, candidate=candidate, nli=None, verdict=verdict)
+
+
+# --- iter_findings filtering ----------------------------------------------
+
+
+def test_iter_findings_filters_by_run(store: AssertionStore) -> None:
+    logger = AuditLogger(store)
+    _seed_two_docs(store)
+    a, b = list(store.iter_assertions())
+    run1 = logger.begin_run()
+    run2 = logger.begin_run()
+    base_verdict = JudgeVerdict(
+        assertion_a_id=a.assertion_id,
+        assertion_b_id=b.assertion_id,
+        verdict="contradiction",
+        confidence=0.7,
+        rationale="r",
+    )
+    logger.record_finding(
+        run1, candidate=CandidatePair(a=a, b=b, score=1.0), nli=None, verdict=base_verdict
+    )
+    logger.record_finding(
+        run2, candidate=CandidatePair(a=a, b=b, score=1.0), nli=None, verdict=base_verdict
+    )
+    only_run1 = list(logger.iter_findings(run_id=run1))
+    assert len(only_run1) == 1
+    assert only_run1[0].run_id == run1
+
+
+def test_iter_findings_filters_by_verdict(store: AssertionStore) -> None:
+    logger = AuditLogger(store)
+    _seed_two_docs(store)
+    a, b = list(store.iter_assertions())
+    run_id = logger.begin_run()
+    # Two pairs would require more assertions; using the same pair with different
+    # verdicts in different runs to keep idempotency intact.
+    logger.record_finding(
+        run_id,
+        candidate=CandidatePair(a=a, b=b, score=1.0),
+        nli=None,
+        verdict=JudgeVerdict(
+            assertion_a_id=a.assertion_id,
+            assertion_b_id=b.assertion_id,
+            verdict="contradiction",
+            confidence=0.9,
+            rationale="r",
+        ),
+    )
+    contradictions = list(logger.iter_findings(verdict="contradiction"))
+    assert len(contradictions) == 1
+    uncertain = list(logger.iter_findings(verdict="uncertain"))
+    assert uncertain == []
+
+
+# --- end-to-end mini pipeline ----------------------------------------------
+
+
+def test_end_to_end_mini_pipeline_records_findings(store: AssertionStore) -> None:
+    """Drive AllPairsGate + FixtureNliChecker + FixtureJudge → AuditLogger."""
+    _seed_two_docs(store)
+    a, b = list(store.iter_assertions())
+
+    nli_results = {
+        (a.assertion_text, b.assertion_text): NliResult.from_scores(
+            p_contradiction=0.78, p_entailment=0.07, p_neutral=0.15
+        ),
+        (b.assertion_text, a.assertion_text): NliResult.from_scores(
+            p_contradiction=0.71, p_entailment=0.10, p_neutral=0.19
+        ),
+    }
+    nli_checker = FixtureNliChecker(nli_results)
+
+    canonical_key = (
+        min(a.assertion_id, b.assertion_id),
+        max(a.assertion_id, b.assertion_id),
+    )
+    judge_fixture = {
+        canonical_key: JudgeVerdict(
+            assertion_a_id=canonical_key[0],
+            assertion_b_id=canonical_key[1],
+            verdict="contradiction",
+            confidence=0.9,
+            rationale="opposing signs",
+            evidence_spans=["grew 12%", "declined 5%"],
+        )
+    }
+    judge = FixtureJudge(judge_fixture)
+
+    logger = AuditLogger(store)
+    run_id = logger.begin_run(config={"pipeline": "end-to-end-mini"})
+
+    pairs_judged = 0
+    for pair in AllPairsGate().candidates(store):
+        nli_result = nli_checker.score(pair.a.assertion_text, pair.b.assertion_text)
+        verdict = judge.judge(pair.a, pair.b)
+        logger.record_finding(run_id, candidate=pair, nli=nli_result, verdict=verdict)
+        pairs_judged += 1
+
+    logger.end_run(
+        run_id,
+        n_assertions=2,
+        n_pairs_gated=pairs_judged,
+        n_pairs_judged=pairs_judged,
+    )
+
+    run = logger.get_run(run_id)
+    assert run is not None
+    assert run.n_pairs_judged == 1
+    assert run.n_findings == 1
+
+    findings: list[Finding] = list(logger.iter_findings(run_id=run_id))
+    assert len(findings) == 1
+    only = findings[0]
+    assert only.judge_verdict == "contradiction"
+    assert only.evidence_spans == ["grew 12%", "declined 5%"]
+
+
+def test_findings_are_replayable_from_logged_inputs(store: AssertionStore) -> None:
+    """A logged finding must carry enough state to reconstruct judge inputs."""
+    logger = AuditLogger(store)
+    _seed_two_docs(store)
+    a, b = list(store.iter_assertions())
+    run_id = logger.begin_run()
+    fid = logger.record_finding(
+        run_id,
+        candidate=CandidatePair(a=a, b=b, score=0.88),
+        nli=NliResult.from_scores(p_contradiction=0.6, p_entailment=0.2, p_neutral=0.2),
+        verdict=JudgeVerdict(
+            assertion_a_id=a.assertion_id,
+            assertion_b_id=b.assertion_id,
+            verdict="contradiction",
+            confidence=0.7,
+            rationale="r",
+        ),
+    )
+    fetched = logger.get_finding(fid)
+    assert fetched is not None
+
+    # Use the logged ids to pull the source assertions back from the store; this
+    # is exactly what the report generator (Step 13) will do.
+    reloaded_a = store.get_assertion(fetched.assertion_a_id)
+    reloaded_b = store.get_assertion(fetched.assertion_b_id)
+    assert reloaded_a is not None
+    assert reloaded_b is not None
+    assert reloaded_a.assertion_text == a.assertion_text
+    assert reloaded_b.assertion_text == b.assertion_text

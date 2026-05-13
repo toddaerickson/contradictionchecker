@@ -48,12 +48,12 @@ def test_migrate_is_idempotent(tmp_path: Path) -> None:
     s = AssertionStore(tmp_path / "a.db")
     first = s.migrate()
     second = s.migrate()
-    assert first == [1]
+    assert first  # at least one migration applied
+    assert first == sorted(first)  # in version order
     assert second == []
-    # schema_migrations should have exactly one row.
     conn = sqlite3.connect(tmp_path / "a.db")
     versions = [r[0] for r in conn.execute("SELECT version FROM schema_migrations")]
-    assert versions == [1]
+    assert versions == first
 
 
 def test_document_round_trip(store: AssertionStore) -> None:
