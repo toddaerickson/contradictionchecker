@@ -1,0 +1,13 @@
+# Architecture Decision Records
+
+Short records capturing decisions that shape the codebase. New ADRs are appended; existing ADRs are amended only to record status changes (`Accepted`, `Superseded by NNNN`).
+
+Format: one decision per file, ~20–40 lines, sections `Status / Context / Decision / Consequences`.
+
+## Index
+
+| #     | Title                                             | Status   |
+|-------|---------------------------------------------------|----------|
+| 0001  | [LLM judge provider](0001-llm-judge-provider.md)  | Accepted |
+| 0002  | [Embedding model](0002-embedding-model.md)        | Accepted |
+| 0003  | [CONTRADOC integration timing](0003-contradoc-integration.md) | Accepted |
