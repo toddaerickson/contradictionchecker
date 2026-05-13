@@ -3,5 +3,5 @@ Assertion A (from document {doc_a_id}):
 
 Assertion B (from document {doc_b_id}):
 {assertion_b_text}
-
+{numeric_context_block}
 Decide whether A and B contradict each other. Record your verdict via the structured-output mechanism you've been given.

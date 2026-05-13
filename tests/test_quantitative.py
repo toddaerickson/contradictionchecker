@@ -7,6 +7,7 @@ import pytest
 from consistency_checker.extract.quantitative import (
     QuantitativeTuple,
     extract_quantities,
+    find_value_disagreements,
     is_sign_flip,
 )
 
@@ -202,3 +203,62 @@ def test_unit_mismatch_does_not_short_circuit() -> None:
     [a] = extract_quantities(a_text)
     [b] = extract_quantities(b_text)
     assert is_sign_flip(a, b) is False
+
+
+# --- find_value_disagreements (E3) -----------------------------------------
+
+
+def test_value_disagreement_finds_same_direction_value_mismatch() -> None:
+    """Both grew, but by different amounts above the 10% threshold."""
+    pairs = find_value_disagreements(
+        "Revenue grew 12% in fiscal 2025.",
+        "Revenue grew 4% in fiscal 2025.",
+        threshold=0.10,
+    )
+    assert len(pairs) == 1
+    a, b = pairs[0]
+    assert a.value == 12.0
+    assert b.value == 4.0
+
+
+def test_value_disagreement_excludes_sign_flip_pair() -> None:
+    """Sign-flips are owned by is_sign_flip; they don't show up here."""
+    pairs = find_value_disagreements(
+        "Revenue grew 12% in fiscal 2025.",
+        "Revenue declined 5% in fiscal 2025.",
+        threshold=0.10,
+    )
+    assert pairs == []
+
+
+def test_value_disagreement_threshold_filters_small_deltas() -> None:
+    """Below-threshold differences shouldn't surface (judge stays prose-only)."""
+    pairs = find_value_disagreements(
+        "Revenue grew 12% in fiscal 2025.",
+        "Revenue grew 11.5% in fiscal 2025.",
+        threshold=0.10,
+    )
+    assert pairs == []
+
+
+def test_value_disagreement_excludes_unit_mismatch() -> None:
+    pairs = find_value_disagreements(
+        "Revenue grew 12% in fiscal 2025.",
+        "Revenue grew 8 million dollars in fiscal 2025.",
+        threshold=0.10,
+    )
+    assert pairs == []
+
+
+def test_value_disagreement_excludes_scope_mismatch() -> None:
+    pairs = find_value_disagreements(
+        "Revenue grew 12% in fiscal 2025.",
+        "Revenue grew 4% in fiscal 2024.",
+        threshold=0.10,
+    )
+    assert pairs == []
+
+
+def test_value_disagreement_negative_threshold_raises() -> None:
+    with pytest.raises(ValueError):
+        find_value_disagreements("x", "y", threshold=-0.1)

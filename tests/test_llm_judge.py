@@ -110,6 +110,32 @@ def test_user_prompt_substitutes_assertion_text() -> None:
     assert "doc_a" in out
     assert "doc_b" in out
     assert "{assertion_a_text}" not in out
+    assert "{numeric_context_block}" not in out
+    # No numeric context → no Numeric context section.
+    assert "Numeric context" not in out
+
+
+def test_user_prompt_includes_numeric_context_when_supplied() -> None:
+    a = make_assertion("doc_a", "Revenue grew 12% in fiscal 2025.")
+    b = make_assertion("doc_b", "Revenue grew 4% in fiscal 2025.")
+    out = render_user_prompt(
+        a,
+        b,
+        numeric_context=("- revenue (fiscal 2025): A says 12.0percent, B says 4.0percent"),
+    )
+    assert "## Numeric context" in out
+    assert "A says 12.0percent" in out
+    assert "B says 4.0percent" in out
+
+
+def test_user_prompt_empty_numeric_context_renders_clean() -> None:
+    """An empty/None hint leaves prose-only prompts byte-stable."""
+    a = make_assertion("doc_a", "Hello.")
+    b = make_assertion("doc_b", "World.")
+    none_form = render_user_prompt(a, b)
+    empty_form = render_user_prompt(a, b, numeric_context="")
+    assert none_form == empty_form
+    assert "Numeric context" not in none_form
 
 
 # --- FixtureJudge -----------------------------------------------------------
