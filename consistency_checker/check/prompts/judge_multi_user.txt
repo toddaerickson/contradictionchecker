@@ -1,0 +1,12 @@
+Three assertions to evaluate jointly:
+
+Assertion A (from document {doc_a_id}):
+{assertion_a_text}
+
+Assertion B (from document {doc_b_id}):
+{assertion_b_text}
+
+Assertion C (from document {doc_c_id}):
+{assertion_c_text}
+
+Decide whether any subset of {A, B, C} is jointly contradictory — i.e. cannot all be true within the same scope. Use the labels A, B, C in ``contradicting_subset``. Record your verdict via the structured-output mechanism you've been given.
