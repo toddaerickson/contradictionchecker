@@ -8,7 +8,7 @@ Scan a corpus of documents for **internal contradictions** — assertions in one
 
 ```
 consistency_checker/
-├── corpus/          loader.py        load .txt / .md (PDFs/Docx stubbed)
+├── corpus/          loader.py        load .txt / .md (plaintext) and .pdf / .docx (unstructured)
 │                    chunker.py       sentence-window chunks with char offsets
 ├── extract/         schema.py        Document & Assertion dataclasses
 │                    atomic_facts.py  LLM decomposition into atomic claims
@@ -97,12 +97,22 @@ findings(finding_id PK, run_id FK, assertion_a_id FK, assertion_b_id FK, nli_p_c
 
 Default provider configurable in `config.yml`. Both real providers are exercised under the `live` pytest mark.
 
+## Loader registry
+
+Loaders are registered in `consistency_checker/corpus/loader.py::LOADERS` keyed by extension. The plaintext loader handles `.txt` and `.md`; `UnstructuredLoader` (`strategy="fast"` per [ADR-0004](decisions/0004-pdf-docx-loaders.md)) handles `.pdf` and `.docx` (and could be wired to any extension `unstructured` supports). For PDF/DOCX an `element_spans` sidecar (`element_index`, `element_type`, `char_start`, `char_end`) is stored as JSON in `documents.metadata_json` so downstream tooling can map a char span back to the originating element.
+
+New loader for, say, `.html`?
+
+```python
+from consistency_checker.corpus.loader import LOADERS, UnstructuredLoader
+LOADERS[".html"] = UnstructuredLoader()
+```
+
 ## What's not in MVP
 
-- PDF / DOCX loaders (stubbed, raise `NotImplementedError`).
-- Numeric reasoning (`Revenue grew 12%` vs `Revenue declined 5%` — currently handled by NLI/LLM only, with no dedicated quantitative extractor).
-- Cross-three-document conditional contradictions (only pairwise).
-- Entity-resolution beyond what the judge can infer from doc metadata.
+- Numeric reasoning (`Revenue grew 12%` vs `Revenue declined 5%` — currently handled by NLI/LLM only; v0.2 adds a dedicated quantitative extractor with deterministic short-circuit).
+- Cross-three-document conditional contradictions (pairwise only; v0.2 adds a graph-triangle pass behind `--deep`).
+- Entity-resolution beyond what the judge can infer from doc metadata (v0.3).
 - Production deployment / scheduling / monitoring.
 
 ## References
