@@ -1,0 +1,234 @@
+"""SQLite-backed audit logger.
+
+Persists every judge verdict (contradiction / not_contradiction / uncertain) so
+a run is fully reproducible from logged inputs alone. Findings are organised
+under a ``pipeline_runs`` row that records the run's config and totals.
+
+The schema lives in ``consistency_checker/index/migrations/0002_audit.sql`` and
+is applied via the same :meth:`AssertionStore.migrate` pump as the canonical
+tables — there is one database, one migration journal.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import uuid
+from collections.abc import Iterator
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
+
+from consistency_checker.check.gate import CandidatePair
+from consistency_checker.check.llm_judge import JudgeVerdict
+from consistency_checker.check.nli_checker import NliResult
+from consistency_checker.extract.schema import hash_id
+from consistency_checker.index.assertion_store import AssertionStore
+from consistency_checker.logging_setup import get_logger
+
+_log = get_logger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineRun:
+    """One scan from ingest through report."""
+
+    run_id: str
+    started_at: datetime | None
+    finished_at: datetime | None
+    config_json: str | None
+    n_assertions: int
+    n_pairs_gated: int
+    n_pairs_judged: int
+    n_findings: int
+    notes: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class Finding:
+    """One judge verdict in a run."""
+
+    finding_id: str
+    run_id: str
+    assertion_a_id: str
+    assertion_b_id: str
+    gate_score: float | None
+    nli_label: str | None
+    nli_p_contradiction: float | None
+    nli_p_entailment: float | None
+    nli_p_neutral: float | None
+    judge_verdict: str | None
+    judge_confidence: float | None
+    judge_rationale: str | None
+    evidence_spans: list[str] = field(default_factory=list)
+    created_at: datetime | None = None
+
+
+def _parse_ts(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(str(value))
+
+
+def _row_to_run(row: sqlite3.Row) -> PipelineRun:
+    return PipelineRun(
+        run_id=row["run_id"],
+        started_at=_parse_ts(row["started_at"]),
+        finished_at=_parse_ts(row["finished_at"]),
+        config_json=row["config_json"],
+        n_assertions=int(row["n_assertions"]),
+        n_pairs_gated=int(row["n_pairs_gated"]),
+        n_pairs_judged=int(row["n_pairs_judged"]),
+        n_findings=int(row["n_findings"]),
+        notes=row["notes"],
+    )
+
+
+def _row_to_finding(row: sqlite3.Row) -> Finding:
+    spans_json = row["evidence_spans_json"]
+    spans = json.loads(spans_json) if spans_json else []
+    return Finding(
+        finding_id=row["finding_id"],
+        run_id=row["run_id"],
+        assertion_a_id=row["assertion_a_id"],
+        assertion_b_id=row["assertion_b_id"],
+        gate_score=row["gate_score"],
+        nli_label=row["nli_label"],
+        nli_p_contradiction=row["nli_p_contradiction"],
+        nli_p_entailment=row["nli_p_entailment"],
+        nli_p_neutral=row["nli_p_neutral"],
+        judge_verdict=row["judge_verdict"],
+        judge_confidence=row["judge_confidence"],
+        judge_rationale=row["judge_rationale"],
+        evidence_spans=spans,
+        created_at=_parse_ts(row["created_at"]),
+    )
+
+
+class AuditLogger:
+    """Records pipeline runs and per-pair judge verdicts in the assertion store."""
+
+    def __init__(self, store: AssertionStore) -> None:
+        self._store = store
+        # Reach into the underlying connection — the audit logger lives in the
+        # same SQLite database as the canonical tables on purpose.
+        self._conn: sqlite3.Connection = store._conn
+
+    # --- run lifecycle ------------------------------------------------------
+
+    def begin_run(
+        self,
+        *,
+        run_id: str | None = None,
+        config: dict[str, Any] | None = None,
+        notes: str | None = None,
+    ) -> str:
+        rid = run_id or uuid.uuid4().hex
+        config_json = json.dumps(config, default=str) if config is not None else None
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO pipeline_runs (run_id, config_json, notes) VALUES (?, ?, ?)",
+                (rid, config_json, notes),
+            )
+        return rid
+
+    def end_run(
+        self,
+        run_id: str,
+        *,
+        n_assertions: int = 0,
+        n_pairs_gated: int = 0,
+        n_pairs_judged: int = 0,
+        n_findings: int | None = None,
+    ) -> None:
+        if n_findings is None:
+            counted = self._conn.execute(
+                "SELECT COUNT(*) FROM findings WHERE run_id = ? AND judge_verdict = 'contradiction'",
+                (run_id,),
+            ).fetchone()[0]
+            n_findings = int(counted)
+        finished = datetime.now().isoformat(timespec="seconds")
+        with self._conn:
+            self._conn.execute(
+                "UPDATE pipeline_runs SET finished_at = ?, n_assertions = ?, "
+                "n_pairs_gated = ?, n_pairs_judged = ?, n_findings = ? "
+                "WHERE run_id = ?",
+                (finished, n_assertions, n_pairs_gated, n_pairs_judged, n_findings, run_id),
+            )
+
+    # --- writes -------------------------------------------------------------
+
+    def record_finding(
+        self,
+        run_id: str,
+        *,
+        candidate: CandidatePair,
+        nli: NliResult | None,
+        verdict: JudgeVerdict,
+    ) -> str:
+        a_id = candidate.a.assertion_id
+        b_id = candidate.b.assertion_id
+        finding_id = hash_id(run_id, a_id, b_id)
+        spans_json = json.dumps(verdict.evidence_spans)
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO findings ("
+                "finding_id, run_id, assertion_a_id, assertion_b_id, "
+                "gate_score, nli_label, nli_p_contradiction, nli_p_entailment, nli_p_neutral, "
+                "judge_verdict, judge_confidence, judge_rationale, evidence_spans_json"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    finding_id,
+                    run_id,
+                    a_id,
+                    b_id,
+                    candidate.score,
+                    nli.label if nli else None,
+                    nli.p_contradiction if nli else None,
+                    nli.p_entailment if nli else None,
+                    nli.p_neutral if nli else None,
+                    verdict.verdict,
+                    verdict.confidence,
+                    verdict.rationale,
+                    spans_json,
+                ),
+            )
+        return finding_id
+
+    # --- reads --------------------------------------------------------------
+
+    def get_run(self, run_id: str) -> PipelineRun | None:
+        row = self._conn.execute(
+            "SELECT * FROM pipeline_runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        return _row_to_run(row) if row else None
+
+    def iter_findings(
+        self,
+        *,
+        run_id: str | None = None,
+        verdict: str | None = None,
+    ) -> Iterator[Finding]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if run_id is not None:
+            clauses.append("run_id = ?")
+            params.append(run_id)
+        if verdict is not None:
+            clauses.append("judge_verdict = ?")
+            params.append(verdict)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        cursor = self._conn.execute(
+            f"SELECT * FROM findings {where} ORDER BY created_at, finding_id",
+            params,
+        )
+        for row in cursor:
+            yield _row_to_finding(row)
+
+    def get_finding(self, finding_id: str) -> Finding | None:
+        row = self._conn.execute(
+            "SELECT * FROM findings WHERE finding_id = ?", (finding_id,)
+        ).fetchone()
+        return _row_to_finding(row) if row else None
