@@ -1,0 +1,32 @@
+# consistency-checker configuration
+#
+# Copy this file (e.g. to `config.yml`) and adjust per environment. The only
+# required field is `corpus_dir`. Every other field has a sensible default.
+#
+# Environment variables override yaml values when prefixed with `CC_`, e.g.
+# `CC_NLI_CONTRADICTION_THRESHOLD=0.6`.
+
+# Required — directory to ingest documents from.
+corpus_dir: ./corpus
+
+# Stage B judge — see docs/decisions/0001-llm-judge-provider.md
+# One of: anthropic | openai | fixture
+judge_provider: anthropic
+judge_model: claude-sonnet-4-6
+
+# Storage — SQLite (canonical) and FAISS (derived) live under data_dir
+data_dir: ./data/store
+log_dir: ./data/logs
+
+# Stage A NLI — see docs/decisions/0002-embedding-model.md for embedder choice
+embedder_model: sentence-transformers/all-mpnet-base-v2
+nli_model: MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli
+nli_contradiction_threshold: 0.5
+
+# Candidate-pair gate
+gate_top_k: 20
+gate_similarity_threshold: 0.7
+
+# Chunking — used by corpus/chunker.py
+chunk_max_chars: 1000
+chunk_overlap_chars: 0
