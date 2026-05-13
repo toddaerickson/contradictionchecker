@@ -11,3 +11,4 @@ Format: one decision per file, ~20–40 lines, sections `Status / Context / Deci
 | 0001  | [LLM judge provider](0001-llm-judge-provider.md)  | Accepted |
 | 0002  | [Embedding model](0002-embedding-model.md)        | Accepted |
 | 0003  | [CONTRADOC integration timing](0003-contradoc-integration.md) | Accepted |
+| 0004  | [PDF/DOCX loader backend (`unstructured`)](0004-pdf-docx-loaders.md) | Accepted |
