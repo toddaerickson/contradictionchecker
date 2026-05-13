@@ -9,4 +9,4 @@ import consistency_checker
 
 
 def test_package_imports() -> None:
-    assert consistency_checker.__version__ == "0.0.1"
+    assert consistency_checker.__version__ == "0.1.0"
