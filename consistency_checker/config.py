@@ -37,7 +37,7 @@ class Config(BaseModel):
 
     nli_contradiction_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     gate_top_k: int = Field(default=20, ge=1)
-    gate_similarity_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    gate_similarity_threshold: float = Field(default=0.7, ge=-1.0, le=1.0)
 
     chunk_max_chars: int = Field(default=1000, ge=50)
     chunk_overlap_chars: int = Field(default=0, ge=0)

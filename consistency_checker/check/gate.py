@@ -79,8 +79,8 @@ class AnnGate:
     ) -> None:
         if top_k < 1:
             raise ValueError("top_k must be >= 1")
-        if not 0.0 <= similarity_threshold <= 1.0:
-            raise ValueError("similarity_threshold must be in [0, 1]")
+        if not -1.0 <= similarity_threshold <= 1.0:
+            raise ValueError("similarity_threshold must be in [-1, 1] (cosine range)")
         self._faiss_store = faiss_store
         self._top_k = top_k
         self._similarity_threshold = similarity_threshold
