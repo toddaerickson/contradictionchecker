@@ -137,6 +137,7 @@ dependencies = [
     { name = "pysbd" },
     { name = "pyyaml" },
     { name = "sentence-transformers" },
+    { name = "typer" },
 ]
 
 [package.dev-dependencies]
@@ -158,6 +159,7 @@ requires-dist = [
     { name = "pysbd", specifier = ">=0.3.4" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "sentence-transformers", specifier = ">=3.0" },
+    { name = "typer", specifier = ">=0.12" },
 ]
 
 [package.metadata.requires-dev]
