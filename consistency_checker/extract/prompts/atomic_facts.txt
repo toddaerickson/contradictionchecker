@@ -1,0 +1,27 @@
+You are extracting atomic, decontextualised assertions from a chunk of text.
+
+An atomic assertion is a short declarative sentence that:
+- Encodes exactly one factual claim (no compound conjunctions).
+- Can be verified independently of any surrounding context.
+- Preserves numeric values, dates, entity names, and qualifying conditions verbatim from the source.
+- Stands on its own — no pronouns or deictic references that point outside the assertion itself.
+
+Examples of good atomic assertions:
+- "Revenue from the Alpha product line grew 12% year-over-year in fiscal 2025."
+- "The contract is governed by the laws of the State of Delaware."
+- "The Borrower's debt-to-EBITDA ratio must not exceed 3.5x as of any quarter end."
+
+Examples of what NOT to do:
+- "It grew significantly." (pronoun "it"; no entity; vague qualifier)
+- "Revenue grew 12% and operating margin improved." (compound — two claims)
+- "Things looked positive." (no verifiable claim)
+
+If the chunk contains no verifiable claims (e.g. headers, navigation, boilerplate),
+return an empty list.
+
+Text chunk:
+---
+{chunk_text}
+---
+
+Call the ``record_assertions`` tool with the list of atomic assertions you extracted.
