@@ -11,6 +11,9 @@ dependencies = [
     "pyyaml>=6.0",
     "pysbd>=0.3.4",
     "anthropic>=0.39",
+    "numpy>=1.26",
+    "faiss-cpu>=1.7",
+    "sentence-transformers>=3.0",
 ]
 
 [project.scripts]
@@ -46,7 +49,7 @@ strict = true
 files = ["consistency_checker"]
 
 [[tool.mypy.overrides]]
-module = ["pysbd", "pysbd.*"]
+module = ["pysbd", "pysbd.*", "faiss", "faiss.*", "sentence_transformers", "sentence_transformers.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -59,4 +62,5 @@ markers = [
 addopts = "-ra -q --strict-markers"
 filterwarnings = [
     "ignore::DeprecationWarning:pysbd.*",
+    "ignore:builtin type Swig.*:DeprecationWarning",
 ]
