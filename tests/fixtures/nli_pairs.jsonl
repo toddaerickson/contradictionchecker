@@ -1,0 +1,5 @@
+{"premise": "Revenue grew 12% in fiscal 2025.", "hypothesis": "Revenue declined in fiscal 2025.", "expected": "contradiction"}
+{"premise": "The cat is sitting on the mat.", "hypothesis": "There is no cat on the mat.", "expected": "contradiction"}
+{"premise": "The company hired 50 engineers in Q1.", "hypothesis": "The company laid off 50 engineers in Q1.", "expected": "contradiction"}
+{"premise": "All customers must verify their identity.", "hypothesis": "Identity verification is optional for customers.", "expected": "contradiction"}
+{"premise": "The Beta initiative began in 2024.", "hypothesis": "The Beta initiative began in 2024.", "expected": "neutral"}
