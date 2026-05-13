@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-types-test:
+    name: Lint, type-check, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Mypy
+        run: uv run mypy consistency_checker
+
+      - name: Pytest (excluding live and slow)
+        env:
+          # Make sure no accidental live API call sneaks in.
+          ANTHROPIC_API_KEY: ""
+          OPENAI_API_KEY: ""
+        run: uv run pytest -m "not live and not slow"
+
+  build:
+    name: Build wheel
+    runs-on: ubuntu-latest
+    needs: lint-types-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Smoke-install the wheel
+        run: |
+          python -m venv /tmp/wheel-test
+          /tmp/wheel-test/bin/pip install --upgrade pip
+          /tmp/wheel-test/bin/pip install dist/*.whl
+          /tmp/wheel-test/bin/consistency-check --help
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error

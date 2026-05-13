@@ -1,6 +1,6 @@
 [project]
 name = "consistency-checker"
-version = "0.0.1"
+version = "0.1.0"
 description = "Detects internal contradictions across a corpus of documents using a two-stage NLI + LLM pipeline."
 readme = "README.md"
 requires-python = ">=3.11"
