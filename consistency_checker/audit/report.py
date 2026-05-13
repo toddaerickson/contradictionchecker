@@ -48,9 +48,16 @@ def render_report(
         min_confidence: lower bound on judge confidence (default 0.0 → include all).
     """
     run = audit_logger.get_run(run_id)
+    # Both LLM contradictions and deterministic numeric short-circuits land in
+    # the report. iter_findings(verdict=...) can only filter on one label at a
+    # time, so we make two passes and merge — cheaper than fetching all rows
+    # and filtering in Python at scale.
     contradictions = [
         f
-        for f in audit_logger.iter_findings(run_id=run_id, verdict="contradiction")
+        for f in (
+            *audit_logger.iter_findings(run_id=run_id, verdict="contradiction"),
+            *audit_logger.iter_findings(run_id=run_id, verdict="numeric_short_circuit"),
+        )
         if (f.judge_confidence or 0.0) >= min_confidence
     ]
 

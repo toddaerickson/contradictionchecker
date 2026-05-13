@@ -197,10 +197,15 @@ def test_check_runs_with_fake_nli_and_judge(
     assert result.exit_code == 0, result.stdout
     assert "contradictions" in result.stdout
 
-    # Verify a finding landed.
+    # Verify a finding landed. The Alpha-revenue pair triggers the numeric
+    # short-circuit (ADR-0005), so the verdict label is numeric_short_circuit;
+    # check both labels because either is acceptable for "a contradiction landed".
     store = AssertionStore(cfg.db_path)
     logger = AuditLogger(store)
-    findings = list(logger.iter_findings(verdict="contradiction"))
+    findings = [
+        *logger.iter_findings(verdict="contradiction"),
+        *logger.iter_findings(verdict="numeric_short_circuit"),
+    ]
     store.close()
     assert len(findings) == 1
 

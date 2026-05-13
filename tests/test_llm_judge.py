@@ -53,6 +53,18 @@ def test_judge_payload_rejects_unknown_verdict() -> None:
         JudgePayload.model_validate({"verdict": "maybe", "confidence": 0.5, "rationale": "..."})
 
 
+def test_judge_payload_rejects_numeric_short_circuit_from_llm() -> None:
+    """numeric_short_circuit is pipeline-emitted only — providers must not return it."""
+    with pytest.raises(ValidationError):
+        JudgePayload.model_validate(
+            {
+                "verdict": "numeric_short_circuit",
+                "confidence": 1.0,
+                "rationale": "...",
+            }
+        )
+
+
 def test_judge_payload_rejects_out_of_range_confidence() -> None:
     with pytest.raises(ValidationError):
         JudgePayload.model_validate(
