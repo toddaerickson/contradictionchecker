@@ -13,3 +13,4 @@ Format: one decision per file, ~20–40 lines, sections `Status / Context / Deci
 | 0003  | [CONTRADOC integration timing](0003-contradoc-integration.md) | Accepted |
 | 0004  | [PDF/DOCX loader backend (`unstructured`)](0004-pdf-docx-loaders.md) | Accepted |
 | 0005  | [Numeric short-circuit before the LLM judge](0005-numeric-short-circuit.md) | Accepted |
+| 0006  | [Three-document conditional contradictions (graph triangles)](0006-three-doc-conditional.md) | Accepted |
