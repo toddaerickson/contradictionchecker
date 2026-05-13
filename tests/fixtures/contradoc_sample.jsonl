@@ -1,0 +1,5 @@
+{"pair_id": "rev_2025_alpha", "document_a": "Revenue from the Alpha division grew 12% in fiscal 2025.", "document_b": "Revenue from the Alpha division declined 5% in fiscal 2025.", "label": "contradiction"}
+{"pair_id": "headcount_alpha", "document_a": "Alpha headcount stayed flat in 2025.", "document_b": "Alpha headcount remained unchanged during 2025.", "label": "not_contradiction"}
+{"pair_id": "beta_year", "document_a": "Beta started in 2024.", "document_b": "Beta started in 2023.", "label": "contradiction"}
+{"pair_id": "beta_segment", "document_a": "Beta serves enterprise customers.", "document_b": "Beta customers are exclusively enterprises.", "label": "not_contradiction"}
+{"pair_id": "gamma_spend", "document_a": "Gamma marketing spend was $12M in 2025.", "document_b": "Gamma marketing spend in 2025 was twelve million dollars.", "label": "not_contradiction"}

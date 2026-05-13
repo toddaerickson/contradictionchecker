@@ -1,0 +1,1 @@
+"""CONTRADOC benchmark harness package."""
