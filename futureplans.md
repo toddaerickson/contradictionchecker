@@ -4,7 +4,7 @@ Forward-looking work beyond the v0.1.0 release. Items are sized roughly; pick fr
 
 ## v0.2 — fill the obvious gaps
 
-These were explicitly out of scope in the 17-step plan but are the highest-leverage additions. They're independent and can be tackled in any order.
+These were explicitly out of scope in the 17-step plan but are the highest-leverage additions. A detailed PR-by-PR build sequence lives in [`docs/plans/v0.2-build-plan.md`](docs/plans/v0.2-build-plan.md); summaries below.
 
 ### 1. PDF and DOCX loaders
 Replace the `NotImplementedError` stubs in `consistency_checker/corpus/loader.py`.
