@@ -91,15 +91,24 @@ Recorded as ADRs in [`docs/decisions/`](docs/decisions/README.md):
 - [0002 — Embedding model](docs/decisions/0002-embedding-model.md): `sentence-transformers/all-mpnet-base-v2` default.
 - [0003 — CONTRADOC integration timing](docs/decisions/0003-contradoc-integration.md): in MVP scope.
 
+## Supported formats
+
+| Extension      | Loader                                        | Notes |
+|----------------|-----------------------------------------------|-------|
+| `.txt`, `.md`  | built-in plaintext loader                     | char spans round-trip exactly |
+| `.pdf`, `.docx`| `unstructured` (`strategy="fast"`)             | body-content elements only; sidecar `element_spans` in `documents.metadata_json` |
+
+Other formats can be added via the `LOADERS` registry in `consistency_checker/corpus/loader.py`.
+
 ## Known limitations
 
-Carried forward into the v0.2 roadmap in [`futureplans.md`](futureplans.md):
+Carried forward into the v0.3+ roadmap in [`futureplans.md`](futureplans.md):
 
-- PDF / DOCX loaders are stubbed (raise `NotImplementedError`).
 - Chunk overlap `> 0` is unimplemented.
-- No dedicated numeric/quantitative extractor.
-- Three-document conditional contradictions (pairwise checks pass, the conjunction contradicts) out of scope.
+- No dedicated numeric/quantitative extractor (v0.2 in progress).
+- Three-document conditional contradictions (pairwise checks pass, the conjunction contradicts) out of scope until v0.2/v0.3.
 - First `check` run downloads ~800 MB for the NLI model.
+- PDF / DOCX loaders use `strategy="fast"` by default — image-only PDFs need `strategy="hi_res"` (model download, not in CI).
 
 ## License
 

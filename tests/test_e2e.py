@@ -196,6 +196,74 @@ def _hash_id_for(content: str) -> str:
 
 
 @pytest.mark.e2e_fixture
+def test_end_to_end_mixed_format_corpus(
+    tmp_path: Path,
+    sample_pdf_path: Path,
+    sample_docx_path: Path,
+) -> None:
+    """Pipeline ingests a corpus mixing .txt, .md, .pdf, .docx without crashing."""
+    corpus = tmp_path / "mixed_corpus"
+    corpus.mkdir()
+    (corpus / "01_plaintext.txt").write_text("A first plaintext fact about widgets.")
+    (corpus / "02_markdown.md").write_text("# Heading\n\nA markdown fact about gadgets.\n")
+    (corpus / "03_pdf.pdf").write_bytes(sample_pdf_path.read_bytes())
+    (corpus / "04_docx.docx").write_bytes(sample_docx_path.read_bytes())
+
+    cfg_path = _write_config(tmp_path, corpus_dir=corpus)
+    cfg = Config.from_yaml(cfg_path)
+
+    # Pre-walk the corpus to discover chunk ids, then build a FixtureExtractor
+    # that emits one synthetic assertion per chunk so downstream stages have
+    # something to operate on.
+    extractor_fixture: dict[str, list[str]] = {}
+    for loaded in load_corpus(corpus):
+        for chunk in chunk_document(
+            loaded,
+            max_chars=cfg.chunk_max_chars,
+            overlap_chars=cfg.chunk_overlap_chars,
+        ):
+            ext = Path(loaded.document.source_path).suffix
+            extractor_fixture[chunk.chunk_id] = [f"Extracted from {ext}: {chunk.text[:60]}"]
+
+    embedder = HashEmbedder(dim=64)
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    faiss_store = FaissStore.open_or_create(
+        index_path=cfg.faiss_path,
+        id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
+        dim=embedder.dim,
+    )
+
+    ingest_result = run_ingest(
+        cfg,
+        store=store,
+        faiss_store=faiss_store,
+        extractor=FixtureExtractor(extractor_fixture),
+        embedder=embedder,
+    )
+    assert ingest_result.n_documents == 4
+    assert ingest_result.n_assertions >= 4
+    assert ingest_result.n_embedded == ingest_result.n_assertions
+
+    audit_logger = AuditLogger(store)
+    check_result = run_check(
+        cfg,
+        store=store,
+        faiss_store=faiss_store,
+        nli_checker=FixtureNliChecker({}),
+        judge=FixtureJudge({}),
+        audit_logger=audit_logger,
+    )
+    # No fixtures wired for any pair → FixtureJudge falls back to "uncertain",
+    # so the mixed-format corpus must produce zero contradictions but every
+    # other stage (ingest, embed, gate, NLI, judge, audit) must complete.
+    assert check_result.n_findings == 0
+    assert check_result.n_pairs_judged > 0
+
+    store.close()
+
+
+@pytest.mark.e2e_fixture
 def test_end_to_end_pipeline_fixture(tmp_path: Path) -> None:
     cfg_path = _write_config(tmp_path, corpus_dir=CORPUS_DIR)
     cfg = Config.from_yaml(cfg_path)

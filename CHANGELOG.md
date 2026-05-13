@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] — v0.2 work in progress
+
+See [`docs/plans/v0.2-build-plan.md`](docs/plans/v0.2-build-plan.md) for the full sequence.
+
+### Added (Block D — loaders)
+
+- **D0** — ADR-0004: `unstructured` as the single backend for non-plaintext formats.
+- **D1** — `LOADERS` registry in `consistency_checker/corpus/loader.py` (was `if/elif` extension dispatch); `FileLoader` Protocol. `AuditLogger.most_recent_run()`; CLI `report` no longer reaches into `store._conn`.
+- **D2** — `UnstructuredLoader` for `.pdf` and `.docx` via `unstructured.partition.auto(strategy="fast")`. Body-content elements (`NarrativeText`, `Title`, `Text`, `ListItem`, `Table`, `UncategorizedText`) concatenated with `\n\n`; sidecar `element_spans` (`element_index`, `element_type`, `char_start`, `char_end`) stored as JSON in `documents.metadata_json`. Runtime dep `unstructured[pdf,docx]`. Dev deps `reportlab` and `python-docx` for session-scope test fixtures that generate small valid PDF/DOCX files at test time.
+- **D3** — Mixed-format end-to-end smoke test (`tests/test_e2e.py::test_end_to_end_mixed_format_corpus`) drives ingest + check across a 4-file corpus (`.txt` + `.md` + `.pdf` + `.docx`). README and ARCHITECTURE updated to reflect the new loader surface.
+
 ## [0.1.0] — 2026-05-13
 
 First release. Implements the full 17-step plan from
