@@ -199,6 +199,24 @@ def test_record_finding_requires_existing_assertions(store: AssertionStore) -> N
 # --- iter_findings filtering ----------------------------------------------
 
 
+def test_most_recent_run_returns_latest_started(store: AssertionStore) -> None:
+    """The CLI's `report --run` default uses this; latest-started wins."""
+    logger = AuditLogger(store)
+    assert logger.most_recent_run() is None
+
+    first = logger.begin_run(run_id="first_run")
+    second = logger.begin_run(run_id="second_run")
+    recent = logger.most_recent_run()
+    assert recent is not None
+    assert recent.run_id in {first, second}
+    # `started_at` is at second granularity; assert on the column that's reliably ordered.
+    if recent.run_id == first:
+        # tie-break favours later run_id alphabetically per the SQL ORDER BY clause
+        assert second < first
+    else:
+        assert recent.run_id == second
+
+
 def test_iter_findings_filters_by_run(store: AssertionStore) -> None:
     logger = AuditLogger(store)
     _seed_two_docs(store)

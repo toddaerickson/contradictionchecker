@@ -205,6 +205,13 @@ class AuditLogger:
         ).fetchone()
         return _row_to_run(row) if row else None
 
+    def most_recent_run(self) -> PipelineRun | None:
+        """Return the most recently started run, or ``None`` if no runs exist."""
+        row = self._conn.execute(
+            "SELECT * FROM pipeline_runs ORDER BY started_at DESC, run_id DESC LIMIT 1"
+        ).fetchone()
+        return _row_to_run(row) if row else None
+
     def iter_findings(
         self,
         *,
