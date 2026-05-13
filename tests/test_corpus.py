@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+import json
 from pathlib import Path
 
 import pytest
@@ -11,6 +13,7 @@ from consistency_checker.corpus.loader import (
     LOADERS,
     STUB_EXTENSIONS,
     LoadedDocument,
+    UnstructuredLoader,
     load_corpus,
     load_path,
 )
@@ -36,13 +39,6 @@ def test_load_txt_fixture() -> None:
     assert loaded.document.source_path.endswith("b.txt")
 
 
-def test_load_path_stub_extension_raises(tmp_path: Path) -> None:
-    p = tmp_path / "fake.pdf"
-    p.write_bytes(b"%PDF-1.4 stub")
-    with pytest.raises(NotImplementedError):
-        load_path(p)
-
-
 def test_load_path_unsupported_extension_raises(tmp_path: Path) -> None:
     p = tmp_path / "weird.xyz"
     p.write_text("noop")
@@ -54,7 +50,6 @@ def test_load_corpus_walks_recursively_and_skips_unsupported(tmp_path: Path) -> 
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "a.md").write_text("Top-level markdown.")
     (tmp_path / "b.txt").write_text("Top-level text.")
-    (tmp_path / "fake.pdf").write_bytes(b"%PDF stub")
     (tmp_path / "skipme.xyz").write_text("ignored")
 
     loaded = list(load_corpus(tmp_path))
@@ -74,9 +69,9 @@ def test_load_corpus_path_not_a_dir(tmp_path: Path) -> None:
         list(load_corpus(f))
 
 
-def test_stub_extensions_match_load_corpus_warning() -> None:
-    assert ".pdf" in STUB_EXTENSIONS
-    assert ".docx" in STUB_EXTENSIONS
+def test_stub_extensions_is_empty_after_d2() -> None:
+    """D2 wired UnstructuredLoader for .pdf and .docx — both are no longer stubs."""
+    assert len(STUB_EXTENSIONS) == 0
 
 
 def test_load_path_missing_file_raises(tmp_path: Path) -> None:
@@ -95,12 +90,10 @@ def test_loaders_registry_has_plaintext_handlers() -> None:
     assert LOADERS[".txt"] is LOADERS[".md"]
 
 
-def test_loaders_registry_stubs_pdf_and_docx() -> None:
-    """Stubbed extensions must be registered with a NotImplementedError-raising loader."""
-    for ext in (".pdf", ".docx"):
-        assert ext in LOADERS
-        with pytest.raises(NotImplementedError):
-            LOADERS[ext](Path("ignored.value"))
+def test_loaders_registry_routes_pdf_and_docx_to_unstructured() -> None:
+    """D2: .pdf and .docx are bound to the UnstructuredLoader callable."""
+    assert isinstance(LOADERS[".pdf"], UnstructuredLoader)
+    assert LOADERS[".pdf"] is LOADERS[".docx"]
 
 
 def test_load_corpus_routes_through_registry(
@@ -222,3 +215,68 @@ def test_chunks_carry_doc_id() -> None:
     loaded = load_path(FIXTURES / "a.md")
     chunks = chunk_document(loaded)
     assert all(isinstance(c, Chunk) and c.doc_id == loaded.document.doc_id for c in chunks)
+
+
+# --- UnstructuredLoader -----------------------------------------------------
+
+
+def _assert_char_span_round_trip(loaded: LoadedDocument) -> None:
+    chunks = chunk_document(loaded, max_chars=200)
+    assert chunks
+    for c in chunks:
+        assert loaded.text[c.char_start : c.char_end] == c.text
+
+
+def test_unstructured_loader_loads_pdf(sample_pdf_path: Path) -> None:
+    loaded = load_path(sample_pdf_path)
+    assert "widgets" in loaded.text
+    assert "gadgets" in loaded.text
+    assert loaded.document.metadata_json is not None
+    _assert_char_span_round_trip(loaded)
+
+
+def test_unstructured_loader_loads_docx(sample_docx_path: Path) -> None:
+    loaded = load_path(sample_docx_path)
+    assert "DOCX" in loaded.text or "body paragraph" in loaded.text.lower()
+    assert loaded.document.metadata_json is not None
+    _assert_char_span_round_trip(loaded)
+
+
+def test_unstructured_loader_records_element_spans(sample_docx_path: Path) -> None:
+    """Element-spans must point at the substrings they describe."""
+    loaded = load_path(sample_docx_path)
+    assert loaded.document.metadata_json is not None
+    payload = json.loads(loaded.document.metadata_json)
+    spans = payload["element_spans"]
+    assert spans
+    for span in spans:
+        substring = loaded.text[span["char_start"] : span["char_end"]]
+        assert substring.strip() != ""
+        # Every element type that lands must be in our BODY_TYPES.
+        assert span["element_type"] in UnstructuredLoader.BODY_TYPES
+
+
+def test_unstructured_loader_spans_are_contiguous(sample_docx_path: Path) -> None:
+    """Adjacent element spans must be separated by exactly the element separator length."""
+    loaded = load_path(sample_docx_path)
+    assert loaded.document.metadata_json is not None
+    spans = json.loads(loaded.document.metadata_json)["element_spans"]
+    sep_len = len(UnstructuredLoader.ELEMENT_SEPARATOR)
+    for prev, curr in itertools.pairwise(spans):
+        assert curr["char_start"] == prev["char_end"] + sep_len
+
+
+def test_unstructured_loader_full_corpus_walk(
+    sample_pdf_path: Path,
+    sample_docx_path: Path,
+    tmp_path: Path,
+) -> None:
+    """load_corpus picks up the registered .pdf and .docx loaders."""
+    corpus = tmp_path / "mixed"
+    corpus.mkdir()
+    (corpus / "plain.txt").write_text("Plaintext document.")
+    (corpus / "from_pdf.pdf").write_bytes(sample_pdf_path.read_bytes())
+    (corpus / "from_docx.docx").write_bytes(sample_docx_path.read_bytes())
+    loaded = list(load_corpus(corpus))
+    suffixes = {Path(ld.document.source_path).suffix for ld in loaded}
+    assert suffixes == {".txt", ".pdf", ".docx"}

@@ -16,6 +16,7 @@ dependencies = [
     "faiss-cpu>=1.7",
     "sentence-transformers>=3.0",
     "typer>=0.12",
+    "unstructured[pdf,docx]>=0.15",
 ]
 
 [project.scripts]
@@ -35,6 +36,8 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
     "types-PyYAML>=6.0",
+    "reportlab>=4.0",
+    "python-docx>=1.1",
 ]
 
 [tool.ruff]
@@ -63,6 +66,12 @@ module = [
     "sentence_transformers.*",
     "transformers",
     "transformers.*",
+    "unstructured",
+    "unstructured.*",
+    "reportlab",
+    "reportlab.*",
+    "docx",
+    "docx.*",
 ]
 ignore_missing_imports = true
 
