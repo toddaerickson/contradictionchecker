@@ -64,6 +64,28 @@ class Finding:
     created_at: datetime | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class MultiPartyFinding:
+    """One multi-document conditional contradiction (ADR-0006, F1).
+
+    ``assertion_ids`` has at least three entries; ``doc_ids`` has at least two
+    distinct entries. ``triangle_edge_scores`` is the list of FAISS-similarity
+    edges that survived Stage A for the three assertion ids, stored verbatim
+    so a replay can re-rank triangles without re-running the gate.
+    """
+
+    finding_id: str
+    run_id: str
+    assertion_ids: list[str]
+    doc_ids: list[str]
+    triangle_edge_scores: list[tuple[str, str, float]]
+    judge_verdict: str | None
+    judge_confidence: float | None
+    judge_rationale: str | None
+    evidence_spans: list[str] = field(default_factory=list)
+    created_at: datetime | None = None
+
+
 def _parse_ts(value: Any) -> datetime | None:
     if value is None:
         return None
@@ -99,6 +121,26 @@ def _row_to_finding(row: sqlite3.Row) -> Finding:
         nli_p_contradiction=row["nli_p_contradiction"],
         nli_p_entailment=row["nli_p_entailment"],
         nli_p_neutral=row["nli_p_neutral"],
+        judge_verdict=row["judge_verdict"],
+        judge_confidence=row["judge_confidence"],
+        judge_rationale=row["judge_rationale"],
+        evidence_spans=spans,
+        created_at=_parse_ts(row["created_at"]),
+    )
+
+
+def _row_to_multi_party_finding(row: sqlite3.Row) -> MultiPartyFinding:
+    spans_json = row["evidence_spans_json"]
+    spans = json.loads(spans_json) if spans_json else []
+    edges_json = row["triangle_edge_scores_json"]
+    raw_edges = json.loads(edges_json) if edges_json else []
+    edges: list[tuple[str, str, float]] = [(str(a), str(b), float(s)) for a, b, s in raw_edges]
+    return MultiPartyFinding(
+        finding_id=row["finding_id"],
+        run_id=row["run_id"],
+        assertion_ids=list(json.loads(row["assertion_ids_json"])),
+        doc_ids=list(json.loads(row["doc_ids_json"])),
+        triangle_edge_scores=edges,
         judge_verdict=row["judge_verdict"],
         judge_confidence=row["judge_confidence"],
         judge_rationale=row["judge_rationale"],
@@ -197,6 +239,57 @@ class AuditLogger:
             )
         return finding_id
 
+    def record_multi_party_finding(
+        self,
+        run_id: str,
+        *,
+        assertion_ids: list[str],
+        doc_ids: list[str],
+        triangle_edge_scores: list[tuple[str, str, float]] | None = None,
+        judge_verdict: str,
+        judge_confidence: float | None = None,
+        judge_rationale: str | None = None,
+        evidence_spans: list[str] | None = None,
+    ) -> str:
+        """Insert a row into ``multi_party_findings``.
+
+        ``finding_id`` is a content hash over the run and the sorted assertion
+        ids, so re-recording the same triangle within a run replaces the
+        existing row (idempotent).
+        """
+        if len(assertion_ids) < 3:
+            raise ValueError("multi-party finding needs at least 3 assertion ids")
+        sorted_ids = sorted(assertion_ids)
+        if len({d for d in doc_ids}) < 2:
+            raise ValueError("multi-party finding spans must include >= 2 distinct doc ids")
+        finding_id = hash_id(run_id, *sorted_ids)
+        edges_payload = (
+            json.dumps([[a, b, s] for a, b, s in triangle_edge_scores])
+            if triangle_edge_scores is not None
+            else None
+        )
+        spans_payload = json.dumps(evidence_spans if evidence_spans is not None else [])
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO multi_party_findings ("
+                "finding_id, run_id, assertion_ids_json, doc_ids_json, "
+                "triangle_edge_scores_json, judge_verdict, judge_confidence, "
+                "judge_rationale, evidence_spans_json"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    finding_id,
+                    run_id,
+                    json.dumps(sorted_ids),
+                    json.dumps(list(doc_ids)),
+                    edges_payload,
+                    judge_verdict,
+                    judge_confidence,
+                    judge_rationale,
+                    spans_payload,
+                ),
+            )
+        return finding_id
+
     # --- reads --------------------------------------------------------------
 
     def get_run(self, run_id: str) -> PipelineRun | None:
@@ -239,3 +332,32 @@ class AuditLogger:
             "SELECT * FROM findings WHERE finding_id = ?", (finding_id,)
         ).fetchone()
         return _row_to_finding(row) if row else None
+
+    def iter_multi_party_findings(
+        self,
+        *,
+        run_id: str | None = None,
+        verdict: str | None = None,
+    ) -> Iterator[MultiPartyFinding]:
+        """Iterate multi-party (triangle) findings, optionally filtered by run / verdict."""
+        clauses: list[str] = []
+        params: list[Any] = []
+        if run_id is not None:
+            clauses.append("run_id = ?")
+            params.append(run_id)
+        if verdict is not None:
+            clauses.append("judge_verdict = ?")
+            params.append(verdict)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        cursor = self._conn.execute(
+            f"SELECT * FROM multi_party_findings {where} ORDER BY created_at, finding_id",
+            params,
+        )
+        for row in cursor:
+            yield _row_to_multi_party_finding(row)
+
+    def get_multi_party_finding(self, finding_id: str) -> MultiPartyFinding | None:
+        row = self._conn.execute(
+            "SELECT * FROM multi_party_findings WHERE finding_id = ?", (finding_id,)
+        ).fetchone()
+        return _row_to_multi_party_finding(row) if row else None
