@@ -28,7 +28,11 @@ from consistency_checker.extract.atomic_facts import (
     Extractor,
     FixtureExtractor,
 )
-from consistency_checker.extract.quantitative import extract_quantities, is_sign_flip
+from consistency_checker.extract.quantitative import (
+    extract_quantities,
+    find_value_disagreements,
+    is_sign_flip,
+)
 from consistency_checker.extract.schema import Assertion
 from consistency_checker.index.assertion_store import AssertionStore
 from consistency_checker.index.embedder import (
@@ -149,6 +153,27 @@ def _iter_candidates(
 CONTRADICTION_VERDICTS: frozenset[str] = frozenset({"contradiction", "numeric_short_circuit"})
 
 
+def _build_numeric_context(a: Assertion, b: Assertion, *, threshold: float) -> str | None:
+    """Build a structured numeric-disagreement hint for the judge prompt (E3).
+
+    Returns ``None`` when no value disagreement clears ``threshold`` — the judge
+    sees an unchanged prompt in that case so golden tests stay stable.
+    """
+    disagreements = find_value_disagreements(
+        a.assertion_text, b.assertion_text, threshold=threshold
+    )
+    if not disagreements:
+        return None
+    lines: list[str] = []
+    for ta, tb in disagreements:
+        scope_str = f" ({ta.scope})" if ta.scope else ""
+        unit_str = ta.unit or ""
+        lines.append(
+            f"- {ta.metric}{scope_str}: A says {ta.value}{unit_str}, B says {tb.value}{unit_str}"
+        )
+    return "\n".join(lines)
+
+
 def _try_numeric_short_circuit(a: Assertion, b: Assertion) -> JudgeVerdict | None:
     """Return a deterministic contradiction verdict iff ``a`` and ``b`` sign-flip on
     a shared (metric, scope, unit). Returns ``None`` otherwise — caller falls through
@@ -218,8 +243,16 @@ def check(
         nli = score_bidirectional(nli_checker, pair.a.assertion_text, pair.b.assertion_text)
         if nli.p_contradiction < config.nli_contradiction_threshold:
             continue
-        # ADR-0005: deterministic sign-flip cases skip the LLM judge entirely.
-        verdict = _try_numeric_short_circuit(pair.a, pair.b) or judge.judge(pair.a, pair.b)
+        # ADR-0005 step E2: deterministic sign-flip cases skip the LLM judge entirely.
+        verdict = _try_numeric_short_circuit(pair.a, pair.b)
+        if verdict is None:
+            # Step E3: hand the LLM judge a structured hint when same-metric,
+            # same-scope values disagree above the configured threshold without
+            # flipping sign. Empty / None hint leaves the prompt unchanged.
+            numeric_context = _build_numeric_context(
+                pair.a, pair.b, threshold=config.numeric_disagreement_threshold
+            )
+            verdict = judge.judge(pair.a, pair.b, numeric_context=numeric_context)
         audit_logger.record_finding(run_id, candidate=pair, nli=nli, verdict=verdict)
         n_pairs_judged += 1
         if verdict.verdict in CONTRADICTION_VERDICTS:

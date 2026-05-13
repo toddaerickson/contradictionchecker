@@ -58,13 +58,22 @@ def render_system_prompt() -> str:
     return SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
 
 
-def render_user_prompt(a: Assertion, b: Assertion) -> str:
+def render_user_prompt(a: Assertion, b: Assertion, *, numeric_context: str | None = None) -> str:
+    """Render the user prompt.
+
+    If ``numeric_context`` is provided (a non-empty string of E3 disagreement
+    lines), it's spliced in as a "## Numeric context" block between the
+    assertions and the decision instruction. When ``None`` the placeholder
+    collapses to an empty line so prose-only prompts stay golden-stable.
+    """
+    context_block = f"\n## Numeric context\n\n{numeric_context}\n" if numeric_context else ""
     template = USER_PROMPT_PATH.read_text(encoding="utf-8")
     return (
         template.replace("{doc_a_id}", a.doc_id)
         .replace("{doc_b_id}", b.doc_id)
         .replace("{assertion_a_text}", a.assertion_text)
         .replace("{assertion_b_text}", b.assertion_text)
+        .replace("{numeric_context_block}", context_block)
     )
 
 
@@ -82,7 +91,9 @@ def uncertain_fallback(a: Assertion, b: Assertion, reason: str) -> JudgeVerdict:
 class Judge(Protocol):
     """Anything that produces a JudgeVerdict for a pair of assertions."""
 
-    def judge(self, a: Assertion, b: Assertion) -> JudgeVerdict: ...
+    def judge(
+        self, a: Assertion, b: Assertion, *, numeric_context: str | None = None
+    ) -> JudgeVerdict: ...
 
 
 class FixtureJudge:
@@ -95,7 +106,11 @@ class FixtureJudge:
     def __init__(self, fixtures: Mapping[tuple[str, str], JudgeVerdict]) -> None:
         self._fixtures = dict(fixtures)
 
-    def judge(self, a: Assertion, b: Assertion) -> JudgeVerdict:
+    def judge(
+        self, a: Assertion, b: Assertion, *, numeric_context: str | None = None
+    ) -> JudgeVerdict:
+        # Fixture judge ignores numeric_context — it's keyed only on assertion ids.
+        del numeric_context
         key = self._canonical(a, b)
         if key in self._fixtures:
             return self._fixtures[key]
@@ -118,9 +133,11 @@ class LLMJudge:
         self._provider = provider
         self._max_retries = max_retries
 
-    def judge(self, a: Assertion, b: Assertion) -> JudgeVerdict:
+    def judge(
+        self, a: Assertion, b: Assertion, *, numeric_context: str | None = None
+    ) -> JudgeVerdict:
         system = render_system_prompt()
-        user = render_user_prompt(a, b)
+        user = render_user_prompt(a, b, numeric_context=numeric_context)
         last_error: str | None = None
         for attempt in range(self._max_retries + 1):
             try:

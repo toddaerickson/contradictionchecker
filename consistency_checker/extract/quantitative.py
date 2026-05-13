@@ -349,3 +349,41 @@ def is_sign_flip(a: QuantitativeTuple, b: QuantitativeTuple) -> bool:
     return (a.polarity in positive and b.polarity in negative) or (
         a.polarity in negative and b.polarity in positive
     )
+
+
+def find_value_disagreements(
+    a_text: str, b_text: str, *, threshold: float = 0.10
+) -> list[tuple[QuantitativeTuple, QuantitativeTuple]]:
+    """Return cross-pair tuples that share (metric, scope, unit) and disagree
+    above the relative ``threshold`` — but **don't** sign-flip (those are owned
+    by :func:`is_sign_flip` and the short-circuit). Used by Step E3 to attach a
+    structured hint to the judge prompt.
+
+    Relative difference: ``abs(a.value - b.value) / max(abs(a.value), abs(b.value))``.
+    """
+    if threshold < 0:
+        raise ValueError("threshold must be >= 0")
+    out: list[tuple[QuantitativeTuple, QuantitativeTuple]] = []
+    a_tuples = extract_quantities(a_text)
+    if not a_tuples:
+        return out
+    b_tuples = extract_quantities(b_text)
+    if not b_tuples:
+        return out
+    for ta in a_tuples:
+        for tb in b_tuples:
+            if ta.metric != tb.metric:
+                continue
+            if ta.scope != tb.scope:
+                continue
+            if ta.unit != tb.unit:
+                continue
+            if is_sign_flip(ta, tb):
+                continue
+            max_abs = max(abs(ta.value), abs(tb.value))
+            if max_abs == 0:
+                continue
+            rel = abs(ta.value - tb.value) / max_abs
+            if rel >= threshold:
+                out.append((ta, tb))
+    return out

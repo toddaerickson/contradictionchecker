@@ -96,9 +96,11 @@ class _TrackingFixtureJudge:
         self._inner = inner
         self.call_count = 0
 
-    def judge(self, a: Assertion, b: Assertion) -> JudgeVerdict:
+    def judge(
+        self, a: Assertion, b: Assertion, *, numeric_context: str | None = None
+    ) -> JudgeVerdict:
         self.call_count += 1
-        return self._inner.judge(a, b)
+        return self._inner.judge(a, b, numeric_context=numeric_context)
 
 
 def _seed_revenue_flip(tmp_path: Path, cfg: Config) -> tuple[Assertion, Assertion]:
@@ -256,3 +258,171 @@ def test_short_circuit_verdict_has_deterministic_rationale(
     assert verdict is not None
     assert rationale_substring in verdict.rationale
     assert evidence_token in verdict.evidence_spans
+
+
+# --- E3: numeric_context hint to the judge ---------------------------------
+
+
+class _RecordingJudge:
+    """Captures the numeric_context the pipeline passed in."""
+
+    def __init__(self) -> None:
+        self.last_context: str | None = "<unset>"
+        self.call_count = 0
+
+    def judge(
+        self, a: Assertion, b: Assertion, *, numeric_context: str | None = None
+    ) -> JudgeVerdict:
+        self.last_context = numeric_context
+        self.call_count += 1
+        return JudgeVerdict(
+            assertion_a_id=min(a.assertion_id, b.assertion_id),
+            assertion_b_id=max(a.assertion_id, b.assertion_id),
+            verdict="uncertain",
+            confidence=0.0,
+            rationale="recorded",
+        )
+
+
+def _seed_pair(tmp_path: Path, cfg: Config, a_text: str, b_text: str) -> None:
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    doc_a = Document.from_content("Body A.", source_path="a.md", title="A")
+    doc_b = Document.from_content("Body B.", source_path="b.md", title="B")
+    store.add_document(doc_a)
+    store.add_document(doc_b)
+    a = Assertion.build(doc_a.doc_id, a_text)
+    b = Assertion.build(doc_b.doc_id, b_text)
+    store.add_assertions([a, b])
+    embedder = HashEmbedder(dim=64)
+    fs = FaissStore.open_or_create(
+        index_path=cfg.faiss_path,
+        id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
+        dim=embedder.dim,
+    )
+    embed_pending(store, fs, embedder)
+    store.close()
+
+
+def test_pipeline_passes_numeric_context_when_values_disagree(tmp_path: Path) -> None:
+    """Same-polarity, same-scope, different magnitudes → judge gets the hint."""
+    cfg_path = _write_config(tmp_path)
+    cfg = Config.from_yaml(cfg_path)
+    _seed_pair(
+        tmp_path,
+        cfg,
+        "Revenue grew 12% in fiscal 2025.",
+        "Revenue grew 4% in fiscal 2025.",
+    )
+
+    store = AssertionStore(cfg.db_path)
+    fs = FaissStore.open_or_create(
+        index_path=cfg.faiss_path,
+        id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
+        dim=64,
+    )
+    audit_logger = AuditLogger(store)
+    judge = _RecordingJudge()
+
+    run_check(
+        cfg,
+        store=store,
+        faiss_store=fs,
+        nli_checker=FixtureNliChecker({}),
+        judge=judge,  # type: ignore[arg-type]
+        audit_logger=audit_logger,
+        gate=AllPairsGate(),
+    )
+
+    assert judge.call_count == 1
+    assert judge.last_context is not None
+    assert "revenue" in judge.last_context
+    assert "12.0percent" in judge.last_context
+    assert "4.0percent" in judge.last_context
+    store.close()
+
+
+def test_pipeline_passes_no_numeric_context_for_prose_pair(tmp_path: Path) -> None:
+    """No numbers → judge sees numeric_context=None and prose-only prompt."""
+    cfg_path = _write_config(tmp_path)
+    cfg = Config.from_yaml(cfg_path)
+    _seed_pair(
+        tmp_path,
+        cfg,
+        "The Beta initiative began in 2024.",
+        "The Beta initiative was launched during 2023.",
+    )
+
+    store = AssertionStore(cfg.db_path)
+    fs = FaissStore.open_or_create(
+        index_path=cfg.faiss_path,
+        id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
+        dim=64,
+    )
+    audit_logger = AuditLogger(store)
+    judge = _RecordingJudge()
+
+    run_check(
+        cfg,
+        store=store,
+        faiss_store=fs,
+        nli_checker=FixtureNliChecker({}),
+        judge=judge,  # type: ignore[arg-type]
+        audit_logger=audit_logger,
+        gate=AllPairsGate(),
+    )
+
+    assert judge.call_count == 1
+    assert judge.last_context is None
+    store.close()
+
+
+def test_pipeline_below_threshold_passes_no_context(tmp_path: Path) -> None:
+    """Sub-threshold value differences don't surface — judge stays prose-only."""
+    cfg_path = tmp_path / "cfg.yml"
+    # Threshold raised above the 4% relative diff in the seed pair below.
+    cfg_path.write_text(
+        f"""
+corpus_dir: {tmp_path / "corpus"}
+judge_provider: fixture
+judge_model: test-model
+data_dir: {tmp_path / "store"}
+log_dir: {tmp_path / "logs"}
+embedder_model: hash
+nli_model: fixture
+gate_top_k: 10
+gate_similarity_threshold: -1.0
+nli_contradiction_threshold: 0.0
+numeric_disagreement_threshold: 0.5
+""".strip()
+    )
+    cfg = Config.from_yaml(cfg_path)
+    _seed_pair(
+        tmp_path,
+        cfg,
+        "Revenue grew 12% in fiscal 2025.",
+        "Revenue grew 11% in fiscal 2025.",
+    )
+
+    store = AssertionStore(cfg.db_path)
+    fs = FaissStore.open_or_create(
+        index_path=cfg.faiss_path,
+        id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
+        dim=64,
+    )
+    audit_logger = AuditLogger(store)
+    judge = _RecordingJudge()
+
+    run_check(
+        cfg,
+        store=store,
+        faiss_store=fs,
+        nli_checker=FixtureNliChecker({}),
+        judge=judge,  # type: ignore[arg-type]
+        audit_logger=audit_logger,
+        gate=AllPairsGate(),
+    )
+
+    assert judge.call_count == 1
+    assert judge.last_context is None
+    store.close()

@@ -36,6 +36,7 @@ class Config(BaseModel):
     nli_model: str = Field(default="MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli")
 
     nli_contradiction_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    numeric_disagreement_threshold: float = Field(default=0.10, ge=0.0, le=1.0)
     gate_top_k: int = Field(default=20, ge=1)
     gate_similarity_threshold: float = Field(default=0.7, ge=-1.0, le=1.0)
 
