@@ -9,6 +9,7 @@ authors = [{ name = "contradictionchecker contributors" }]
 dependencies = [
     "pydantic>=2.7",
     "pyyaml>=6.0",
+    "pysbd>=0.3.4",
 ]
 
 [project.scripts]
@@ -43,6 +44,10 @@ python_version = "3.11"
 strict = true
 files = ["consistency_checker"]
 
+[[tool.mypy.overrides]]
+module = ["pysbd", "pysbd.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
@@ -51,3 +56,6 @@ markers = [
     "e2e_fixture: end-to-end tests using fixture LLM (no network)",
 ]
 addopts = "-ra -q --strict-markers"
+filterwarnings = [
+    "ignore::DeprecationWarning:pysbd.*",
+]
