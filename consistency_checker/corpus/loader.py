@@ -5,11 +5,11 @@ hash; suitable for the assertion store) alongside the transient full text used
 by the chunker. Raw text is never persisted to the documents table — the
 corpus is the source of truth on disk.
 
-Loaders are registered in :data:`LOADERS` keyed by file extension. v0.2's
-:class:`PlaintextLoader` handles ``.txt`` / ``.md``; the ``unstructured``-backed
-loader for ``.pdf`` / ``.docx`` lands in Step D2. Unknown extensions are
-silently skipped during corpus walks (with a DEBUG log) and raise on direct
-:func:`load_path` calls.
+Loaders are registered in :data:`LOADERS` keyed by file extension. The
+plaintext loader handles ``.txt`` / ``.md``. The :class:`UnstructuredLoader`
+handles ``.pdf`` and ``.docx`` (and could be wired to any extension
+``unstructured`` supports). Unknown extensions are silently skipped during
+corpus walks (with a DEBUG log) and raise on direct :func:`load_path` calls.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import json
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from consistency_checker.extract.schema import Document
 from consistency_checker.logging_setup import get_logger
@@ -66,17 +66,88 @@ def _stub_loader(extension: str) -> FileLoader:
     return _stub
 
 
+class UnstructuredLoader:
+    """Loader backed by :mod:`unstructured` ``partition.auto``.
+
+    Concatenates body-content element text in document order separated by
+    ``"\\n\\n"``, builds a sidecar ``element_spans`` mapping, and stores it as
+    JSON in ``Document.metadata_json``. Char-span invariant survives because
+    the text the chunker sees is exactly the concatenation we build.
+
+    ``strategy`` defaults to ``"fast"`` (rule-based, no model inference) per
+    ADR-0004 so the loader stays hermetic. Switch to ``"hi_res"`` for
+    layout-aware / OCR parsing — that path is slow and not in default CI.
+    """
+
+    # Element types we treat as body content. unstructured emits a different
+    # mix depending on format and source (DOCX paragraphs → Text; PDF lines
+    # → NarrativeText or Title; markdown lists → ListItem). Keep the set
+    # permissive in v0.2; the ADR records Header/Footer/PageBreak/Footnote
+    # as the explicit exclusions.
+    BODY_TYPES: frozenset[str] = frozenset(
+        {"NarrativeText", "Title", "Text", "ListItem", "Table", "UncategorizedText"}
+    )
+    ELEMENT_SEPARATOR = "\n\n"
+
+    def __init__(self, *, strategy: str = "fast") -> None:
+        self._strategy = strategy
+
+    def __call__(self, path: Path) -> LoadedDocument:
+        from unstructured.partition.auto import partition
+
+        elements = partition(filename=str(path), strategy=self._strategy)
+        text_parts: list[str] = []
+        element_spans: list[dict[str, Any]] = []
+        char_offset = 0
+
+        for index, element in enumerate(elements):
+            element_type = type(element).__name__
+            if element_type not in self.BODY_TYPES:
+                continue
+            element_text = (getattr(element, "text", "") or "").strip()
+            if not element_text:
+                continue
+            if text_parts:
+                text_parts.append(self.ELEMENT_SEPARATOR)
+                char_offset += len(self.ELEMENT_SEPARATOR)
+            start = char_offset
+            text_parts.append(element_text)
+            char_offset += len(element_text)
+            element_spans.append(
+                {
+                    "element_index": index,
+                    "element_type": element_type,
+                    "char_start": start,
+                    "char_end": char_offset,
+                }
+            )
+
+        full_text = "".join(text_parts)
+        metadata = make_metadata_json({"element_spans": element_spans})
+        document = Document.from_content(
+            full_text,
+            source_path=str(path),
+            title=path.stem,
+            metadata_json=metadata,
+        )
+        return LoadedDocument(document=document, text=full_text)
+
+
+_unstructured_loader = UnstructuredLoader()
+
+
 #: Registry of file extension → loader. Mutate to add or override loaders.
 LOADERS: dict[str, FileLoader] = {
     ".txt": _plaintext_loader,
     ".md": _plaintext_loader,
-    ".pdf": _stub_loader(".pdf"),
-    ".docx": _stub_loader(".docx"),
+    ".pdf": _unstructured_loader,
+    ".docx": _unstructured_loader,
 }
 
-#: Extensions whose registered loader raises ``NotImplementedError`` —
-#: surfaced by :func:`load_corpus` as a WARNING rather than silently skipped.
-STUB_EXTENSIONS: frozenset[str] = frozenset({".pdf", ".docx"})
+#: Extensions historically registered as stubs. Empty post-D2; retained so
+#: downstream tests that check the set don't break, and so :func:`load_corpus`
+#: can still surface a WARNING if a user re-registers a stub at runtime.
+STUB_EXTENSIONS: frozenset[str] = frozenset()
 
 
 def _is_stub(loader: FileLoader) -> bool:

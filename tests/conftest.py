@@ -6,14 +6,20 @@ embeddings can use it without spinning up a real sentence-transformer model
 semantically meaningful — paraphrase neighbours won't surface — but identical
 strings always produce identical vectors, which is enough for round-trip and
 schema tests.
+
+Session-scoped ``sample_pdf_path`` and ``sample_docx_path`` fixtures generate
+small valid PDF and DOCX files under ``tmp_path_factory`` so binary fixtures
+don't have to be checked in. ``reportlab`` and ``python-docx`` are dev deps.
 """
 
 from __future__ import annotations
 
 from hashlib import sha256
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pytest
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -46,3 +52,40 @@ class HashEmbedder:
                 arr = arr / norm
             out[i] = arr.astype(np.float32)
         return out
+
+
+# --- generated binary fixtures ----------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def sample_pdf_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Generate a small two-line PDF under tmp; cached for the session."""
+    from reportlab.pdfgen import canvas
+
+    out = tmp_path_factory.mktemp("binary_fixtures") / "sample.pdf"
+    pdf = canvas.Canvas(str(out))
+    pdf.drawString(100, 750, "Sample PDF heading line.")
+    pdf.drawString(100, 730, "First body sentence about widgets.")
+    pdf.drawString(100, 710, "Second body sentence about gadgets.")
+    pdf.showPage()
+    pdf.save()
+    return out
+
+
+@pytest.fixture(scope="session")
+def sample_docx_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Generate a DOCX with heading + paragraphs + 2x2 table; cached for the session."""
+    from docx import Document as DocxDocument
+
+    out = tmp_path_factory.mktemp("binary_fixtures") / "sample.docx"
+    doc = DocxDocument()
+    doc.add_heading("Sample DOCX title", level=1)
+    doc.add_paragraph("First DOCX body paragraph.")
+    doc.add_paragraph("Second DOCX body paragraph.")
+    table = doc.add_table(rows=2, cols=2)
+    table.rows[0].cells[0].text = "A1"
+    table.rows[0].cells[1].text = "B1"
+    table.rows[1].cells[0].text = "A2"
+    table.rows[1].cells[1].text = "B2"
+    doc.save(str(out))
+    return out
