@@ -36,14 +36,21 @@ Today `benchmarks/contradoc_harness.py` expects a pre-normalised JSONL. Add a th
 
 Higher-effort items that require more design discussion.
 
-### 6. Three-document conditional contradictions
-The current pipeline is strictly pairwise. CONTRADOC includes cases where assertions A, B, C are individually consistent but `A ∧ B ⇒ ¬C`. Likely shape:
-- After Stage B, cluster contradiction candidates by shared entities.
-- For each entity cluster, prompt the judge with up to N assertions plus a structured question ("do these jointly contradict any third assertion in the cluster?").
-- Keep the pairwise pipeline for performance; this becomes an opt-in `--deep` flag.
+### 6. Three-document conditional contradictions — cluster-by-entity second pass
+
+v0.2 ships the graph-triangle approach (see [`docs/plans/v0.2-build-plan.md`](docs/plans/v0.2-build-plan.md) Block F): triangles enumerated on FAISS-similarity edges, opt-in via `--deep`. That catches conditional contradictions whose three assertions are pairwise similar enough to clear the gate threshold. It **misses** triangles whose edges fall below the gate — e.g. `A` and `C` referencing the same entity but in vocabulary that the embedder doesn't place near each other.
+
+v0.3 adds a second pass that fires **after** the triangle pass and shares the same `multi_party_findings` table:
+
+- Run a lightweight NER pass (see #7) to canonicalise entities across assertions.
+- For every entity that appears in ≥ 3 assertions spanning ≥ 2 documents, build a cluster.
+- For each cluster larger than a triangle, prompt the judge with up to N assertions and the structured question "does any subset jointly contradict the others?" Use the same `MultiPartyJudge` Protocol and prompt template; the only delta is the input cardinality and the cluster-source label in the finding's metadata.
+- Dedupe against findings already produced by the triangle pass.
+
+Depends on #7 (entity resolution). Keep #7 → #6 ordering so cluster construction has stable entity ids.
 
 ### 7. Entity resolution pass
-Document A says "the Borrower", Document B says "ABC Corp". The current judge can sometimes infer they're the same; often it can't. A lightweight NER pass (`spaCy` `en_core_web_lg`) plus a fuzzy-match canonicaliser would let us pass `entity_ids` into the judge prompt, raising precision on entity-coreference contradictions. Audit findings should record the resolved entity id so reports can group by entity.
+Document A says "the Borrower", Document B says "ABC Corp". The current judge can sometimes infer they're the same; often it can't. A lightweight NER pass (`spaCy` `en_core_web_lg`) plus a fuzzy-match canonicaliser would let us pass `entity_ids` into the judge prompt, raising precision on entity-coreference contradictions. Audit findings should record the resolved entity id so reports can group by entity. This is the prerequisite for #6's second pass.
 
 ### 8. LanceDB migration option
 SQLite + FAISS works at corpus sizes up to ~1M assertions. Beyond that, LanceDB consolidates store + vectors with native filtering. Worth prototyping as an alternative `Store` Protocol so users can choose. ADR-0002's "domain model" alternative path goes here too — once LanceDB is in place, domain embedders are configurable rather than code-bound.
