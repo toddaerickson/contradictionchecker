@@ -137,13 +137,11 @@ def report(
 
     target_run = run_id
     if target_run is None:
-        row = store._conn.execute(
-            "SELECT run_id FROM pipeline_runs ORDER BY started_at DESC LIMIT 1"
-        ).fetchone()
-        if row is None:
+        recent = audit_logger.most_recent_run()
+        if recent is None:
             typer.echo("No runs found in the audit store.", err=True)
             raise typer.Exit(code=2)
-        target_run = row["run_id"]
+        target_run = recent.run_id
 
     text = render_report(store, audit_logger, run_id=target_run, min_confidence=min_confidence)
     out.parent.mkdir(parents=True, exist_ok=True)

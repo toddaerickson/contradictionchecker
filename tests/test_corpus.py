@@ -8,6 +8,7 @@ import pytest
 
 from consistency_checker.corpus.chunker import Chunk, chunk_document
 from consistency_checker.corpus.loader import (
+    LOADERS,
     STUB_EXTENSIONS,
     LoadedDocument,
     load_corpus,
@@ -76,6 +77,53 @@ def test_load_corpus_path_not_a_dir(tmp_path: Path) -> None:
 def test_stub_extensions_match_load_corpus_warning() -> None:
     assert ".pdf" in STUB_EXTENSIONS
     assert ".docx" in STUB_EXTENSIONS
+
+
+def test_load_path_missing_file_raises(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        load_path(tmp_path / "ghost.txt")
+
+
+# --- loader registry -------------------------------------------------------
+
+
+def test_loaders_registry_has_plaintext_handlers() -> None:
+    """The registry must register a loader for every plaintext extension."""
+    assert ".txt" in LOADERS
+    assert ".md" in LOADERS
+    # Same callable so the plaintext path stays single-source.
+    assert LOADERS[".txt"] is LOADERS[".md"]
+
+
+def test_loaders_registry_stubs_pdf_and_docx() -> None:
+    """Stubbed extensions must be registered with a NotImplementedError-raising loader."""
+    for ext in (".pdf", ".docx"):
+        assert ext in LOADERS
+        with pytest.raises(NotImplementedError):
+            LOADERS[ext](Path("ignored.value"))
+
+
+def test_load_corpus_routes_through_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Adding a new registered loader at runtime must be picked up by load_corpus."""
+    seen: list[str] = []
+
+    def fake_xml_loader(path: Path) -> LoadedDocument:
+        seen.append(str(path))
+        text = "fake xml body"
+        return LoadedDocument(
+            document=Document.from_content(text, source_path=str(path), title=path.stem),
+            text=text,
+        )
+
+    monkeypatch.setitem(LOADERS, ".xml", fake_xml_loader)
+    (tmp_path / "a.xml").write_text("<x/>")
+    (tmp_path / "b.txt").write_text("hello")
+    loaded = list(load_corpus(tmp_path))
+    paths = {Path(ld.document.source_path).name for ld in loaded}
+    assert paths == {"a.xml", "b.txt"}
+    assert len(seen) == 1
 
 
 # --- chunker ----------------------------------------------------------------
