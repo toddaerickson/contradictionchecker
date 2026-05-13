@@ -147,6 +147,13 @@ class FaissStore:
     def get_id(self, faiss_row: int) -> str:
         return self._id_map[faiss_row]
 
+    def get_vector(self, faiss_row: int) -> NDArray[np.float32]:
+        """Reconstruct the stored vector at ``faiss_row``."""
+        vec: NDArray[np.float32] = np.asarray(
+            self._index.reconstruct(int(faiss_row)), dtype=np.float32
+        )
+        return vec
+
     # --- context manager ----------------------------------------------------
 
     def __enter__(self) -> FaissStore:
