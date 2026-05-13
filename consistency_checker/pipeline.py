@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from consistency_checker.audit.logger import AuditLogger
 from consistency_checker.check.gate import AnnGate, CandidateGate, CandidatePair
-from consistency_checker.check.llm_judge import Judge, LLMJudge
+from consistency_checker.check.llm_judge import Judge, JudgeVerdict, LLMJudge
 from consistency_checker.check.nli_checker import NliChecker, score_bidirectional
 from consistency_checker.check.providers.anthropic import AnthropicProvider
 from consistency_checker.check.providers.openai import OpenAIProvider
@@ -28,6 +28,8 @@ from consistency_checker.extract.atomic_facts import (
     Extractor,
     FixtureExtractor,
 )
+from consistency_checker.extract.quantitative import extract_quantities, is_sign_flip
+from consistency_checker.extract.schema import Assertion
 from consistency_checker.index.assertion_store import AssertionStore
 from consistency_checker.index.embedder import (
     Embedder,
@@ -142,6 +144,47 @@ def _iter_candidates(
     return list(gate.candidates(store))
 
 
+#: Verdicts that count as "contradiction" for downstream summaries and reports.
+#: Includes the deterministic short-circuit value (ADR-0005).
+CONTRADICTION_VERDICTS: frozenset[str] = frozenset({"contradiction", "numeric_short_circuit"})
+
+
+def _try_numeric_short_circuit(a: Assertion, b: Assertion) -> JudgeVerdict | None:
+    """Return a deterministic contradiction verdict iff ``a`` and ``b`` sign-flip on
+    a shared (metric, scope, unit). Returns ``None`` otherwise — caller falls through
+    to the LLM judge. See ADR-0005.
+    """
+    a_tuples = extract_quantities(a.assertion_text)
+    if not a_tuples:
+        return None
+    b_tuples = extract_quantities(b.assertion_text)
+    if not b_tuples:
+        return None
+    for ta in a_tuples:
+        for tb in b_tuples:
+            if not is_sign_flip(ta, tb):
+                continue
+            unit_suffix = ta.unit or ""
+            rationale = (
+                f"Numeric short-circuit: metric={ta.metric}, "
+                f"A={ta.value}{unit_suffix}, B={tb.value}{unit_suffix}, "
+                "polarity mismatch."
+            )
+            evidence = [
+                f"{ta.value}{unit_suffix}",
+                f"{tb.value}{unit_suffix}",
+            ]
+            return JudgeVerdict(
+                assertion_a_id=min(a.assertion_id, b.assertion_id),
+                assertion_b_id=max(a.assertion_id, b.assertion_id),
+                verdict="numeric_short_circuit",
+                confidence=1.0,
+                rationale=rationale,
+                evidence_spans=evidence,
+            )
+    return None
+
+
 def check(
     config: Config,
     *,
@@ -175,10 +218,11 @@ def check(
         nli = score_bidirectional(nli_checker, pair.a.assertion_text, pair.b.assertion_text)
         if nli.p_contradiction < config.nli_contradiction_threshold:
             continue
-        verdict = judge.judge(pair.a, pair.b)
+        # ADR-0005: deterministic sign-flip cases skip the LLM judge entirely.
+        verdict = _try_numeric_short_circuit(pair.a, pair.b) or judge.judge(pair.a, pair.b)
         audit_logger.record_finding(run_id, candidate=pair, nli=nli, verdict=verdict)
         n_pairs_judged += 1
-        if verdict.verdict == "contradiction":
+        if verdict.verdict in CONTRADICTION_VERDICTS:
             n_findings += 1
 
     audit_logger.end_run(

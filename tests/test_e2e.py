@@ -304,16 +304,20 @@ def test_end_to_end_pipeline_fixture(tmp_path: Path) -> None:
     )
 
     # The planted contradiction must surface; the near-contradiction must not
-    # be counted as a contradiction (it's logged as uncertain).
+    # be counted as a contradiction (it's logged as uncertain). The revenue
+    # sign-flip is now resolved deterministically by the numeric short-circuit
+    # (ADR-0005), so the finding's verdict label is numeric_short_circuit
+    # rather than contradiction — but it still counts in n_findings.
     assert check_result.n_findings == 1, (
         f"expected exactly one contradiction; got {check_result.n_findings} "
         f"(n_pairs_judged={check_result.n_pairs_judged})"
     )
 
     # 3. Report.
-    contradiction_findings = list(
-        audit_logger.iter_findings(run_id=check_result.run_id, verdict="contradiction")
-    )
+    contradiction_findings = [
+        *audit_logger.iter_findings(run_id=check_result.run_id, verdict="contradiction"),
+        *audit_logger.iter_findings(run_id=check_result.run_id, verdict="numeric_short_circuit"),
+    ]
     assert len(contradiction_findings) == 1
     planted = contradiction_findings[0]
     assert planted.assertion_a_id == clear_key[0]
@@ -324,7 +328,11 @@ def test_end_to_end_pipeline_fixture(tmp_path: Path) -> None:
     )
 
     report_text = render_report(store, audit_logger, run_id=check_result.run_id)
-    assert "Opposite revenue signs" in report_text
+    # The revenue pair short-circuits to a deterministic numeric verdict
+    # (ADR-0005), so the rationale comes from the short-circuit, not the
+    # fixture judge. Accept either marker — the LLM-derived rationale would
+    # appear when the short-circuit predicate doesn't fire.
+    assert ("Numeric short-circuit" in report_text) or ("Opposite revenue signs" in report_text)
     # The near-contradiction was uncertain; it must not appear in the report.
     assert "fiscal 2023" not in report_text
 
