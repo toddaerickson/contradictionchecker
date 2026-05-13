@@ -15,6 +15,14 @@ See [`docs/plans/v0.2-build-plan.md`](docs/plans/v0.2-build-plan.md) for the ful
 - **D2** — `UnstructuredLoader` for `.pdf` and `.docx` via `unstructured.partition.auto(strategy="fast")`. Body-content elements (`NarrativeText`, `Title`, `Text`, `ListItem`, `Table`, `UncategorizedText`) concatenated with `\n\n`; sidecar `element_spans` (`element_index`, `element_type`, `char_start`, `char_end`) stored as JSON in `documents.metadata_json`. Runtime dep `unstructured[pdf,docx]`. Dev deps `reportlab` and `python-docx` for session-scope test fixtures that generate small valid PDF/DOCX files at test time.
 - **D3** — Mixed-format end-to-end smoke test (`tests/test_e2e.py::test_end_to_end_mixed_format_corpus`) drives ingest + check across a 4-file corpus (`.txt` + `.md` + `.pdf` + `.docx`). README and ARCHITECTURE updated to reflect the new loader surface.
 
+### Added (Block F — three-document conditional contradictions)
+
+- **F0** — ADR-0006: graph-triangle detection on FAISS-similarity edges, opt-in via `--deep`. Sibling `multi_party_findings` table rather than overloading the pair `findings` shape. New verdict label `multi_party_contradiction`. Entity-NER cluster pass deferred to v0.3.
+- **F1** — Migration `0003_multi_party.sql` + `AuditLogger.record_multi_party_finding` / `iter_multi_party_findings` / `get_multi_party_finding`. `finding_id` is a content hash over `(run_id, *sorted(assertion_ids))` so re-recording the same triangle within a run replaces the row (idempotent).
+- **F2** — `consistency_checker/check/triangle.py` — `find_triangles(pairs, *, max_per_run=1000)` enumerates 3-cliques in the gate graph, dedupes by sorted assertion-id tuple, requires ≥ 2 distinct documents, ranks by min edge similarity desc, caps per run.
+- **F3** — `MultiPartyJudge` Protocol + `MultiPartyJudgePayload` (`verdict ∈ {multi_party_contradiction, not_contradiction, uncertain}`, `contradicting_subset`). Sibling providers `AnthropicMultiPartyProvider` (separate `record_multi_party_verdict` tool) and `OpenAIMultiPartyProvider` (same `parse` helper, separate schema). New prompts `prompts/judge_multi_system.txt` + `judge_multi_user.txt`. `FixtureMultiPartyJudge` for hermetic tests.
+- **F4** — Pipeline integration: `pipeline.check(..., multi_party_judge: MultiPartyJudge | None)` runs the triangle pass after the pairwise stage on the same gate output. New `Config.enable_multi_party` (default `False`) and `Config.max_triangles_per_run` (default `1000`). New CLI flag `consistency-check check --deep`. `CheckResult` gains `n_triangles_judged` / `n_multi_party_findings`. Report renderer appends a "## Multi-document conditional contradictions" section only when multi-party findings exist (pair-only reports stay byte-stable).
+
 ## [0.1.0] — 2026-05-13
 
 First release. Implements the full 17-step plan from

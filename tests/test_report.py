@@ -182,3 +182,74 @@ def test_report_summary_table_sorted_by_confidence_desc(seeded_store: AssertionS
     rev_idx = summary_block.index("Opposite revenue signs")
     beta_idx = summary_block.index("Different start years")
     assert rev_idx < beta_idx, "higher-confidence row must precede lower-confidence row"
+
+
+# --- multi-party section (F4) ---------------------------------------------
+
+
+def test_report_omits_multi_party_section_when_no_findings(
+    seeded_store: AssertionStore,
+) -> None:
+    """A pair-only run produces a report without the multi-party header."""
+    _populate_three_doc_fixture(seeded_store)
+    logger = AuditLogger(seeded_store)
+    run_id = logger.begin_run(run_id="run_no_mp")
+    _record_three_findings(seeded_store, logger, run_id)
+    logger.end_run(run_id, n_assertions=4, n_pairs_gated=3, n_pairs_judged=3)
+    report = render_report(seeded_store, logger, run_id=run_id)
+    assert "Multi-document conditional contradictions" not in report
+
+
+def test_report_includes_multi_party_section_when_findings_exist(
+    seeded_store: AssertionStore,
+) -> None:
+    _populate_three_doc_fixture(seeded_store)
+    logger = AuditLogger(seeded_store)
+    run_id = logger.begin_run(run_id="run_mp")
+    _record_three_findings(seeded_store, logger, run_id)
+    # Add a multi-party finding by hand to mimic the F4 pass.
+    a_list = list(seeded_store.iter_assertions())
+    a_ids = [a.assertion_id for a in a_list][:3]
+    d_ids = [a.doc_id for a in a_list][:3]
+    logger.record_multi_party_finding(
+        run_id,
+        assertion_ids=a_ids,
+        doc_ids=d_ids,
+        triangle_edge_scores=[
+            (a_ids[0], a_ids[1], 0.82),
+            (a_ids[0], a_ids[2], 0.74),
+            (a_ids[1], a_ids[2], 0.91),
+        ],
+        judge_verdict="multi_party_contradiction",
+        judge_confidence=0.88,
+        judge_rationale="A ∧ B ⇒ ¬C — chained-attribute conflict.",
+        evidence_spans=["four weeks", "two weeks"],
+    )
+    logger.end_run(run_id, n_assertions=4, n_pairs_gated=3, n_pairs_judged=3)
+    report = render_report(seeded_store, logger, run_id=run_id)
+    assert "## Multi-document conditional contradictions" in report
+    assert "chained-attribute conflict" in report
+    # Pair section still present.
+    assert "Opposite revenue signs" in report
+
+
+def test_report_multi_party_excludes_uncertain(seeded_store: AssertionStore) -> None:
+    """Uncertain triangles live in the audit DB but are not rendered."""
+    _populate_three_doc_fixture(seeded_store)
+    logger = AuditLogger(seeded_store)
+    run_id = logger.begin_run(run_id="run_mp_uncertain")
+    _record_three_findings(seeded_store, logger, run_id)
+    a_list = list(seeded_store.iter_assertions())
+    a_ids = [a.assertion_id for a in a_list][:3]
+    d_ids = [a.doc_id for a in a_list][:3]
+    logger.record_multi_party_finding(
+        run_id,
+        assertion_ids=a_ids,
+        doc_ids=d_ids,
+        judge_verdict="uncertain",
+        judge_confidence=0.3,
+        judge_rationale="scope unclear",
+    )
+    logger.end_run(run_id, n_assertions=4, n_pairs_gated=3, n_pairs_judged=3)
+    report = render_report(seeded_store, logger, run_id=run_id)
+    assert "Multi-document conditional contradictions" not in report
