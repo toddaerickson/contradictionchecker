@@ -1,0 +1,104 @@
+{% if not htmx %}{% extends "cc_base.html" %}{% endif %}
+
+{% block content %}
+<section class="cc-section">
+  {% if run is none %}
+    <div class="cc-card cc-banner">
+      <h2>No runs yet</h2>
+      <p class="cc-muted">
+        Ingest some documents on the <strong>Ingest</strong> tab, then run a
+        contradiction check to see results here.
+      </p>
+      <button
+        type="button"
+        class="cc-button cc-button--primary"
+        hx-post="/runs"
+        hx-target="#cc-tab-content"
+        data-pending="g5"
+        disabled
+        title="Wired up in G5"
+      >Check now</button>
+    </div>
+  {% else %}
+    <header class="cc-section-header">
+      <h2>Contradictions</h2>
+      <p class="cc-muted">
+        Run <code>{{ run.run_id }}</code> —
+        {{ run.n_assertions }} assertions / {{ run.n_pairs_judged }} pairs judged
+      </p>
+    </header>
+
+    <h3>Pair contradictions</h3>
+    {% if pair_findings %}
+      <table class="cc-findings-table">
+        <thead>
+          <tr>
+            <th>Confidence</th>
+            <th>Verdict</th>
+            <th>Doc A</th>
+            <th>Doc B</th>
+            <th>Rationale</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for f in pair_findings %}
+            <tr>
+              <td>{{ "%.2f"|format(f.confidence or 0.0) }}</td>
+              <td><code>{{ f.verdict }}</code></td>
+              <td>{{ f.doc_a_label }}</td>
+              <td>{{ f.doc_b_label }}</td>
+              <td>{{ f.rationale_first_line | join(' ') }}</td>
+              <td>
+                <button
+                  type="button"
+                  class="cc-button"
+                  hx-get="/findings/{{ f.finding_id }}/diff"
+                  hx-target="#cc-diff-content"
+                  hx-on::after-request="document.getElementById('cc-diff-dialog').showModal()"
+                >Diff</button>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="cc-muted">_No pair contradictions in this run._</p>
+    {% endif %}
+
+    <h3>Multi-document conditional contradictions</h3>
+    {% if multi_party_findings %}
+      <table class="cc-findings-table">
+        <thead>
+          <tr>
+            <th>Confidence</th>
+            <th>Documents</th>
+            <th>Rationale</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for f in multi_party_findings %}
+            <tr>
+              <td>{{ "%.2f"|format(f.confidence or 0.0) }}</td>
+              <td>{{ f.n_docs }} distinct</td>
+              <td>{{ f.rationale_first_line | join(' ') }}</td>
+              <td>
+                <button
+                  type="button"
+                  class="cc-button"
+                  hx-get="/multi_party_findings/{{ f.finding_id }}/diff"
+                  hx-target="#cc-diff-content"
+                  hx-on::after-request="document.getElementById('cc-diff-dialog').showModal()"
+                >Diff</button>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="cc-muted">_No multi-document conditional contradictions._</p>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

@@ -45,11 +45,13 @@ def _client(cfg: Config) -> TestClient:
 # --- routing -----------------------------------------------------------------
 
 
-def test_root_redirects_to_ingest_tab(tmp_path: Path) -> None:
+def test_root_renders_contradictions_tab(tmp_path: Path) -> None:
+    """G2 moved the index to the Contradictions tab. With no runs, the empty-state
+    banner is shown rather than the upload form."""
     client = _client(_config(tmp_path))
     response = client.get("/", follow_redirects=False)
-    assert response.status_code == 303
-    assert response.headers["location"] == "/tabs/ingest"
+    assert response.status_code == 200
+    assert "No runs yet" in response.text
 
 
 def test_ingest_tab_renders_upload_form(tmp_path: Path) -> None:

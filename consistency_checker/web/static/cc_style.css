@@ -87,3 +87,72 @@ main {
 .cc-uploads-list > li:last-child { border-bottom: none; }
 
 code { background: rgba(0,0,0,0.06); padding: 0.05rem 0.3rem; border-radius: 3px; }
+
+.cc-section-header { margin-bottom: 1rem; }
+
+.cc-banner {
+  background: #f4f6fb;
+  border: 1px solid #d0d8ec;
+  text-align: center;
+  padding: 2rem 1rem;
+}
+.cc-banner h2 { margin-top: 0; }
+
+.cc-findings-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0 1.5rem;
+}
+.cc-findings-table th,
+.cc-findings-table td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--cc-border);
+  vertical-align: top;
+}
+.cc-findings-table th { font-weight: 600; color: var(--cc-muted); }
+
+.cc-dialog {
+  width: min(900px, 92vw);
+  max-height: 86vh;
+  padding: 1.5rem;
+  border: 1px solid var(--cc-border);
+  border-radius: 6px;
+  background: white;
+  overflow-y: auto;
+}
+.cc-dialog::backdrop { background: rgba(0,0,0,0.35); }
+
+.cc-diff header h3 { margin: 0 0 0.25rem; }
+
+.cc-diff-grid {
+  display: grid;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.cc-diff-grid--2col { grid-template-columns: repeat(2, 1fr); }
+.cc-diff-grid--3col { grid-template-columns: repeat(3, 1fr); }
+
+@media (max-width: 720px) {
+  .cc-diff-grid--2col,
+  .cc-diff-grid--3col { grid-template-columns: 1fr; }
+}
+
+.cc-diff-card {
+  background: #fafbfc;
+  border: 1px solid var(--cc-border);
+  border-radius: 4px;
+  padding: 0.75rem 1rem;
+}
+.cc-diff-card h4 { margin: 0 0 0.5rem; font-size: 0.95rem; }
+.cc-diff-card blockquote {
+  margin: 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--cc-accent);
+}
+
+.cc-rationale,
+.cc-evidence { margin-top: 1rem; }
+.cc-rationale h4,
+.cc-evidence h4 { margin: 0 0 0.25rem; font-size: 0.95rem; }
+.cc-evidence ul { margin: 0; padding-left: 1.25rem; }

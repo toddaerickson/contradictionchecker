@@ -11,15 +11,19 @@
     <header class="cc-header">
       <h1>consistency-checker</h1>
       <nav class="cc-tabs">
-        <a class="cc-tab" hx-get="/" hx-target="#cc-tab-content" hx-push-url="true">Contradictions</a>
-        <a class="cc-tab" hx-get="/tabs/documents" hx-target="#cc-tab-content" hx-push-url="true">Documents</a>
-        <a class="cc-tab" hx-get="/tabs/assertions" hx-target="#cc-tab-content" hx-push-url="true">Assertions</a>
-        <a class="cc-tab" hx-get="/tabs/stats" hx-target="#cc-tab-content" hx-push-url="true">Stats</a>
-        <a class="cc-tab cc-tab--active" hx-get="/tabs/ingest" hx-target="#cc-tab-content" hx-push-url="true">Ingest</a>
+        <a class="cc-tab {% if active_tab == 'contradictions' %}cc-tab--active{% endif %}" hx-get="/" hx-target="#cc-tab-content" hx-push-url="true">Contradictions</a>
+        <a class="cc-tab {% if active_tab == 'documents' %}cc-tab--active{% endif %}" hx-get="/tabs/documents" hx-target="#cc-tab-content" hx-push-url="true">Documents</a>
+        <a class="cc-tab {% if active_tab == 'assertions' %}cc-tab--active{% endif %}" hx-get="/tabs/assertions" hx-target="#cc-tab-content" hx-push-url="true">Assertions</a>
+        <a class="cc-tab {% if active_tab == 'stats' %}cc-tab--active{% endif %}" hx-get="/tabs/stats" hx-target="#cc-tab-content" hx-push-url="true">Stats</a>
+        <a class="cc-tab {% if active_tab == 'ingest' %}cc-tab--active{% endif %}" hx-get="/tabs/ingest" hx-target="#cc-tab-content" hx-push-url="true">Ingest</a>
       </nav>
     </header>
     <main id="cc-tab-content">
       {% block content %}{% endblock %}
     </main>
+    <dialog id="cc-diff-dialog" class="cc-dialog">
+      <div id="cc-diff-content"></div>
+      <button type="button" class="cc-button" onclick="document.getElementById('cc-diff-dialog').close()">Close</button>
+    </dialog>
   </body>
 </html>

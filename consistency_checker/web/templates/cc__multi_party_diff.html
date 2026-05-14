@@ -1,0 +1,35 @@
+<article class="cc-diff cc-diff--triangle">
+  <header>
+    <h3>Multi-document conditional contradiction</h3>
+    <p class="cc-muted">
+      Verdict <code>{{ finding.verdict }}</code> · confidence
+      {{ "%.2f"|format(finding.confidence or 0.0) }}
+      {% if finding.min_edge_score is not none %}
+        · min edge {{ "%.2f"|format(finding.min_edge_score) }}
+      {% endif %}
+    </p>
+  </header>
+
+  <div class="cc-diff-grid cc-diff-grid--3col">
+    {% for side in sides %}
+      <section class="cc-diff-card">
+        <h4>{{ side.label }} — {{ side.doc_label }}</h4>
+        <blockquote>{{ side.assertion_text }}</blockquote>
+      </section>
+    {% endfor %}
+  </div>
+
+  {% if finding.rationale %}
+    <section class="cc-rationale">
+      <h4>Judge rationale</h4>
+      <p>{{ finding.rationale }}</p>
+    </section>
+  {% endif %}
+
+  {% if finding.evidence_spans %}
+    <section class="cc-evidence">
+      <h4>Evidence spans</h4>
+      <ul>{% for s in finding.evidence_spans %}<li><code>{{ s }}</code></li>{% endfor %}</ul>
+    </section>
+  {% endif %}
+</article>
