@@ -62,6 +62,37 @@ def test_threshold_out_of_range(tmp_path: Path) -> None:
         Config.from_yaml(yml, env={"CC_NLI_CONTRADICTION_THRESHOLD": "1.5"})
 
 
+def test_multi_party_defaults_off(tmp_path: Path) -> None:
+    """``enable_multi_party`` defaults to off and ``max_triangles_per_run`` to 1000."""
+    yml = write_yaml(tmp_path / "c.yml", {"corpus_dir": str(tmp_path)})
+    cfg = Config.from_yaml(yml, env={})
+    assert cfg.enable_multi_party is False
+    assert cfg.max_triangles_per_run == 1000
+
+
+def test_multi_party_can_be_enabled_via_yaml(tmp_path: Path) -> None:
+    yml = write_yaml(
+        tmp_path / "c.yml",
+        {
+            "corpus_dir": str(tmp_path),
+            "enable_multi_party": True,
+            "max_triangles_per_run": 50,
+        },
+    )
+    cfg = Config.from_yaml(yml, env={})
+    assert cfg.enable_multi_party is True
+    assert cfg.max_triangles_per_run == 50
+
+
+def test_max_triangles_per_run_rejects_negative(tmp_path: Path) -> None:
+    yml = write_yaml(
+        tmp_path / "c.yml",
+        {"corpus_dir": str(tmp_path), "max_triangles_per_run": -1},
+    )
+    with pytest.raises(ValidationError):
+        Config.from_yaml(yml, env={})
+
+
 def test_derived_paths(tmp_path: Path) -> None:
     """``db_path`` and ``faiss_path`` are derived from ``data_dir``."""
     yml = write_yaml(

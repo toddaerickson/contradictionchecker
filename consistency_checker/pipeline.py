@@ -17,9 +17,20 @@ from dataclasses import dataclass
 from consistency_checker.audit.logger import AuditLogger
 from consistency_checker.check.gate import AnnGate, CandidateGate, CandidatePair
 from consistency_checker.check.llm_judge import Judge, JudgeVerdict, LLMJudge
+from consistency_checker.check.multi_party_judge import (
+    LLMMultiPartyJudge,
+    MultiPartyJudge,
+)
 from consistency_checker.check.nli_checker import NliChecker, score_bidirectional
-from consistency_checker.check.providers.anthropic import AnthropicProvider
-from consistency_checker.check.providers.openai import OpenAIProvider
+from consistency_checker.check.providers.anthropic import (
+    AnthropicMultiPartyProvider,
+    AnthropicProvider,
+)
+from consistency_checker.check.providers.openai import (
+    OpenAIMultiPartyProvider,
+    OpenAIProvider,
+)
+from consistency_checker.check.triangle import Triangle, find_triangles
 from consistency_checker.config import Config
 from consistency_checker.corpus.chunker import chunk_document
 from consistency_checker.corpus.loader import load_corpus
@@ -62,6 +73,8 @@ class CheckResult:
     n_pairs_gated: int
     n_pairs_judged: int
     n_findings: int
+    n_triangles_judged: int = 0
+    n_multi_party_findings: int = 0
 
 
 # --- factories --------------------------------------------------------------
@@ -86,6 +99,18 @@ def make_judge(config: Config) -> Judge:
     raise ValueError(
         f"make_judge(): provider {config.judge_provider!r} has no factory; "
         "construct a FixtureJudge directly in tests."
+    )
+
+
+def make_multi_party_judge(config: Config) -> MultiPartyJudge:
+    """Build the triangle judge from config; ``fixture`` provider has no factory."""
+    if config.judge_provider == "anthropic":
+        return LLMMultiPartyJudge(AnthropicMultiPartyProvider(model=config.judge_model))
+    if config.judge_provider == "openai":
+        return LLMMultiPartyJudge(OpenAIMultiPartyProvider(model=config.judge_model))
+    raise ValueError(
+        f"make_multi_party_judge(): provider {config.judge_provider!r} has no factory; "
+        "construct a FixtureMultiPartyJudge directly in tests."
     )
 
 
@@ -210,6 +235,39 @@ def _try_numeric_short_circuit(a: Assertion, b: Assertion) -> JudgeVerdict | Non
     return None
 
 
+def _run_multi_party_pass(
+    pairs: list[CandidatePair],
+    *,
+    multi_party_judge: MultiPartyJudge,
+    audit_logger: AuditLogger,
+    run_id: str,
+    max_per_run: int,
+) -> tuple[int, int]:
+    """Enumerate triangles in the gate graph, judge each, log findings.
+
+    Returns ``(n_triangles_judged, n_multi_party_findings)``. See ADR-0006.
+    """
+    n_triangles_judged = 0
+    n_multi_party_findings = 0
+    triangles: list[Triangle] = list(find_triangles(pairs, max_per_run=max_per_run))
+    for triangle in triangles:
+        verdict = multi_party_judge.judge(triangle)
+        audit_logger.record_multi_party_finding(
+            run_id,
+            assertion_ids=list(triangle.assertion_ids),
+            doc_ids=list(triangle.doc_ids),
+            triangle_edge_scores=list(triangle.edge_scores),
+            judge_verdict=verdict.verdict,
+            judge_confidence=verdict.confidence,
+            judge_rationale=verdict.rationale,
+            evidence_spans=list(verdict.evidence_spans),
+        )
+        n_triangles_judged += 1
+        if verdict.verdict == "multi_party_contradiction":
+            n_multi_party_findings += 1
+    return n_triangles_judged, n_multi_party_findings
+
+
 def check(
     config: Config,
     *,
@@ -219,8 +277,9 @@ def check(
     judge: Judge,
     audit_logger: AuditLogger,
     gate: CandidateGate | None = None,
+    multi_party_judge: MultiPartyJudge | None = None,
 ) -> CheckResult:
-    """Stage A → Stage B → audit. Returns run summary."""
+    """Stage A → Stage B → optional multi-party pass → audit. Returns run summary."""
     run_id = audit_logger.begin_run(
         config={
             "embedder_model": config.embedder_model,
@@ -230,6 +289,8 @@ def check(
             "nli_contradiction_threshold": config.nli_contradiction_threshold,
             "gate_top_k": config.gate_top_k,
             "gate_similarity_threshold": config.gate_similarity_threshold,
+            "enable_multi_party": multi_party_judge is not None,
+            "max_triangles_per_run": config.max_triangles_per_run,
         }
     )
 
@@ -258,6 +319,18 @@ def check(
         if verdict.verdict in CONTRADICTION_VERDICTS:
             n_findings += 1
 
+    # ADR-0006 F4: optional triangle pass over the same gate output.
+    n_triangles_judged = 0
+    n_multi_party_findings = 0
+    if multi_party_judge is not None:
+        n_triangles_judged, n_multi_party_findings = _run_multi_party_pass(
+            pairs,
+            multi_party_judge=multi_party_judge,
+            audit_logger=audit_logger,
+            run_id=run_id,
+            max_per_run=config.max_triangles_per_run,
+        )
+
     audit_logger.end_run(
         run_id,
         n_assertions=n_assertions,
@@ -266,11 +339,13 @@ def check(
         n_findings=n_findings,
     )
     _log.info(
-        "Run %s — %d gated / %d judged / %d findings",
+        "Run %s — %d gated / %d judged / %d findings / %d triangles / %d multi-party",
         run_id,
         n_pairs_gated,
         n_pairs_judged,
         n_findings,
+        n_triangles_judged,
+        n_multi_party_findings,
     )
     return CheckResult(
         run_id=run_id,
@@ -278,6 +353,8 @@ def check(
         n_pairs_gated=n_pairs_gated,
         n_pairs_judged=n_pairs_judged,
         n_findings=n_findings,
+        n_triangles_judged=n_triangles_judged,
+        n_multi_party_findings=n_multi_party_findings,
     )
 
 

@@ -210,6 +210,136 @@ def test_check_runs_with_fake_nli_and_judge(
     assert len(findings) == 1
 
 
+# --- check --deep -----------------------------------------------------------
+
+
+def test_check_deep_flag_enables_multi_party(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--deep`` runs the multi-party pass and surfaces multi-party findings."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+
+    # Seed a 3-doc store so a triangle exists.
+    from consistency_checker.check.multi_party_judge import (
+        FixtureMultiPartyJudge,
+        MultiPartyJudgeVerdict,
+    )
+    from consistency_checker.index.embedder import embed_pending
+    from consistency_checker.index.faiss_store import FaissStore
+
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    docs = [
+        Document.from_content("Policy A.", source_path="a.md", title="A"),
+        Document.from_content("Policy B.", source_path="b.md", title="B"),
+        Document.from_content("Policy C.", source_path="c.md", title="C"),
+    ]
+    for d in docs:
+        store.add_document(d)
+    assertions = [
+        Assertion.build(docs[0].doc_id, "All employees get four weeks vacation."),
+        Assertion.build(docs[1].doc_id, "Engineers are employees."),
+        Assertion.build(docs[2].doc_id, "Engineers get two weeks vacation."),
+    ]
+    store.add_assertions(assertions)
+    embedder = HashEmbedder(dim=64)
+    fs = FaissStore.open_or_create(
+        index_path=cfg.faiss_path,
+        id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
+        dim=embedder.dim,
+    )
+    embed_pending(store, fs, embedder)
+    store.close()
+
+    canonical_ids = tuple(sorted(a.assertion_id for a in assertions))
+    multi_party_fixtures = {
+        canonical_ids: MultiPartyJudgeVerdict(
+            assertion_ids=canonical_ids,
+            verdict="multi_party_contradiction",
+            confidence=0.91,
+            rationale="A ∧ B ⇒ ¬C",
+            contradicting_subset=("A", "B", "C"),
+        )
+    }
+
+    def fake_embedder(_cfg: Any) -> Any:
+        return HashEmbedder(dim=64)
+
+    def fake_judge(_cfg: Any) -> Any:
+        return FixtureJudge({})
+
+    def fake_multi_party_judge(_cfg: Any) -> Any:
+        return FixtureMultiPartyJudge(multi_party_fixtures)
+
+    class _FakeNliFactory:
+        def __init__(self, model_name: str) -> None:
+            self._inner = FixtureNliChecker({})
+
+        def score(self, premise: str, hypothesis: str) -> NliResult:
+            return self._inner.score(premise, hypothesis)
+
+    monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
+    monkeypatch.setattr("consistency_checker.cli.main.make_judge", fake_judge)
+    monkeypatch.setattr(
+        "consistency_checker.cli.main.make_multi_party_judge", fake_multi_party_judge
+    )
+    monkeypatch.setattr(
+        "consistency_checker.check.nli_checker.TransformerNliChecker", _FakeNliFactory
+    )
+
+    result = runner.invoke(app, ["check", "--deep", "--config", str(cfg_path)])
+    assert result.exit_code == 0, result.stdout
+    assert "multi-party" in result.stdout
+    assert "triangles" in result.stdout
+
+    store = AssertionStore(cfg.db_path)
+    logger = AuditLogger(store)
+    multi = list(logger.iter_multi_party_findings(verdict="multi_party_contradiction"))
+    store.close()
+    assert len(multi) == 1
+
+
+def test_check_without_deep_flag_skips_multi_party_factory(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without ``--deep``, ``make_multi_party_judge`` is never called."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    multi_party_calls: list[Any] = []
+
+    def fake_embedder(_cfg: Any) -> Any:
+        return HashEmbedder(dim=64)
+
+    def fake_judge(_cfg: Any) -> Any:
+        return FixtureJudge({})
+
+    def spy_multi_party(_cfg: Any) -> Any:
+        multi_party_calls.append(_cfg)
+        raise AssertionError("make_multi_party_judge must not be called without --deep")
+
+    class _FakeNliFactory:
+        def __init__(self, model_name: str) -> None:
+            self._inner = FixtureNliChecker({})
+
+        def score(self, premise: str, hypothesis: str) -> NliResult:
+            return self._inner.score(premise, hypothesis)
+
+    monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
+    monkeypatch.setattr("consistency_checker.cli.main.make_judge", fake_judge)
+    monkeypatch.setattr("consistency_checker.cli.main.make_multi_party_judge", spy_multi_party)
+    monkeypatch.setattr(
+        "consistency_checker.check.nli_checker.TransformerNliChecker", _FakeNliFactory
+    )
+
+    result = runner.invoke(app, ["check", "--config", str(cfg_path)])
+    assert result.exit_code == 0, result.stdout
+    assert multi_party_calls == []
+    assert "multi-party" not in result.stdout
+
+
 # --- report -----------------------------------------------------------------
 
 

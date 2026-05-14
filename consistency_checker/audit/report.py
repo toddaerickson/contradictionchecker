@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from consistency_checker.audit.logger import AuditLogger, Finding
+from consistency_checker.audit.logger import AuditLogger, Finding, MultiPartyFinding
 from consistency_checker.extract.schema import Assertion, Document
 from consistency_checker.index.assertion_store import AssertionStore
 
@@ -175,4 +175,63 @@ def render_report(
                 lines.append(f"**Rationale.** {finding.judge_rationale}")
                 lines.append("")
 
+    _append_multi_party_section(
+        lines,
+        audit_logger,
+        store,
+        run_id=run_id,
+        min_confidence=min_confidence,
+    )
+
     return "\n".join(lines) + "\n"
+
+
+def _append_multi_party_section(
+    lines: list[str],
+    audit_logger: AuditLogger,
+    store: AssertionStore,
+    *,
+    run_id: str,
+    min_confidence: float,
+) -> None:
+    """Render the optional multi-document conditional contradictions section.
+
+    The section is emitted only when the run produced multi-party findings, so
+    a normal (pair-only) run's report stays byte-stable against existing
+    golden files.
+    """
+    multi: list[MultiPartyFinding] = [
+        f
+        for f in audit_logger.iter_multi_party_findings(
+            run_id=run_id, verdict="multi_party_contradiction"
+        )
+        if (f.judge_confidence or 0.0) >= min_confidence
+    ]
+    if not multi:
+        return
+
+    lines.append("## Multi-document conditional contradictions")
+    lines.append("")
+    multi_sorted = sorted(multi, key=lambda f: (-(f.judge_confidence or 0.0), f.finding_id))
+    for finding in multi_sorted:
+        lines.append(f"### Finding `{finding.finding_id}`")
+        lines.append("")
+        lines.append(f"- **Confidence:** {_format_score(finding.judge_confidence)}")
+        if finding.triangle_edge_scores:
+            min_edge = min(score for _, _, score in finding.triangle_edge_scores)
+            lines.append(f"- **Min edge score:** {_format_score(min_edge)}")
+        spans = _quote_spans(finding.evidence_spans)
+        if spans:
+            lines.append(f"- **Evidence spans:** {spans}")
+        lines.append("")
+        for label, aid in zip(("A", "B", "C"), finding.assertion_ids, strict=False):
+            assertion = store.get_assertion(aid)
+            if assertion is None:
+                continue
+            doc = store.get_document(assertion.doc_id)
+            doc_label = doc.title or doc.source_path if doc else assertion.doc_id
+            lines.append(f"> **{label}** ({doc_label}): {assertion.assertion_text}")
+            lines.append("")
+        if finding.judge_rationale:
+            lines.append(f"**Rationale.** {finding.judge_rationale}")
+            lines.append("")

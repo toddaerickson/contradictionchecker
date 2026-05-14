@@ -31,6 +31,7 @@ from consistency_checker.pipeline import (
     make_embedder,
     make_extractor,
     make_judge,
+    make_multi_party_judge,
     rebuild_faiss,
 )
 
@@ -91,8 +92,15 @@ def ingest(
 @app.command(help="Run the Stage A + Stage B contradiction scan against the indexed corpus.")
 def check(
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
+    deep: bool = typer.Option(
+        False,
+        "--deep",
+        help="Enable the multi-document conditional contradiction pass (ADR-0006).",
+    ),
 ) -> None:
     cfg = _load_config(config)
+    if deep:
+        cfg = cfg.model_copy(update={"enable_multi_party": True})
     configure_logging(cfg.log_dir)
     embedder = make_embedder(cfg)
     store = _open_store(cfg)
@@ -104,6 +112,7 @@ def check(
 
     nli = TransformerNliChecker(model_name=cfg.nli_model)
     judge = make_judge(cfg)
+    multi_party = make_multi_party_judge(cfg) if cfg.enable_multi_party else None
 
     result = run_check(
         cfg,
@@ -112,12 +121,18 @@ def check(
         nli_checker=nli,
         judge=judge,
         audit_logger=audit_logger,
+        multi_party_judge=multi_party,
     )
     store.close()
+    deep_suffix = (
+        f" / {result.n_triangles_judged} triangles / {result.n_multi_party_findings} multi-party"
+        if cfg.enable_multi_party
+        else ""
+    )
     typer.echo(
         f"Run {result.run_id} — "
         f"{result.n_pairs_gated} gated / {result.n_pairs_judged} judged / "
-        f"{result.n_findings} contradictions"
+        f"{result.n_findings} contradictions{deep_suffix}"
     )
 
 

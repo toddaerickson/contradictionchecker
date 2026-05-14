@@ -43,6 +43,9 @@ class Config(BaseModel):
     chunk_max_chars: int = Field(default=1000, ge=50)
     chunk_overlap_chars: int = Field(default=0, ge=0)
 
+    enable_multi_party: bool = Field(default=False)
+    max_triangles_per_run: int = Field(default=1000, ge=0)
+
     @field_validator("corpus_dir", "data_dir", "log_dir", mode="before")
     @classmethod
     def _coerce_path(cls, value: Any) -> Path:
