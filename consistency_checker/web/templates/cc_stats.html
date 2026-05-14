@@ -1,0 +1,20 @@
+{% if not htmx %}{% extends "cc_base.html" %}{% endif %}
+
+{% block content %}
+<section class="cc-section">
+  <header class="cc-section-header">
+    <h2>Stats</h2>
+  </header>
+
+  {% if status == "none" %}
+    <p class="cc-muted">
+      No runs yet. Use the <strong>Ingest</strong> tab to upload documents,
+      then start a check.
+    </p>
+  {% elif status == "running" %}
+    {% include "cc__stats_live.html" %}
+  {% else %}
+    {% include "cc__stats_final.html" %}
+  {% endif %}
+</section>
+{% endblock %}

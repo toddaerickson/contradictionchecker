@@ -81,6 +81,37 @@ def _truncate(text: str, n: int) -> str:
     return text if len(text) <= n else text[: max(0, n - 1)] + "…"
 
 
+def _infer_run_status(run: Any) -> str:
+    """Return ``running`` / ``done`` from the existing pipeline_runs columns.
+
+    G5 will replace this inference with a real ``run_status`` column written
+    by ``pipeline.check``. Until then, ``finished_at IS NULL`` means a run is
+    still in flight (the audit logger sets ``finished_at`` in ``end_run``).
+    """
+    if run is None:
+        return "none"
+    return "running" if run.finished_at is None else "done"
+
+
+def _live_counters(run: Any) -> dict[str, Any]:
+    """Pull the counter columns that survive the live → final transition.
+
+    Mid-run these stay at their initial 0 (G5 will fill them in as the
+    pipeline progresses); post-run they hold the final tallies. Same shape
+    in both phases so the live and final templates can use the same field
+    names.
+    """
+    return {
+        "run_id": run.run_id,
+        "n_assertions": run.n_assertions,
+        "n_pairs_gated": run.n_pairs_gated,
+        "n_pairs_judged": run.n_pairs_judged,
+        "n_findings": run.n_findings,
+        "started_at": run.started_at.isoformat(timespec="seconds") if run.started_at else None,
+        "finished_at": run.finished_at.isoformat(timespec="seconds") if run.finished_at else None,
+    }
+
+
 def create_app(
     config: Config,
     *,
@@ -421,6 +452,51 @@ def create_app(
         finally:
             store.close()
         return templates.TemplateResponse(request, "cc__assertion_detail.html", context)
+
+    @app.get("/tabs/stats", response_class=HTMLResponse)
+    def tab_stats(request: Request) -> HTMLResponse:
+        store, audit = _open_audit()
+        try:
+            run = audit.most_recent_run()
+            status = _infer_run_status(run)
+            counters = _live_counters(run) if run is not None else None
+        finally:
+            store.close()
+        return templates.TemplateResponse(
+            request,
+            "cc_stats.html",
+            {
+                "htmx": _is_htmx(request),
+                "active_tab": "stats",
+                "status": status,
+                "counters": counters,
+            },
+        )
+
+    @app.get("/runs/{run_id}/stats", response_class=HTMLResponse)
+    def run_stats_fragment(request: Request, run_id: str) -> HTMLResponse:
+        """Polled by the Stats tab every 2 s while a run is in flight.
+
+        Returns the live fragment (with self-polling attributes) while
+        ``status == "running"``; once ``status == "done"``, returns the
+        final-summary fragment which has no polling attributes — so the
+        next HTMX swap stops the poll.
+        """
+        store, audit = _open_audit()
+        try:
+            run = audit.get_run(run_id)
+            if run is None:
+                raise HTTPException(status_code=404, detail=f"run {run_id} not found")
+            status = _infer_run_status(run)
+            counters = _live_counters(run)
+        finally:
+            store.close()
+        template = "cc__stats_final.html" if status == "done" else "cc__stats_live.html"
+        return templates.TemplateResponse(
+            request,
+            template,
+            {"status": status, "counters": counters},
+        )
 
     @app.get("/tabs/ingest", response_class=HTMLResponse)
     def tab_ingest(request: Request) -> HTMLResponse:

@@ -1,0 +1,22 @@
+<div
+  class="cc-stats-panel cc-stats-panel--running"
+  hx-get="/runs/{{ counters.run_id }}/stats"
+  hx-trigger="every 2s"
+  hx-swap="outerHTML"
+  aria-live="polite"
+>
+  <h3>
+    <span class="cc-spinner" aria-hidden="true"></span>
+    Run in progress
+  </h3>
+  <p class="cc-muted">
+    Started {{ counters.started_at }} · run id <code>{{ counters.run_id }}</code>
+  </p>
+
+  <dl class="cc-counters">
+    <div><dt>Assertions</dt><dd>{{ counters.n_assertions }}</dd></div>
+    <div><dt>Pairs gated</dt><dd>{{ counters.n_pairs_gated }}</dd></div>
+    <div><dt>Pairs judged</dt><dd>{{ counters.n_pairs_judged }}</dd></div>
+    <div><dt>Findings</dt><dd>{{ counters.n_findings }}</dd></div>
+  </dl>
+</div>
