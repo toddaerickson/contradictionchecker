@@ -278,21 +278,32 @@ def check(
     audit_logger: AuditLogger,
     gate: CandidateGate | None = None,
     multi_party_judge: MultiPartyJudge | None = None,
+    run_id: str | None = None,
 ) -> CheckResult:
-    """Stage A → Stage B → optional multi-party pass → audit. Returns run summary."""
-    run_id = audit_logger.begin_run(
-        config={
-            "embedder_model": config.embedder_model,
-            "nli_model": config.nli_model,
-            "judge_provider": config.judge_provider,
-            "judge_model": config.judge_model,
-            "nli_contradiction_threshold": config.nli_contradiction_threshold,
-            "gate_top_k": config.gate_top_k,
-            "gate_similarity_threshold": config.gate_similarity_threshold,
-            "enable_multi_party": multi_party_judge is not None,
-            "max_triangles_per_run": config.max_triangles_per_run,
-        }
-    )
+    """Stage A → Stage B → optional multi-party pass → audit. Returns run summary.
+
+    ``run_id``: pass an existing ``pipeline_runs.run_id`` to reuse the row
+    (web layer creates it pending before scheduling the background task);
+    omit to let the audit logger mint one. When reusing, status flips
+    ``pending → running`` on entry and ``running → done`` (or ``failed``,
+    via the caller's exception handling) on completion.
+    """
+    if run_id is None:
+        run_id = audit_logger.begin_run(
+            config={
+                "embedder_model": config.embedder_model,
+                "nli_model": config.nli_model,
+                "judge_provider": config.judge_provider,
+                "judge_model": config.judge_model,
+                "nli_contradiction_threshold": config.nli_contradiction_threshold,
+                "gate_top_k": config.gate_top_k,
+                "gate_similarity_threshold": config.gate_similarity_threshold,
+                "enable_multi_party": multi_party_judge is not None,
+                "max_triangles_per_run": config.max_triangles_per_run,
+            }
+        )
+    else:
+        audit_logger.update_run_status(run_id, "running")
 
     pairs = _iter_candidates(config, store, faiss_store, gate)
     n_pairs_gated = len(pairs)

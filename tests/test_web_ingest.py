@@ -127,10 +127,10 @@ def test_upload_saves_file_and_runs_ingest(configured_client: TestClient, tmp_pa
     assert n_assertions > 0
 
 
-def test_upload_success_card_includes_disabled_run_button(
+def test_upload_success_card_includes_run_button(
     configured_client: TestClient,
 ) -> None:
-    """G1 ships the Run / Check now button as disabled; G5 enables it."""
+    """G5 enables the Run / Check now button — it now POSTs to /runs."""
     response = configured_client.post(
         "/uploads",
         files={"files": ("doc.txt", b"Anything.", "text/plain")},
@@ -138,8 +138,8 @@ def test_upload_success_card_includes_disabled_run_button(
     assert response.status_code == 200
     body = response.text
     assert "Run / Check now" in body
-    assert "disabled" in body
-    assert 'data-pending="g5"' in body
+    assert 'hx-post="/runs"' in body
+    assert 'name="deep"' in body  # the deep-mode checkbox is there
 
 
 def test_upload_with_no_file_part_rejected(tmp_path: Path) -> None:

@@ -11,10 +11,10 @@
       No runs yet. Use the <strong>Ingest</strong> tab to upload documents,
       then start a check.
     </p>
-  {% elif status == "running" %}
-    {% include "cc__stats_live.html" %}
-  {% else %}
+  {% elif status in ("done", "failed") %}
     {% include "cc__stats_final.html" %}
+  {% else %}
+    {% include "cc__stats_live.html" %}
   {% endif %}
 </section>
 {% endblock %}

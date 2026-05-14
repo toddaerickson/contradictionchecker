@@ -228,6 +228,37 @@ def store_stats(
         typer.echo(f"{key}: {value}")
 
 
+@app.command(help="Start the FastAPI + HTMX web UI on localhost.")
+def serve(
+    config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host."),
+    port: int = typer.Option(8000, "--port", help="Bind port."),
+    open_browser: bool = typer.Option(
+        False, "--open", help="Open the default browser at the bound URL after startup."
+    ),
+) -> None:
+    """Boot uvicorn against ``create_app(config)`` and optionally launch a browser."""
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from consistency_checker.web.app import create_app
+
+    cfg = _load_config(config)
+    configure_logging(cfg.log_dir)
+    web_app = create_app(cfg)
+
+    if open_browser:
+        url = f"http://{host}:{port}"
+        # Defer the browser launch so uvicorn has a moment to start binding;
+        # threading.Timer keeps this hermetic-friendly and out of the request
+        # path. Tests stub webbrowser.open before invoking serve.
+        threading.Timer(0.5, webbrowser.open, args=(url,)).start()
+
+    uvicorn.run(web_app, host=host, port=port, log_level="info")
+
+
 @store_app.command("rebuild-index", help="Regenerate the FAISS index from SQLite.")
 def store_rebuild_index(
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),

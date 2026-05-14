@@ -1,5 +1,5 @@
-<div class="cc-stats-panel cc-stats-panel--done">
-  <h3>Run complete</h3>
+<div class="cc-stats-panel cc-stats-panel--{{ status }}">
+  <h3>{% if status == "failed" %}Run failed{% else %}Run complete{% endif %}</h3>
   <p class="cc-muted">
     Started {{ counters.started_at }} · finished {{ counters.finished_at }} ·
     run id <code>{{ counters.run_id }}</code>
