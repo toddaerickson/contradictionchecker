@@ -16,6 +16,11 @@ from pathlib import Path
 import typer
 
 from consistency_checker.audit.logger import AuditLogger
+from consistency_checker.audit.naming import (
+    export_csv_filename,
+    export_jsonl_filename,
+    report_filename,
+)
 from consistency_checker.audit.report import render_report
 from consistency_checker.config import Config
 from consistency_checker.index.assertion_store import AssertionStore
@@ -141,7 +146,15 @@ def check(
 
 @app.command(help="Render a markdown report for a run (defaults to the most recent).")
 def report(
-    out: Path = typer.Option(..., "--out", "-o", help="Output markdown path."),
+    out: Path | None = typer.Option(
+        None,
+        "--out",
+        "-o",
+        help=(
+            "Output markdown path. Omit to write to "
+            "<data_dir>/reports/cc_report_<timestamp>_<run_id_short>.md."
+        ),
+    ),
     run_id: str | None = typer.Option(None, "--run", help="Run id; default: most recent."),
     min_confidence: float = typer.Option(0.0, "--min-confidence", min=0.0, max=1.0),
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
@@ -159,6 +172,10 @@ def report(
         target_run = recent.run_id
 
     text = render_report(store, audit_logger, run_id=target_run, min_confidence=min_confidence)
+    if out is None:
+        run = audit_logger.get_run(target_run)
+        started = run.started_at if run is not None else None
+        out = cfg.data_dir / "reports" / report_filename(target_run, started_at=started)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding="utf-8")
     store.close()
@@ -171,14 +188,23 @@ def report(
 @app.command(help="Export assertions to CSV or JSONL.")
 def export(
     fmt: str = typer.Argument(..., metavar="FORMAT", help="csv | jsonl"),
-    out: Path = typer.Option(..., "--out", "-o"),
+    out: Path | None = typer.Option(
+        None,
+        "--out",
+        "-o",
+        help=("Output path. Omit to write to <data_dir>/reports/cc_assertions_<timestamp>.<ext>."),
+    ),
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
 ) -> None:
     cfg = _load_config(config)
     store = _open_store(cfg)
     if fmt == "csv":
+        if out is None:
+            out = cfg.data_dir / "reports" / export_csv_filename()
         store.export_csv(out)
     elif fmt == "jsonl":
+        if out is None:
+            out = cfg.data_dir / "reports" / export_jsonl_filename()
         store.export_jsonl(out)
     else:
         store.close()
