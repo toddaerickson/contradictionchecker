@@ -31,8 +31,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -46,6 +46,9 @@ from consistency_checker.index.faiss_store import FaissStore
 from consistency_checker.logging_setup import get_logger
 
 if TYPE_CHECKING:
+    from consistency_checker.check.llm_judge import Judge
+    from consistency_checker.check.multi_party_judge import MultiPartyJudge
+    from consistency_checker.check.nli_checker import NliChecker
     from consistency_checker.extract.atomic_facts import Extractor
 
 _log = get_logger(__name__)
@@ -82,15 +85,15 @@ def _truncate(text: str, n: int) -> str:
 
 
 def _infer_run_status(run: Any) -> str:
-    """Return ``running`` / ``done`` from the existing pipeline_runs columns.
+    """Return the run's lifecycle status.
 
-    G5 will replace this inference with a real ``run_status`` column written
-    by ``pipeline.check``. Until then, ``finished_at IS NULL`` means a run is
-    still in flight (the audit logger sets ``finished_at`` in ``end_run``).
+    G5 added a real ``run_status`` column on ``pipeline_runs`` (migration
+    0004); :class:`PipelineRun` now carries it directly. ``None`` collapses to
+    ``"none"`` so the Stats tab template can render the empty state.
     """
     if run is None:
         return "none"
-    return "running" if run.finished_at is None else "done"
+    return str(run.run_status)
 
 
 def _live_counters(run: Any) -> dict[str, Any]:
@@ -117,12 +120,16 @@ def create_app(
     *,
     extractor: Extractor | None = None,
     embedder: Embedder | None = None,
+    nli_checker: NliChecker | None = None,
+    judge: Judge | None = None,
+    multi_party_judge: MultiPartyJudge | None = None,
 ) -> FastAPI:
     """Build the FastAPI app bound to ``config``.
 
-    Tests inject ``extractor`` / ``embedder`` to keep ingest hermetic. In
-    production both default to ``None`` and the app falls back to the same
-    factories the CLI uses.
+    Tests inject ``extractor`` / ``embedder`` / ``nli_checker`` / ``judge`` /
+    ``multi_party_judge`` to keep ingest and check hermetic. In production
+    all default to ``None`` and the app falls back to the same factories the
+    CLI uses.
     """
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -136,6 +143,9 @@ def create_app(
     app.state.config = config
     app.state.extractor_override = extractor
     app.state.embedder_override = embedder
+    app.state.nli_checker_override = nli_checker
+    app.state.judge_override = judge
+    app.state.multi_party_judge_override = multi_party_judge
 
     config.data_dir.mkdir(parents=True, exist_ok=True)
     (config.data_dir / "uploads").mkdir(parents=True, exist_ok=True)
@@ -453,6 +463,91 @@ def create_app(
             store.close()
         return templates.TemplateResponse(request, "cc__assertion_detail.html", context)
 
+    def _run_check_in_background(run_id: str, deep: bool) -> None:
+        """Background entry point — owns its own store + logger to avoid
+        threading SQLite handles across requests."""
+        from consistency_checker.pipeline import (
+            check as run_check,
+        )
+
+        store, faiss_store, _embedder = _open_stores()
+        try:
+            audit_logger = AuditLogger(store)
+            try:
+                nli = app.state.nli_checker_override
+                if nli is None:
+                    from consistency_checker.check.nli_checker import (
+                        TransformerNliChecker,
+                    )
+
+                    nli = TransformerNliChecker(model_name=config.nli_model)
+                judge_inst = app.state.judge_override
+                if judge_inst is None:
+                    from consistency_checker.pipeline import make_judge
+
+                    judge_inst = make_judge(config)
+                mp_judge = app.state.multi_party_judge_override
+                if mp_judge is None and deep:
+                    from consistency_checker.pipeline import make_multi_party_judge
+
+                    mp_judge = make_multi_party_judge(config)
+
+                run_check(
+                    config.model_copy(update={"enable_multi_party": deep}),
+                    store=store,
+                    faiss_store=faiss_store,
+                    nli_checker=nli,
+                    judge=judge_inst,
+                    audit_logger=audit_logger,
+                    multi_party_judge=mp_judge if deep else None,
+                    run_id=run_id,
+                )
+            except Exception as exc:
+                _log.exception("Run %s failed: %s", run_id, exc)
+                audit_logger.update_run_status(run_id, "failed")
+        finally:
+            store.close()
+
+    @app.post("/runs", response_class=HTMLResponse)
+    def post_runs(
+        request: Request,
+        background_tasks: BackgroundTasks,
+        deep: bool = Form(False),
+    ) -> Response:
+        """Create a pending run row, kick off pipeline.check in the background.
+
+        Returns a 202 with an ``HX-Redirect`` header pointing at the Stats
+        tab; HTMX picks that up and swaps the tab content. Direct (non-HTMX)
+        callers receive a 303 redirect instead so a curl/test still lands
+        somewhere sensible.
+        """
+        store, audit = _open_audit()
+        try:
+            run_id = audit.begin_run(
+                config={
+                    "deep": deep,
+                    "embedder_model": config.embedder_model,
+                    "nli_model": config.nli_model,
+                    "judge_provider": config.judge_provider,
+                    "judge_model": config.judge_model,
+                },
+                run_status="pending",
+            )
+        finally:
+            store.close()
+
+        background_tasks.add_task(_run_check_in_background, run_id, deep)
+
+        target = f"/tabs/stats?run_id={run_id}"
+        if _is_htmx(request):
+            response = Response(status_code=202)
+            response.headers["HX-Redirect"] = target
+            return response
+        return Response(
+            status_code=303,
+            headers={"Location": target},
+        )
+
     @app.get("/tabs/stats", response_class=HTMLResponse)
     def tab_stats(request: Request) -> HTMLResponse:
         store, audit = _open_audit()
@@ -477,10 +572,10 @@ def create_app(
     def run_stats_fragment(request: Request, run_id: str) -> HTMLResponse:
         """Polled by the Stats tab every 2 s while a run is in flight.
 
-        Returns the live fragment (with self-polling attributes) while
-        ``status == "running"``; once ``status == "done"``, returns the
-        final-summary fragment which has no polling attributes — so the
-        next HTMX swap stops the poll.
+        Returns the live fragment (with self-polling attributes) while the
+        run is pending or running; once it reaches a terminal status (``done``
+        or ``failed``), returns the final-summary fragment which has no
+        polling attributes — so the next HTMX swap stops the poll.
         """
         store, audit = _open_audit()
         try:
@@ -491,7 +586,7 @@ def create_app(
             counters = _live_counters(run)
         finally:
             store.close()
-        template = "cc__stats_final.html" if status == "done" else "cc__stats_live.html"
+        template = "cc__stats_final.html" if status in {"done", "failed"} else "cc__stats_live.html"
         return templates.TemplateResponse(
             request,
             template,

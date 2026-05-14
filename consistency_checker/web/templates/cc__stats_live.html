@@ -7,7 +7,7 @@
 >
   <h3>
     <span class="cc-spinner" aria-hidden="true"></span>
-    Run in progress
+    {% if status == "pending" %}Queued{% else %}Run in progress{% endif %}
   </h3>
   <p class="cc-muted">
     Started {{ counters.started_at }} · run id <code>{{ counters.run_id }}</code>

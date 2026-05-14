@@ -42,6 +42,7 @@ class PipelineRun:
     n_pairs_judged: int
     n_findings: int
     notes: str | None
+    run_status: str = "pending"
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +96,10 @@ def _parse_ts(value: Any) -> datetime | None:
 
 
 def _row_to_run(row: sqlite3.Row) -> PipelineRun:
+    # row may or may not include run_status depending on whether migration 0004
+    # has run yet; tolerate both shapes so older databases keep round-tripping.
+    keys = set(row.keys())
+    run_status = str(row["run_status"]) if "run_status" in keys else "pending"
     return PipelineRun(
         run_id=row["run_id"],
         started_at=_parse_ts(row["started_at"]),
@@ -105,6 +110,7 @@ def _row_to_run(row: sqlite3.Row) -> PipelineRun:
         n_pairs_judged=int(row["n_pairs_judged"]),
         n_findings=int(row["n_findings"]),
         notes=row["notes"],
+        run_status=run_status,
     )
 
 
@@ -166,13 +172,22 @@ class AuditLogger:
         run_id: str | None = None,
         config: dict[str, Any] | None = None,
         notes: str | None = None,
+        run_status: str = "running",
     ) -> str:
+        """Insert a new ``pipeline_runs`` row.
+
+        ``run_status`` defaults to ``"running"`` so CLI callers (which call
+        begin_run → end_run in a single thread) don't need to pass it. The
+        web layer can pass ``"pending"`` to mark a queued run and flip to
+        ``"running"`` from the background task entry point.
+        """
         rid = run_id or uuid.uuid4().hex
         config_json = json.dumps(config, default=str) if config is not None else None
         with self._conn:
             self._conn.execute(
-                "INSERT INTO pipeline_runs (run_id, config_json, notes) VALUES (?, ?, ?)",
-                (rid, config_json, notes),
+                "INSERT INTO pipeline_runs (run_id, config_json, notes, run_status) "
+                "VALUES (?, ?, ?, ?)",
+                (rid, config_json, notes, run_status),
             )
         return rid
 
@@ -184,6 +199,7 @@ class AuditLogger:
         n_pairs_gated: int = 0,
         n_pairs_judged: int = 0,
         n_findings: int | None = None,
+        run_status: str = "done",
     ) -> None:
         if n_findings is None:
             counted = self._conn.execute(
@@ -195,9 +211,30 @@ class AuditLogger:
         with self._conn:
             self._conn.execute(
                 "UPDATE pipeline_runs SET finished_at = ?, n_assertions = ?, "
-                "n_pairs_gated = ?, n_pairs_judged = ?, n_findings = ? "
-                "WHERE run_id = ?",
-                (finished, n_assertions, n_pairs_gated, n_pairs_judged, n_findings, run_id),
+                "n_pairs_gated = ?, n_pairs_judged = ?, n_findings = ?, "
+                "run_status = ? WHERE run_id = ?",
+                (
+                    finished,
+                    n_assertions,
+                    n_pairs_gated,
+                    n_pairs_judged,
+                    n_findings,
+                    run_status,
+                    run_id,
+                ),
+            )
+
+    def update_run_status(self, run_id: str, status: str) -> None:
+        """Flip ``run_status`` without touching counters / timestamps.
+
+        Used by the web layer's background-task wrapper to move ``pending`` →
+        ``running`` before the long-running pipeline starts, and ``running`` →
+        ``failed`` on an unhandled exception.
+        """
+        with self._conn:
+            self._conn.execute(
+                "UPDATE pipeline_runs SET run_status = ? WHERE run_id = ?",
+                (status, run_id),
             )
 
     # --- writes -------------------------------------------------------------

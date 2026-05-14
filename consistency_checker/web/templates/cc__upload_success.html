@@ -12,14 +12,11 @@
   {% if saved %}
     <ul>{% for name in saved %}<li>{{ name }}</li>{% endfor %}</ul>
   {% endif %}
-  <button
-    type="button"
-    class="cc-button cc-button--primary"
-    hx-post="/runs"
-    hx-target="#cc-tab-content"
-    data-pending="g5"
-    disabled
-    title="Wired up in G5"
-  >Run / Check now</button>
+  <form hx-post="/runs" hx-swap="none" style="margin: 0;">
+    <label class="cc-muted">
+      <input type="checkbox" name="deep" value="true"> Deep mode (multi-document conditional contradictions)
+    </label>
+    <button type="submit" class="cc-button cc-button--primary">Run / Check now</button>
+  </form>
 </div>
 {% endif %}

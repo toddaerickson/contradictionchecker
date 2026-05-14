@@ -108,9 +108,8 @@ def test_root_shows_empty_state_banner_when_no_runs(empty_client: TestClient) ->
     body = response.text
     assert "No runs yet" in body
     assert "Check now" in body
-    # G5 will enable this — for G2 the button is disabled.
-    assert "disabled" in body
-    assert 'data-pending="g5"' in body
+    # G5 wired this up; the button now posts to /runs.
+    assert 'hx-post="/runs"' in body
 
 
 def test_root_empty_state_omits_contradictions_table(empty_client: TestClient) -> None:

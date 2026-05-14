@@ -9,15 +9,12 @@
         Ingest some documents on the <strong>Ingest</strong> tab, then run a
         contradiction check to see results here.
       </p>
-      <button
-        type="button"
-        class="cc-button cc-button--primary"
-        hx-post="/runs"
-        hx-target="#cc-tab-content"
-        data-pending="g5"
-        disabled
-        title="Wired up in G5"
-      >Check now</button>
+      <form hx-post="/runs" hx-swap="none" style="display: inline-block;">
+        <label class="cc-muted">
+          <input type="checkbox" name="deep" value="true"> Deep
+        </label>
+        <button type="submit" class="cc-button cc-button--primary">Check now</button>
+      </form>
     </div>
   {% else %}
     <header class="cc-section-header">
