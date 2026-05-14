@@ -204,23 +204,39 @@ class AssertionStore:
         row = self._conn.execute("SELECT * FROM documents WHERE doc_id = ?", (doc_id,)).fetchone()
         return _row_to_document(row) if row else None
 
+    def iter_documents(self, *, limit: int | None = None, offset: int = 0) -> Iterator[Document]:
+        """Iterate documents ordered by ingested_at desc, then doc_id desc."""
+        sql = "SELECT * FROM documents ORDER BY ingested_at DESC, doc_id DESC"
+        params: list[Any] = []
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+        for row in self._conn.execute(sql, params):
+            yield _row_to_document(row)
+
     def get_assertion(self, assertion_id: str) -> Assertion | None:
         row = self._conn.execute(
             "SELECT * FROM assertions WHERE assertion_id = ?", (assertion_id,)
         ).fetchone()
         return _row_to_assertion(row) if row else None
 
-    def iter_assertions(self, doc_id: str | None = None) -> Iterator[Assertion]:
+    def iter_assertions(
+        self,
+        doc_id: str | None = None,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> Iterator[Assertion]:
         if doc_id is None:
-            cursor = self._conn.execute(
-                "SELECT * FROM assertions ORDER BY created_at, assertion_id"
-            )
+            sql = "SELECT * FROM assertions ORDER BY created_at, assertion_id"
+            params: list[Any] = []
         else:
-            cursor = self._conn.execute(
-                "SELECT * FROM assertions WHERE doc_id = ? ORDER BY created_at, assertion_id",
-                (doc_id,),
-            )
-        for row in cursor:
+            sql = "SELECT * FROM assertions WHERE doc_id = ? ORDER BY created_at, assertion_id"
+            params = [doc_id]
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+        for row in self._conn.execute(sql, params):
             yield _row_to_assertion(row)
 
     def stats(self) -> dict[str, int]:

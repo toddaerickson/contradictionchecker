@@ -76,6 +76,11 @@ def _document_label(doc: Any, fallback_doc_id: str) -> str:
     return doc.title or doc.source_path or fallback_doc_id
 
 
+def _truncate(text: str, n: int) -> str:
+    """Trim ``text`` to at most ``n`` chars with a trailing ellipsis."""
+    return text if len(text) <= n else text[: max(0, n - 1)] + "…"
+
+
 def create_app(
     config: Config,
     *,
@@ -278,6 +283,144 @@ def create_app(
         finally:
             store.close()
         return templates.TemplateResponse(request, "cc__multi_party_diff.html", context)
+
+    PAGE_SIZE = 25
+
+    def _pagination(*, page: int, total: int) -> dict[str, Any]:
+        """Compute prev/next page numbers for a paginated table."""
+        page = max(1, page)
+        n_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+        page = min(page, n_pages)
+        return {
+            "page": page,
+            "n_pages": n_pages,
+            "has_prev": page > 1,
+            "has_next": page < n_pages,
+            "prev": page - 1,
+            "next": page + 1,
+            "total": total,
+            "page_size": PAGE_SIZE,
+        }
+
+    @app.get("/tabs/documents", response_class=HTMLResponse)
+    def tab_documents(request: Request, page: int = 1) -> HTMLResponse:
+        store, _audit = _open_audit()
+        try:
+            total = store.stats()["documents"]
+            pag = _pagination(page=page, total=total)
+            offset = (pag["page"] - 1) * PAGE_SIZE
+            rows = [
+                {
+                    "doc_id": d.doc_id,
+                    "title": d.title or d.source_path,
+                    "source_path": d.source_path,
+                    "ingested_at": d.ingested_at.isoformat(timespec="seconds")
+                    if d.ingested_at
+                    else "",
+                    "doc_type": d.doc_type or "",
+                }
+                for d in store.iter_documents(limit=PAGE_SIZE, offset=offset)
+            ]
+        finally:
+            store.close()
+        return templates.TemplateResponse(
+            request,
+            "cc_documents.html",
+            {
+                "htmx": _is_htmx(request),
+                "active_tab": "documents",
+                "documents": rows,
+                "pagination": pag,
+            },
+        )
+
+    @app.get("/documents/{doc_id}", response_class=HTMLResponse)
+    def document_detail(request: Request, doc_id: str) -> HTMLResponse:
+        store, _audit = _open_audit()
+        try:
+            doc = store.get_document(doc_id)
+            if doc is None:
+                raise HTTPException(status_code=404, detail=f"document {doc_id} not found")
+            n_assertions = sum(1 for _ in store.iter_assertions(doc_id=doc_id))
+            preview_assertions = [
+                a.assertion_text for a in store.iter_assertions(doc_id=doc_id, limit=5)
+            ]
+            context = {
+                "doc": {
+                    "doc_id": doc.doc_id,
+                    "title": doc.title or doc.source_path,
+                    "source_path": doc.source_path,
+                    "doc_type": doc.doc_type or "",
+                    "doc_date": doc.doc_date or "",
+                    "ingested_at": doc.ingested_at.isoformat(timespec="seconds")
+                    if doc.ingested_at
+                    else "",
+                    "metadata_json": doc.metadata_json,
+                },
+                "n_assertions": n_assertions,
+                "preview_assertions": preview_assertions,
+            }
+        finally:
+            store.close()
+        return templates.TemplateResponse(request, "cc__document_detail.html", context)
+
+    @app.get("/tabs/assertions", response_class=HTMLResponse)
+    def tab_assertions(request: Request, page: int = 1) -> HTMLResponse:
+        store, _audit = _open_audit()
+        try:
+            total = store.stats()["assertions"]
+            pag = _pagination(page=page, total=total)
+            offset = (pag["page"] - 1) * PAGE_SIZE
+            rows: list[dict[str, Any]] = []
+            for a in store.iter_assertions(limit=PAGE_SIZE, offset=offset):
+                doc = store.get_document(a.doc_id)
+                rows.append(
+                    {
+                        "assertion_id": a.assertion_id,
+                        "doc_label": _document_label(doc, a.doc_id),
+                        "text_preview": _truncate(a.assertion_text, 100),
+                    }
+                )
+        finally:
+            store.close()
+        return templates.TemplateResponse(
+            request,
+            "cc_assertions.html",
+            {
+                "htmx": _is_htmx(request),
+                "active_tab": "assertions",
+                "assertions": rows,
+                "pagination": pag,
+            },
+        )
+
+    @app.get("/assertions/{assertion_id}", response_class=HTMLResponse)
+    def assertion_detail(request: Request, assertion_id: str) -> HTMLResponse:
+        store, _audit = _open_audit()
+        try:
+            a = store.get_assertion(assertion_id)
+            if a is None:
+                raise HTTPException(status_code=404, detail=f"assertion {assertion_id} not found")
+            doc = store.get_document(a.doc_id)
+            context = {
+                "assertion": {
+                    "assertion_id": a.assertion_id,
+                    "assertion_text": a.assertion_text,
+                    "doc_id": a.doc_id,
+                    "doc_label": _document_label(doc, a.doc_id),
+                    "chunk_id": a.chunk_id,
+                    "char_start": a.char_start,
+                    "char_end": a.char_end,
+                    "char_span": (
+                        f"{a.char_start}:{a.char_end}"
+                        if a.char_start is not None and a.char_end is not None
+                        else None
+                    ),
+                },
+            }
+        finally:
+            store.close()
+        return templates.TemplateResponse(request, "cc__assertion_detail.html", context)
 
     @app.get("/tabs/ingest", response_class=HTMLResponse)
     def tab_ingest(request: Request) -> HTMLResponse:

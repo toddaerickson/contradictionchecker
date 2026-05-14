@@ -1,0 +1,9 @@
+<nav class="cc-pagination" aria-label="Pagination">
+  <span class="cc-muted">Page {{ pagination.page }} of {{ pagination.n_pages }}</span>
+  {% if pagination.has_prev %}
+    <a class="cc-button" hx-get="?page={{ pagination.prev }}" hx-target="#cc-tab-content" hx-push-url="true">← Prev</a>
+  {% endif %}
+  {% if pagination.has_next %}
+    <a class="cc-button" hx-get="?page={{ pagination.next }}" hx-target="#cc-tab-content" hx-push-url="true">Next →</a>
+  {% endif %}
+</nav>

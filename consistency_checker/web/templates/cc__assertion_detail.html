@@ -1,0 +1,25 @@
+<article class="cc-detail cc-detail--assertion">
+  <header>
+    <h3>Assertion</h3>
+    <p class="cc-muted">
+      <code>{{ assertion.assertion_id }}</code> · from {{ assertion.doc_label }}
+    </p>
+  </header>
+
+  <blockquote class="cc-diff-card">{{ assertion.assertion_text }}</blockquote>
+
+  <dl class="cc-detail-grid">
+    <dt>Document id</dt>
+    <dd><code>{{ assertion.doc_id }}</code></dd>
+
+    {% if assertion.chunk_id %}
+      <dt>Chunk id</dt>
+      <dd><code>{{ assertion.chunk_id }}</code></dd>
+    {% endif %}
+
+    {% if assertion.char_span %}
+      <dt>Char span</dt>
+      <dd><code>{{ assertion.char_span }}</code></dd>
+    {% endif %}
+  </dl>
+</article>

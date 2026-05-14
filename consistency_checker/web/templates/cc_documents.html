@@ -1,0 +1,44 @@
+{% if not htmx %}{% extends "cc_base.html" %}{% endif %}
+
+{% block content %}
+<section class="cc-section">
+  <header class="cc-section-header">
+    <h2>Documents</h2>
+    <p class="cc-muted">{{ pagination.total }} ingested document(s).</p>
+  </header>
+
+  {% if documents %}
+    <table class="cc-findings-table">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Type</th>
+          <th>Ingested</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in documents %}
+          <tr>
+            <td>{{ d.title }}</td>
+            <td>{{ d.doc_type }}</td>
+            <td><code>{{ d.ingested_at }}</code></td>
+            <td>
+              <button
+                type="button"
+                class="cc-button"
+                hx-get="/documents/{{ d.doc_id }}"
+                hx-target="#cc-diff-content"
+                hx-on::after-request="document.getElementById('cc-diff-dialog').showModal()"
+              >Open</button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include "cc__pagination.html" %}
+  {% else %}
+    <p class="cc-muted">No documents yet. Use the <strong>Ingest</strong> tab to upload some.</p>
+  {% endif %}
+</section>
+{% endblock %}

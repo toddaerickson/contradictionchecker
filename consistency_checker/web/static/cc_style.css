@@ -156,3 +156,29 @@ code { background: rgba(0,0,0,0.06); padding: 0.05rem 0.3rem; border-radius: 3px
 .cc-rationale h4,
 .cc-evidence h4 { margin: 0 0 0.25rem; font-size: 0.95rem; }
 .cc-evidence ul { margin: 0; padding-left: 1.25rem; }
+
+.cc-pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.cc-detail-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0.5rem 0 1rem;
+}
+.cc-detail-grid dt { color: var(--cc-muted); }
+.cc-detail-grid dd { margin: 0; }
+
+.cc-pre {
+  background: #f6f6f6;
+  border: 1px solid var(--cc-border);
+  border-radius: 4px;
+  padding: 0.75rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
