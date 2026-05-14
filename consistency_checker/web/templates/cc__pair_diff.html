@@ -1,0 +1,40 @@
+<article class="cc-diff cc-diff--pair">
+  <header>
+    <h3>Pair contradiction</h3>
+    <p class="cc-muted">
+      Verdict <code>{{ finding.verdict }}</code> · confidence
+      {{ "%.2f"|format(finding.confidence or 0.0) }}
+      {% if finding.nli_p_contradiction is not none %}
+        · NLI p(contradiction) {{ "%.2f"|format(finding.nli_p_contradiction) }}
+      {% endif %}
+      {% if finding.gate_score is not none %}
+        · gate {{ "%.2f"|format(finding.gate_score) }}
+      {% endif %}
+    </p>
+  </header>
+
+  <div class="cc-diff-grid cc-diff-grid--2col">
+    <section class="cc-diff-card">
+      <h4>A — {{ side_a.doc_label }}</h4>
+      <blockquote>{{ side_a.assertion_text }}</blockquote>
+    </section>
+    <section class="cc-diff-card">
+      <h4>B — {{ side_b.doc_label }}</h4>
+      <blockquote>{{ side_b.assertion_text }}</blockquote>
+    </section>
+  </div>
+
+  {% if finding.rationale %}
+    <section class="cc-rationale">
+      <h4>Judge rationale</h4>
+      <p>{{ finding.rationale }}</p>
+    </section>
+  {% endif %}
+
+  {% if finding.evidence_spans %}
+    <section class="cc-evidence">
+      <h4>Evidence spans</h4>
+      <ul>{% for s in finding.evidence_spans %}<li><code>{{ s }}</code></li>{% endfor %}</ul>
+    </section>
+  {% endif %}
+</article>

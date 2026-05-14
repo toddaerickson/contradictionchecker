@@ -1,4 +1,4 @@
-"""FastAPI + HTMX app for the consistency checker — ADR-0007, step G1.
+"""FastAPI + HTMX app for the consistency checker — ADR-0007, steps G1+G2.
 
 This module exposes :func:`create_app`, a factory the CLI's ``serve``
 subcommand (G5) and tests call to produce a :class:`FastAPI` app bound to a
@@ -6,18 +6,22 @@ specific :class:`~consistency_checker.config.Config`. The web layer is a
 **presentation layer** — every route delegates to the existing
 ``pipeline.ingest`` / ``pipeline.check`` / ``AuditLogger`` surface.
 
-Step G1 ships just enough to drop documents in:
+Routes shipped through G2:
 
-- ``GET /`` — placeholder landing page. G2 replaces with the Contradictions tab.
-- ``GET /tabs/ingest`` — HTMX partial: upload form + list of files already
-  ingested. The tab strip in ``cc_base.html`` swaps the partial into a
-  ``#tab-content`` slot via ``hx-get``.
-- ``POST /uploads`` — multipart endpoint, writes each uploaded file to
-  ``data_dir / "uploads" / <upload_id>`` (timestamp + 8-char hash), runs the
-  ingest pipeline synchronously, returns the success-card partial.
+- ``GET /`` — **Contradictions tab**. Pulls findings for the most recent run
+  via :meth:`AuditLogger.most_recent_run`. Renders pair findings (verdict in
+  ``{contradiction, numeric_short_circuit}``) and multi-party findings
+  (verdict ``multi_party_contradiction``). Empty-state banner with a
+  disabled "Check now" button when no run exists.
+- ``GET /findings/{finding_id}/diff`` — HTMX partial: side-by-side card view
+  of the two assertions that triggered a pair finding.
+- ``GET /multi_party_findings/{finding_id}/diff`` — HTMX partial: 3-pane
+  side-by-side view of the assertions in a triangle finding.
+- ``GET /tabs/ingest`` — Upload form + list of prior uploads.
+- ``POST /uploads`` — multipart endpoint, writes files, runs ingest.
 
-The success card includes a disabled "Run / Check now" button as a layout
-anchor; G5 enables it.
+The "Run / Check now" buttons on the Ingest success card and Contradictions
+empty-state banner both target ``POST /runs``, which G5 wires up.
 """
 
 from __future__ import annotations
@@ -25,13 +29,14 @@ from __future__ import annotations
 import secrets
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from fastapi import FastAPI, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from consistency_checker.audit.logger import AuditLogger
 from consistency_checker.config import Config
 from consistency_checker.corpus.chunker import chunk_document
 from consistency_checker.corpus.loader import load_path
@@ -62,6 +67,13 @@ def _generate_upload_id() -> str:
 def _is_htmx(request: Request) -> bool:
     """True when the request was issued by an HTMX swap (vs. a direct URL hit)."""
     return request.headers.get("HX-Request", "").lower() == "true"
+
+
+def _document_label(doc: Any, fallback_doc_id: str) -> str:
+    """Best display label for a Document — title, then source path, then doc id."""
+    if doc is None:
+        return fallback_doc_id
+    return doc.title or doc.source_path or fallback_doc_id
 
 
 def create_app(
@@ -117,10 +129,155 @@ def create_app(
         )
         return store, faiss_store, embedder_inst
 
+    def _open_audit() -> tuple[AssertionStore, AuditLogger]:
+        store = AssertionStore(config.db_path)
+        store.migrate()
+        return store, AuditLogger(store)
+
     @app.get("/", response_class=HTMLResponse)
-    def index() -> RedirectResponse:
-        """Placeholder until G2 replaces with the Contradictions tab."""
-        return RedirectResponse(url="/tabs/ingest", status_code=303)
+    def index(request: Request) -> HTMLResponse:
+        """Contradictions tab — the main page (ADR-0007)."""
+        store, audit = _open_audit()
+        try:
+            run = audit.most_recent_run()
+            pair_findings: list[dict[str, Any]] = []
+            multi_party_findings: list[dict[str, Any]] = []
+            if run is not None:
+                for raw in (
+                    *audit.iter_findings(run_id=run.run_id, verdict="contradiction"),
+                    *audit.iter_findings(run_id=run.run_id, verdict="numeric_short_circuit"),
+                ):
+                    a = store.get_assertion(raw.assertion_a_id)
+                    b = store.get_assertion(raw.assertion_b_id)
+                    if a is None or b is None:
+                        continue
+                    doc_a = store.get_document(a.doc_id)
+                    doc_b = store.get_document(b.doc_id)
+                    pair_findings.append(
+                        {
+                            "finding_id": raw.finding_id,
+                            "verdict": raw.judge_verdict,
+                            "confidence": raw.judge_confidence,
+                            "doc_a_label": _document_label(doc_a, a.doc_id),
+                            "doc_b_label": _document_label(doc_b, b.doc_id),
+                            "rationale_first_line": (raw.judge_rationale or "").splitlines()[:1],
+                        }
+                    )
+                pair_findings.sort(key=lambda f: -(f["confidence"] or 0.0))
+
+                for mp in audit.iter_multi_party_findings(
+                    run_id=run.run_id, verdict="multi_party_contradiction"
+                ):
+                    multi_party_findings.append(
+                        {
+                            "finding_id": mp.finding_id,
+                            "confidence": mp.judge_confidence,
+                            "rationale_first_line": ((mp.judge_rationale or "").splitlines()[:1]),
+                            "n_docs": len({d for d in mp.doc_ids}),
+                        }
+                    )
+                multi_party_findings.sort(key=lambda f: -(f["confidence"] or 0.0))
+        finally:
+            store.close()
+
+        return templates.TemplateResponse(
+            request,
+            "cc_contradictions.html",
+            {
+                "htmx": _is_htmx(request),
+                "active_tab": "contradictions",
+                "run": {
+                    "run_id": run.run_id,
+                    "n_assertions": run.n_assertions,
+                    "n_pairs_judged": run.n_pairs_judged,
+                }
+                if run is not None
+                else None,
+                "pair_findings": pair_findings,
+                "multi_party_findings": multi_party_findings,
+            },
+        )
+
+    @app.get("/findings/{finding_id}/diff", response_class=HTMLResponse)
+    def pair_diff(request: Request, finding_id: str) -> HTMLResponse:
+        store, audit = _open_audit()
+        try:
+            finding = audit.get_finding(finding_id)
+            if finding is None:
+                raise HTTPException(status_code=404, detail=f"finding {finding_id} not found")
+            a = store.get_assertion(finding.assertion_a_id)
+            b = store.get_assertion(finding.assertion_b_id)
+            if a is None or b is None:
+                raise HTTPException(
+                    status_code=404, detail="assertion referenced by finding not found"
+                )
+            doc_a = store.get_document(a.doc_id)
+            doc_b = store.get_document(b.doc_id)
+            context = {
+                "finding": {
+                    "finding_id": finding.finding_id,
+                    "verdict": finding.judge_verdict,
+                    "confidence": finding.judge_confidence,
+                    "rationale": finding.judge_rationale,
+                    "evidence_spans": finding.evidence_spans,
+                    "nli_p_contradiction": finding.nli_p_contradiction,
+                    "gate_score": finding.gate_score,
+                },
+                "side_a": {
+                    "assertion_text": a.assertion_text,
+                    "doc_label": _document_label(doc_a, a.doc_id),
+                },
+                "side_b": {
+                    "assertion_text": b.assertion_text,
+                    "doc_label": _document_label(doc_b, b.doc_id),
+                },
+            }
+        finally:
+            store.close()
+        return templates.TemplateResponse(request, "cc__pair_diff.html", context)
+
+    @app.get("/multi_party_findings/{finding_id}/diff", response_class=HTMLResponse)
+    def multi_party_diff(request: Request, finding_id: str) -> HTMLResponse:
+        store, audit = _open_audit()
+        try:
+            mp = audit.get_multi_party_finding(finding_id)
+            if mp is None:
+                raise HTTPException(
+                    status_code=404, detail=f"multi-party finding {finding_id} not found"
+                )
+            sides: list[dict[str, Any]] = []
+            for label, aid in zip(("A", "B", "C"), mp.assertion_ids[:3], strict=False):
+                assertion = store.get_assertion(aid)
+                if assertion is None:
+                    sides.append({"label": label, "assertion_text": "(missing)", "doc_label": aid})
+                    continue
+                doc = store.get_document(assertion.doc_id)
+                sides.append(
+                    {
+                        "label": label,
+                        "assertion_text": assertion.assertion_text,
+                        "doc_label": _document_label(doc, assertion.doc_id),
+                    }
+                )
+            min_edge = (
+                min(score for _, _, score in mp.triangle_edge_scores)
+                if mp.triangle_edge_scores
+                else None
+            )
+            context = {
+                "finding": {
+                    "finding_id": mp.finding_id,
+                    "verdict": mp.judge_verdict,
+                    "confidence": mp.judge_confidence,
+                    "rationale": mp.judge_rationale,
+                    "evidence_spans": mp.evidence_spans,
+                    "min_edge_score": min_edge,
+                },
+                "sides": sides,
+            }
+        finally:
+            store.close()
+        return templates.TemplateResponse(request, "cc__multi_party_diff.html", context)
 
     @app.get("/tabs/ingest", response_class=HTMLResponse)
     def tab_ingest(request: Request) -> HTMLResponse:
