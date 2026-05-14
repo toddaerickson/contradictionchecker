@@ -64,7 +64,7 @@ The audit DB has `findings.reviewer_verdict` columns reserved (or should — ver
 Today every `check` invocation re-scans the whole corpus. If only one new document was added since last run, only its assertions need to be paired against pre-existing ones. Use the `documents.ingested_at` timestamp to compute a "new assertions" set, then gate against the old set without re-pairing the old set with itself. Audit logger gains a `prior_run_id` link so report can show "new vs. carry-forward findings."
 
 ### 11. Web review surface
-Once #9 lands, wrap it in a FastAPI + a few HTMX templates. Read-only mode for stakeholders; reviewer mode for analysts.
+Once #9 lands, wrap it in a FastAPI + a few HTMX templates. Read-only mode for stakeholders; reviewer mode for analysts. v0.3 Block G ships the underlying app shell ([`docs/plans/v0.3-block-g.md`](docs/plans/v0.3-block-g.md)) — #11 adds the reviewer-specific routes on top.
 
 ### 12. Local-LLM judge provider
 For air-gapped deployments: a `LocalLlamaProvider` against `llama.cpp` or vLLM. The `JudgeProvider` Protocol already exists — this is mostly prompt tuning and tooling, not architecture. Document the quality trade-off in a new ADR.
@@ -74,6 +74,14 @@ The audit DB already records latency, token counts, and verdict distribution per
 - Token spend per run.
 - Verdict distribution over time.
 - Precision tracking against the rolling CONTRADOC benchmark.
+
+### 14. Zero-CLI desktop launcher
+v0.3 ships `consistency-check serve --open` which auto-launches the browser after binding (close to "double-click → tool opens" but still requires a terminal). v0.4 adds a true zero-CLI entry point:
+
+- **Option A — `pipx run consistency-checker-launcher`**: a tiny separate package that depends on `consistency-checker` and exposes a single entrypoint script which runs the equivalent of `consistency-check serve --open` plus a graceful shutdown handler. Users install once via `pipx`; subsequent launches are one shell command from any cwd.
+- **Option B — PyInstaller bundle**: a single-file executable per platform (macOS `.app`, Windows `.exe`, Linux AppImage) that bundles Python, the package, and the model caches. True double-click experience; larger artefacts (~200–400 MB once HuggingFace caches are baked in) and more release engineering. Decide whether to ship caches or download-on-first-run.
+
+Pick A or B based on the target audience: A for technical users who already have Python; B for analyst-class users who don't. ADR-0008 captures the choice.
 
 ## Known issues to fix opportunistically
 
