@@ -1,27 +1,10 @@
-"""FastAPI + HTMX app for the consistency checker — ADR-0007, steps G1+G2.
+"""FastAPI + HTMX web UI for the consistency checker — ADR-0007.
 
-This module exposes :func:`create_app`, a factory the CLI's ``serve``
-subcommand (G5) and tests call to produce a :class:`FastAPI` app bound to a
-specific :class:`~consistency_checker.config.Config`. The web layer is a
-**presentation layer** — every route delegates to the existing
-``pipeline.ingest`` / ``pipeline.check`` / ``AuditLogger`` surface.
-
-Routes shipped through G2:
-
-- ``GET /`` — **Contradictions tab**. Pulls findings for the most recent run
-  via :meth:`AuditLogger.most_recent_run`. Renders pair findings (verdict in
-  ``{contradiction, numeric_short_circuit}``) and multi-party findings
-  (verdict ``multi_party_contradiction``). Empty-state banner with a
-  disabled "Check now" button when no run exists.
-- ``GET /findings/{finding_id}/diff`` — HTMX partial: side-by-side card view
-  of the two assertions that triggered a pair finding.
-- ``GET /multi_party_findings/{finding_id}/diff`` — HTMX partial: 3-pane
-  side-by-side view of the assertions in a triangle finding.
-- ``GET /tabs/ingest`` — Upload form + list of prior uploads.
-- ``POST /uploads`` — multipart endpoint, writes files, runs ingest.
-
-The "Run / Check now" buttons on the Ingest success card and Contradictions
-empty-state banner both target ``POST /runs``, which G5 wires up.
+The web layer is a presentation layer over ``pipeline.ingest``,
+``pipeline.check``, the assertion store, and the audit logger. No new
+business logic — every route delegates to those four surfaces. Templates
+under ``templates/`` are prefixed ``cc_`` to avoid filename collisions in
+mixed-app deployments; partials use ``cc__<name>.html``.
 """
 
 from __future__ import annotations
@@ -36,7 +19,7 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from consistency_checker.audit.logger import AuditLogger
+from consistency_checker.audit.logger import TERMINAL_RUN_STATUSES, AuditLogger
 from consistency_checker.config import Config
 from consistency_checker.corpus.chunker import chunk_document
 from consistency_checker.corpus.loader import load_path
@@ -85,25 +68,12 @@ def _truncate(text: str, n: int) -> str:
 
 
 def _infer_run_status(run: Any) -> str:
-    """Return the run's lifecycle status.
-
-    G5 added a real ``run_status`` column on ``pipeline_runs`` (migration
-    0004); :class:`PipelineRun` now carries it directly. ``None`` collapses to
-    ``"none"`` so the Stats tab template can render the empty state.
-    """
-    if run is None:
-        return "none"
-    return str(run.run_status)
+    """``"none"`` when no run exists; otherwise the row's ``run_status``."""
+    return "none" if run is None else str(run.run_status)
 
 
 def _live_counters(run: Any) -> dict[str, Any]:
-    """Pull the counter columns that survive the live → final transition.
-
-    Mid-run these stay at their initial 0 (G5 will fill them in as the
-    pipeline progresses); post-run they hold the final tallies. Same shape
-    in both phases so the live and final templates can use the same field
-    names.
-    """
+    """Counters in a shape shared by the live and final stats templates."""
     return {
         "run_id": run.run_id,
         "n_assertions": run.n_assertions,
@@ -141,25 +111,20 @@ def create_app(
     )
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.state.config = config
-    app.state.extractor_override = extractor
-    app.state.embedder_override = embedder
-    app.state.nli_checker_override = nli_checker
-    app.state.judge_override = judge
-    app.state.multi_party_judge_override = multi_party_judge
 
     config.data_dir.mkdir(parents=True, exist_ok=True)
     (config.data_dir / "uploads").mkdir(parents=True, exist_ok=True)
 
     def _make_embedder() -> Embedder:
-        if app.state.embedder_override is not None:
-            return app.state.embedder_override  # type: ignore[no-any-return]
+        if embedder is not None:
+            return embedder
         from consistency_checker.pipeline import make_embedder
 
         return make_embedder(config)
 
     def _make_extractor() -> Extractor:
-        if app.state.extractor_override is not None:
-            return app.state.extractor_override  # type: ignore[no-any-return]
+        if extractor is not None:
+            return extractor
         from consistency_checker.pipeline import make_extractor
 
         return make_extractor(config)
@@ -464,29 +429,29 @@ def create_app(
         return templates.TemplateResponse(request, "cc__assertion_detail.html", context)
 
     def _run_check_in_background(run_id: str, deep: bool) -> None:
-        """Background entry point — owns its own store + logger to avoid
-        threading SQLite handles across requests."""
-        from consistency_checker.pipeline import (
-            check as run_check,
-        )
+        # SQLite handles can't safely be shared across threads, so the
+        # background task opens its own store.
+        from consistency_checker.pipeline import check as run_check
 
         store, faiss_store, _embedder = _open_stores()
         try:
             audit_logger = AuditLogger(store)
             try:
-                nli = app.state.nli_checker_override
-                if nli is None:
+                if nli_checker is None:
                     from consistency_checker.check.nli_checker import (
                         TransformerNliChecker,
                     )
 
-                    nli = TransformerNliChecker(model_name=config.nli_model)
-                judge_inst = app.state.judge_override
-                if judge_inst is None:
+                    nli_inst: NliChecker = TransformerNliChecker(model_name=config.nli_model)
+                else:
+                    nli_inst = nli_checker
+                if judge is None:
                     from consistency_checker.pipeline import make_judge
 
-                    judge_inst = make_judge(config)
-                mp_judge = app.state.multi_party_judge_override
+                    judge_inst: Judge = make_judge(config)
+                else:
+                    judge_inst = judge
+                mp_judge = multi_party_judge
                 if mp_judge is None and deep:
                     from consistency_checker.pipeline import make_multi_party_judge
 
@@ -496,7 +461,7 @@ def create_app(
                     config.model_copy(update={"enable_multi_party": deep}),
                     store=store,
                     faiss_store=faiss_store,
-                    nli_checker=nli,
+                    nli_checker=nli_inst,
                     judge=judge_inst,
                     audit_logger=audit_logger,
                     multi_party_judge=mp_judge if deep else None,
@@ -514,13 +479,6 @@ def create_app(
         background_tasks: BackgroundTasks,
         deep: bool = Form(False),
     ) -> Response:
-        """Create a pending run row, kick off pipeline.check in the background.
-
-        Returns a 202 with an ``HX-Redirect`` header pointing at the Stats
-        tab; HTMX picks that up and swaps the tab content. Direct (non-HTMX)
-        callers receive a 303 redirect instead so a curl/test still lands
-        somewhere sensible.
-        """
         store, audit = _open_audit()
         try:
             run_id = audit.begin_run(
@@ -570,13 +528,8 @@ def create_app(
 
     @app.get("/runs/{run_id}/stats", response_class=HTMLResponse)
     def run_stats_fragment(request: Request, run_id: str) -> HTMLResponse:
-        """Polled by the Stats tab every 2 s while a run is in flight.
-
-        Returns the live fragment (with self-polling attributes) while the
-        run is pending or running; once it reaches a terminal status (``done``
-        or ``failed``), returns the final-summary fragment which has no
-        polling attributes — so the next HTMX swap stops the poll.
-        """
+        # Returning the final fragment (no polling attrs) is how the
+        # self-polling loop stops once the run terminates.
         store, audit = _open_audit()
         try:
             run = audit.get_run(run_id)
@@ -586,7 +539,9 @@ def create_app(
             counters = _live_counters(run)
         finally:
             store.close()
-        template = "cc__stats_final.html" if status in {"done", "failed"} else "cc__stats_live.html"
+        template = (
+            "cc__stats_final.html" if status in TERMINAL_RUN_STATUSES else "cc__stats_live.html"
+        )
         return templates.TemplateResponse(
             request,
             template,
@@ -595,14 +550,11 @@ def create_app(
 
     @app.get("/tabs/ingest", response_class=HTMLResponse)
     def tab_ingest(request: Request) -> HTMLResponse:
+        # create_app() has already mkdir'd uploads_root, so iterdir is safe.
         uploads_root = config.data_dir / "uploads"
-        prior_uploads = (
-            sorted(
-                (p for p in uploads_root.iterdir() if p.is_dir()),
-                reverse=True,
-            )
-            if uploads_root.exists()
-            else []
+        prior_uploads = sorted(
+            (p for p in uploads_root.iterdir() if p.is_dir()),
+            reverse=True,
         )
         return templates.TemplateResponse(
             request,

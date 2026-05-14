@@ -280,14 +280,7 @@ def check(
     multi_party_judge: MultiPartyJudge | None = None,
     run_id: str | None = None,
 ) -> CheckResult:
-    """Stage A → Stage B → optional multi-party pass → audit. Returns run summary.
-
-    ``run_id``: pass an existing ``pipeline_runs.run_id`` to reuse the row
-    (web layer creates it pending before scheduling the background task);
-    omit to let the audit logger mint one. When reusing, status flips
-    ``pending → running`` on entry and ``running → done`` (or ``failed``,
-    via the caller's exception handling) on completion.
-    """
+    """Stage A → Stage B → optional multi-party pass → audit. Returns run summary."""
     if run_id is None:
         run_id = audit_logger.begin_run(
             config={
@@ -309,7 +302,7 @@ def check(
     n_pairs_gated = len(pairs)
     n_pairs_judged = 0
     n_findings = 0
-    n_assertions = sum(1 for _ in store.iter_assertions())
+    n_assertions = store.stats()["assertions"]
 
     for pair in pairs:
         nli = score_bidirectional(nli_checker, pair.a.assertion_text, pair.b.assertion_text)

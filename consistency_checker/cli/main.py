@@ -251,10 +251,12 @@ def serve(
 
     if open_browser:
         url = f"http://{host}:{port}"
-        # Defer the browser launch so uvicorn has a moment to start binding;
-        # threading.Timer keeps this hermetic-friendly and out of the request
-        # path. Tests stub webbrowser.open before invoking serve.
-        threading.Timer(0.5, webbrowser.open, args=(url,)).start()
+        # Defer the browser launch so uvicorn has a moment to bind. The
+        # daemon flag lets the process exit immediately if the user kills
+        # uvicorn within the 0.5 s window.
+        timer = threading.Timer(0.5, webbrowser.open, args=(url,))
+        timer.daemon = True
+        timer.start()
 
     uvicorn.run(web_app, host=host, port=port, log_level="info")
 
