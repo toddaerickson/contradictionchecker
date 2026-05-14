@@ -1,0 +1,37 @@
+<article class="cc-detail cc-detail--document">
+  <header>
+    <h3>{{ doc.title }}</h3>
+    <p class="cc-muted">
+      <code>{{ doc.doc_id }}</code>
+      {% if doc.doc_type %} · {{ doc.doc_type }}{% endif %}
+      {% if doc.doc_date %} · {{ doc.doc_date }}{% endif %}
+      · ingested {{ doc.ingested_at }}
+    </p>
+  </header>
+
+  <dl class="cc-detail-grid">
+    <dt>Source path</dt>
+    <dd><code>{{ doc.source_path }}</code></dd>
+
+    <dt>Assertions extracted</dt>
+    <dd>{{ n_assertions }}</dd>
+  </dl>
+
+  {% if preview_assertions %}
+    <section>
+      <h4>Preview (first {{ preview_assertions | length }} of {{ n_assertions }})</h4>
+      <ul>
+        {% for text in preview_assertions %}
+          <li>{{ text }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if doc.metadata_json %}
+    <details>
+      <summary>Raw metadata JSON</summary>
+      <pre class="cc-pre">{{ doc.metadata_json }}</pre>
+    </details>
+  {% endif %}
+</article>
