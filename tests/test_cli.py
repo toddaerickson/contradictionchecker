@@ -432,6 +432,71 @@ def test_export_bad_format_errors(runner: CliRunner, tmp_path: Path) -> None:
     assert result.exit_code != 0
 
 
+# --- G0b: optional --out -----------------------------------------------------
+
+
+def test_report_without_out_writes_to_default_reports_dir(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Omitting --out writes to <data_dir>/reports/cc_report_*.md."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+    store = AssertionStore(cfg.db_path)
+    logger = AuditLogger(store)
+    rid = logger.begin_run(run_id="abcd1234efgh5678")
+    for pair in AllPairsGate().candidates(store):
+        logger.record_finding(
+            rid,
+            candidate=pair,
+            nli=NliResult.from_scores(p_contradiction=0.8, p_entailment=0.1, p_neutral=0.1),
+            verdict=JudgeVerdict(
+                assertion_a_id=pair.a.assertion_id,
+                assertion_b_id=pair.b.assertion_id,
+                verdict="contradiction",
+                confidence=0.9,
+                rationale="opposing",
+            ),
+        )
+    logger.end_run(rid, n_assertions=2, n_pairs_gated=1, n_pairs_judged=1)
+    store.close()
+
+    result = runner.invoke(app, ["report", "--config", str(cfg_path), "--run", rid])
+    assert result.exit_code == 0, result.stdout
+    reports_dir = cfg.data_dir / "reports"
+    generated = list(reports_dir.glob("cc_report_*_abcd1234.md"))
+    assert len(generated) == 1, (
+        f"expected one report under {reports_dir}, found {list(reports_dir.glob('*'))}"
+    )
+    assert "Consistency check report" in generated[0].read_text()
+
+
+def test_export_csv_without_out_writes_to_default_reports_dir(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+    result = runner.invoke(app, ["export", "csv", "--config", str(cfg_path)])
+    assert result.exit_code == 0, result.stdout
+    generated = list((cfg.data_dir / "reports").glob("cc_assertions_*.csv"))
+    assert len(generated) == 1
+    assert "doc_id,assertion_id,assertion_text" in generated[0].read_text()
+
+
+def test_export_jsonl_without_out_writes_to_default_reports_dir(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+    result = runner.invoke(app, ["export", "jsonl", "--config", str(cfg_path)])
+    assert result.exit_code == 0, result.stdout
+    generated = list((cfg.data_dir / "reports").glob("cc_assertions_*.jsonl"))
+    assert len(generated) == 1
+    json.loads(generated[0].read_text().splitlines()[0])
+
+
 # --- store maintenance -----------------------------------------------------
 
 
