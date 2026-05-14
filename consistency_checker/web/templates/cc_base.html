@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>consistency-checker</title>
+    <link rel="stylesheet" href="/static/cc_style.css">
+    <script src="/static/htmx.min.js" defer></script>
+  </head>
+  <body>
+    <header class="cc-header">
+      <h1>consistency-checker</h1>
+      <nav class="cc-tabs">
+        <a class="cc-tab" hx-get="/" hx-target="#cc-tab-content" hx-push-url="true">Contradictions</a>
+        <a class="cc-tab" hx-get="/tabs/documents" hx-target="#cc-tab-content" hx-push-url="true">Documents</a>
+        <a class="cc-tab" hx-get="/tabs/assertions" hx-target="#cc-tab-content" hx-push-url="true">Assertions</a>
+        <a class="cc-tab" hx-get="/tabs/stats" hx-target="#cc-tab-content" hx-push-url="true">Stats</a>
+        <a class="cc-tab cc-tab--active" hx-get="/tabs/ingest" hx-target="#cc-tab-content" hx-push-url="true">Ingest</a>
+      </nav>
+    </header>
+    <main id="cc-tab-content">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

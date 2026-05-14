@@ -1,0 +1,89 @@
+/* Minimal styling for the consistency-checker web UI (ADR-0007). */
+
+:root {
+  --cc-bg: #fafafa;
+  --cc-fg: #1f1f1f;
+  --cc-muted: #6b6b6b;
+  --cc-accent: #2d63d9;
+  --cc-border: #e4e4e4;
+  --cc-success-bg: #ecf7ec;
+  --cc-success-border: #b8dab8;
+  --cc-error-bg: #fbecec;
+  --cc-error-border: #e0a8a8;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--cc-bg);
+  color: var(--cc-fg);
+  line-height: 1.5;
+}
+
+.cc-header {
+  border-bottom: 1px solid var(--cc-border);
+  padding: 1rem 1.5rem 0;
+  background: white;
+}
+
+.cc-header h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+}
+
+.cc-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.cc-tab {
+  padding: 0.5rem 1rem;
+  text-decoration: none;
+  color: var(--cc-muted);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.cc-tab:hover { color: var(--cc-fg); }
+
+.cc-tab--active {
+  color: var(--cc-fg);
+  border-bottom-color: var(--cc-accent);
+}
+
+main {
+  padding: 1.5rem;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.cc-section { background: white; padding: 1.5rem; border: 1px solid var(--cc-border); border-radius: 6px; }
+.cc-muted { color: var(--cc-muted); }
+
+.cc-upload-form { display: flex; align-items: center; gap: 1rem; margin: 1rem 0; }
+.cc-file-label { display: flex; align-items: center; gap: 0.5rem; }
+.cc-button {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--cc-accent);
+  background: white;
+  color: var(--cc-accent);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+.cc-button:hover { background: var(--cc-accent); color: white; }
+.cc-button[disabled] { opacity: 0.5; cursor: not-allowed; }
+.cc-button--primary { background: var(--cc-accent); color: white; }
+
+.cc-card { padding: 1rem; border-radius: 4px; margin-top: 1rem; }
+.cc-card--success { background: var(--cc-success-bg); border: 1px solid var(--cc-success-border); }
+.cc-card--error { background: var(--cc-error-bg); border: 1px solid var(--cc-error-border); }
+
+.cc-uploads-list { list-style: none; padding: 0; }
+.cc-uploads-list > li { padding: 0.5rem 0; border-bottom: 1px solid var(--cc-border); }
+.cc-uploads-list > li:last-child { border-bottom: none; }
+
+code { background: rgba(0,0,0,0.06); padding: 0.05rem 0.3rem; border-radius: 3px; }
