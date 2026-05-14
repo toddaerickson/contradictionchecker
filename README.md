@@ -4,7 +4,7 @@
 
 Scans a corpus of documents for **internal contradictions** using a two-stage NLI + LLM pipeline. Designed for symmetric pairwise scans across a static corpus, not for guarding an existing knowledge base against new documents.
 
-> v0.1.0 — first release. See [`CHANGELOG.md`](CHANGELOG.md) for what's in scope, [`futureplans.md`](futureplans.md) for what's next.
+> v0.3 — FastAPI + HTMX web UI, three-document conditional contradictions (graph triangles), numeric short-circuit, and PDF/DOCX loaders. See [`CHANGELOG.md`](CHANGELOG.md) for the full feature list, [`futureplans.md`](futureplans.md) for what's next.
 
 ## Why two stages
 
@@ -43,21 +43,38 @@ cp config.example.yml config.yml
 # 2. Set credentials for whichever provider you chose
 export ANTHROPIC_API_KEY=...      # or OPENAI_API_KEY=...
 
-# 3. Run
+# 3a. Web UI flow (v0.3+)
+uv run consistency-check serve --open    # browser opens to http://127.0.0.1:8000
+# Drop files in the Ingest tab → click Run / Check now (toggle Deep for
+# three-document conditional contradictions) → watch live counters on
+# the Stats tab → drill into each finding from the Contradictions tab.
+
+# 3b. CLI-only flow
 uv run consistency-check ingest path/to/corpus/
-uv run consistency-check check
-uv run consistency-check report --out report.md
-uv run consistency-check export csv --out assertions.csv
+uv run consistency-check check                       # add --deep for triangle pass
+uv run consistency-check report                      # writes data/store/reports/cc_report_<ts>_<run_id>.md
+uv run consistency-check export csv                  # writes data/store/reports/cc_assertions_<ts>.csv
 ```
 
-The `export` command emits `(doc_id, assertion_id, assertion_text)` rows for downstream tooling. The first `check` run downloads a ~800 MB DeBERTa NLI model from Hugging Face; subsequent runs hit the cache.
+The `export` command emits `(doc_id, assertion_id, assertion_text)` rows for downstream tooling. `--out` is optional for both `report` and `export`; omit it and the file lands under `<data_dir>/reports/` with a unique descriptive name. The first `check` run downloads a ~800 MB DeBERTa NLI model from Hugging Face; subsequent runs hit the cache.
+
+### Vendoring HTMX
+
+The web UI ships with a placeholder `htmx.min.js`. After cloning, run once:
+
+```sh
+uv run python scripts/vendor_htmx.py
+```
+
+to download HTMX v1.9.12 into `consistency_checker/web/static/`. Tests use FastAPI's `TestClient` which doesn't execute JS, so CI doesn't need the real script.
 
 ### Other CLI commands
 
 ```sh
-uv run consistency-check store stats             # row counts
-uv run consistency-check store rebuild-index     # regenerate FAISS from SQLite
-uv run consistency-check --help                  # all commands
+uv run consistency-check serve --host 127.0.0.1 --port 8000  # launch the web UI
+uv run consistency-check store stats                          # row counts
+uv run consistency-check store rebuild-index                  # regenerate FAISS from SQLite
+uv run consistency-check --help                               # all commands
 ```
 
 ## Benchmarks
@@ -90,6 +107,10 @@ Recorded as ADRs in [`docs/decisions/`](docs/decisions/README.md):
 - [0001 — LLM judge provider](docs/decisions/0001-llm-judge-provider.md): both Anthropic and OpenAI, behind a `Judge` Protocol.
 - [0002 — Embedding model](docs/decisions/0002-embedding-model.md): `sentence-transformers/all-mpnet-base-v2` default.
 - [0003 — CONTRADOC integration timing](docs/decisions/0003-contradoc-integration.md): in MVP scope.
+- [0004 — PDF/DOCX loader backend](docs/decisions/0004-pdf-docx-loaders.md): `unstructured` for both.
+- [0005 — Numeric short-circuit before the LLM judge](docs/decisions/0005-numeric-short-circuit.md): deterministic sign-flip detector skips the judge.
+- [0006 — Three-document conditional contradictions](docs/decisions/0006-three-doc-conditional.md): graph triangles on FAISS-similarity edges, opt-in via `--deep`.
+- [0007 — Web UI](docs/decisions/0007-web-ui.md): FastAPI + HTMX, server-rendered, `cc_`-prefixed templates.
 
 ## Supported formats
 
@@ -102,13 +123,14 @@ Other formats can be added via the `LOADERS` registry in `consistency_checker/co
 
 ## Known limitations
 
-Carried forward into the v0.3+ roadmap in [`futureplans.md`](futureplans.md):
+Carried forward into the v0.4+ roadmap in [`futureplans.md`](futureplans.md):
 
 - Chunk overlap `> 0` is unimplemented.
-- No dedicated numeric/quantitative extractor (v0.2 in progress).
-- Three-document conditional contradictions (pairwise checks pass, the conjunction contradicts) out of scope until v0.2/v0.3.
+- Three-document detection misses triangles whose edges fall below the FAISS gate threshold; v0.4 #6 adds an entity-NER cluster pass to catch these.
 - First `check` run downloads ~800 MB for the NLI model.
 - PDF / DOCX loaders use `strategy="fast"` by default — image-only PDFs need `strategy="hi_res"` (model download, not in CI).
+- `data_dir/uploads/<upload_id>/` grows without bound; v0.4 will add a GC pass.
+- The web UI is single-user, localhost-only, no auth — bind beyond `127.0.0.1` only after auth lands.
 
 ## License
 
