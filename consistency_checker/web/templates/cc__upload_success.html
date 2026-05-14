@@ -1,0 +1,25 @@
+{% if error %}
+<div class="cc-card cc-card--error">
+  <p>Upload failed: {{ error }}.</p>
+</div>
+{% else %}
+<div class="cc-card cc-card--success">
+  <h3>Upload complete</h3>
+  <p>
+    Upload <code>{{ upload_id }}</code> ingested {{ saved | length }} file(s);
+    {{ n_assertions }} assertion(s) extracted.
+  </p>
+  {% if saved %}
+    <ul>{% for name in saved %}<li>{{ name }}</li>{% endfor %}</ul>
+  {% endif %}
+  <button
+    type="button"
+    class="cc-button cc-button--primary"
+    hx-post="/runs"
+    hx-target="#cc-tab-content"
+    data-pending="g5"
+    disabled
+    title="Wired up in G5"
+  >Run / Check now</button>
+</div>
+{% endif %}

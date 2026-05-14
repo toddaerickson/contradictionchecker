@@ -1,0 +1,45 @@
+{% if not htmx %}{% extends "cc_base.html" %}{% endif %}
+
+{% block content %}
+<section class="cc-section">
+  <h2>Ingest documents</h2>
+  <p class="cc-muted">
+    Drop <code>.txt</code> / <code>.md</code> / <code>.pdf</code> / <code>.docx</code>
+    files. Each upload becomes its own directory under
+    <code>&lt;data_dir&gt;/uploads/</code>.
+  </p>
+
+  <form
+    class="cc-upload-form"
+    hx-post="/uploads"
+    hx-encoding="multipart/form-data"
+    hx-target="#cc-upload-result"
+    hx-swap="innerHTML"
+  >
+    <label class="cc-file-label" for="cc-files">
+      <span>Select files</span>
+      <input id="cc-files" type="file" name="files" multiple required>
+    </label>
+    <button type="submit" class="cc-button">Upload and ingest</button>
+  </form>
+
+  <div id="cc-upload-result" aria-live="polite"></div>
+
+  <h3>Prior uploads</h3>
+  {% if prior_uploads %}
+    <ul class="cc-uploads-list">
+      {% for upload in prior_uploads %}
+        <li>
+          <strong>{{ upload.name }}</strong>
+          <span class="cc-muted">— {{ upload.files | length }} file(s)</span>
+          {% if upload.files %}
+            <ul>{% for f in upload.files %}<li>{{ f }}</li>{% endfor %}</ul>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="cc-muted">No uploads yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
