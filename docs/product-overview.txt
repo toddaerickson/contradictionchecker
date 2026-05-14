@@ -1,0 +1,55 @@
+CrossCheck — Product Overview
+
+A narration-friendly summary. Written to be read aloud.
+
+
+What it is.
+
+CrossCheck scans a fixed collection of documents for internal contradictions — places where the collection disagrees with itself. It is symmetric: every document is checked against every other document. It is not a guardian tool that checks new documents against a trusted knowledge base. The question it answers is simply, does this body of documents contradict itself, and if so, where.
+
+
+How it works.
+
+CrossCheck runs in stages.
+
+First, it ingests your documents. It accepts plain text, Markdown, PDF, and Word files. It splits each document into overlapping windows of sentences while keeping exact track of character positions, so every claim can be traced back to its source.
+
+Second, it extracts atomic claims. A language model reads each window and pulls out small, self-contained statements — one idea per claim, with qualifiers preserved. This granularity matters: it keeps "all employees, in fiscal year 2025" distinct from just "all employees."
+
+Third, it embeds and gates. Every claim is turned into a vector and stored in a similarity index. A gate then proposes only the pairs of claims that are similar enough to be worth examining, so the expensive stages never see the full combinatorial explosion of every possible pair.
+
+Fourth comes Stage A, the natural-language-inference gate. A specialized model scores each candidate pair for how likely it is to be a contradiction. This stage is cheap and casts a wide net. It has high recall but low precision — on its own it would flag far too many false contradictions.
+
+Fifth comes Stage B, the language-model judge. For every pair that clears the gate, a frontier language model delivers a structured verdict: contradiction, not a contradiction, or uncertain. It returns a rationale, a confidence score, and the specific quoted spans of text that drove the decision. This stage is the precision instrument.
+
+Along the way, two extra mechanisms run. A numeric short-circuit catches plain sign-flips deterministically — for example, one document saying revenue grew twelve percent and another saying it declined five percent, for the same metric and the same period. These never need the language model. And an optional deep mode finds three-document conditional contradictions: cases where document A and document B and document C are each fine in isolation, but taken together they cannot all be true.
+
+Finally, every verdict — including the uncertain ones — is written to an audit database so any run can be replayed. The report, and the web interface, show only the confirmed contradictions.
+
+The core design bet is that two stages beat one. A single language-model check, used alone, tends to be expensive and imprecise on dense professional text. Putting a cheap inference gate in front cuts the cost dramatically and lifts precision substantially.
+
+
+Where it draws from.
+
+The architecture builds on established ideas in the contradiction-detection and fact-checking literature: using a natural-language-inference model as a high-recall gate in front of a more careful verifier; decomposing text into atomic facts before comparing them; and benchmarking against a document-level contradiction dataset. The project ships a harness to score itself against that benchmark. The precise published citations should be verified before they go on a product page rather than taken from internal planning notes.
+
+
+Best uses.
+
+CrossCheck is strongest on document sets where a term can quietly drift from one place to another. Contracts with amendments and side letters. Compliance corpora — an employee handbook against its regional addenda and benefits documents. Due-diligence data rooms, where you want the disagreements surfaced before a human reads the whole pile. Specification and documentation audits, where a docs set contradicts itself on a default or a limit. And pre-publication quality checks, where a report says one thing in the summary and the opposite in an appendix.
+
+
+Limits.
+
+CrossCheck examines pairs of claims, and, in deep mode, triangles of three. Joint contradictions among four or more claims are out of scope. It does not yet reliably link the same entity across documents when the wording differs — "the Borrower" in one document and the company's actual name in another. Its accuracy is capped by the quality of the claim extraction: if a claim is missed or mangled, nothing downstream can recover it. It has no model of time or versioning, so it does not know that a newer document is meant to supersede an older one — it will simply flag the conflict. And it is a single-corpus, single-user, local tool, not a multi-tenant service.
+
+
+Accuracy — false positives and false negatives.
+
+CrossCheck is deliberately tuned to be trusted when it speaks. The whole two-stage design exists to suppress false positives — false alarms. The inference gate's imprecision is intentionally not trusted; the language-model judge is the precision instrument, and "uncertain" is a first-class verdict that keeps borderline calls out of the final report entirely.
+
+The larger exposure is on the other side: false negatives — real contradictions that go unreported. The known sources are documented. A gate threshold set too conservatively can drop a pair before the judge ever sees it. Three-document triangles whose connections fall below the similarity threshold are missed. Contradictions among four or more claims, entity-coreference contradictions, and claims split across chunk boundaries are all gaps.
+
+The honest one-line summary is this: every contradiction CrossCheck reports is worth a human's attention, but CrossCheck staying silent is not proof that the collection is consistent. It is a precision tool — a confident shortlist for a reviewer, not an exhaustive guarantee.
+
+One final caveat. Everything above describes the system as designed. The actual measured precision and recall for any given deployment come from running the benchmark harness on representative data. Those numbers should be generated and reviewed before they are quoted.
