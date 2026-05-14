@@ -1,46 +1,16 @@
 # Future plans
 
-Forward-looking work beyond the v0.1.0 release. Items are sized roughly; pick from the top when starting a new milestone. When work is finished, move the entry to the **Completed** section below rather than deleting it — provenance matters when revisiting decisions.
+Forward-looking work beyond the v0.3 release. Items are sized roughly; pick from the top when starting a new milestone. When work is finished, move the entry to the **Completed** section below rather than deleting it — provenance matters when revisiting decisions.
 
-## v0.2 — fill the obvious gaps
+## v0.4 — precision and provenance
 
-These were explicitly out of scope in the 17-step plan but are the highest-leverage additions. A detailed PR-by-PR build sequence lives in [`docs/plans/v0.2-build-plan.md`](docs/plans/v0.2-build-plan.md); summaries below.
-
-### 1. PDF and DOCX loaders
-Replace the `NotImplementedError` stubs in `consistency_checker/corpus/loader.py`.
-- PDF: `pypdfium2` for layout-preserving text, fall back to `pdfminer.six` for tricky files. Preserve page numbers as `metadata_json` on the `Document` row.
-- DOCX: `python-docx` for body text; ignore headers/footers/footnotes for v0.2.
-- Both must maintain the char-span round-trip invariant (`text[chunk.char_start:chunk.char_end] == chunk.text`).
-- Test fixtures: one short PDF, one short DOCX in `tests/fixtures/sample_docs/`.
-
-### 2. Real chunk overlap
-The chunker currently raises `NotImplementedError` when `overlap_chars > 0`. Implement a sliding-sentence window: after emitting a chunk, retain the last sentences whose total length is up to `overlap_chars` and use them as the start of the next chunk. Keep the char-span invariant. Add a property-style test that the union of overlapping chunks covers every character at least once.
-
-### 3. Numeric / quantitative extractor
-NLI models routinely miss "grew 12%" vs. "declined 5%" as a contradiction unless the wording is unambiguous. A small auxiliary extractor (`consistency_checker/extract/quantitative.py`?) that pulls `(metric, value, unit, polarity, scope)` tuples out of each assertion would let us run a deterministic check before falling back to the LLM judge. Specifics:
-- Regex + `pint` for units (`%`, `million`, `bps`).
-- Same-scope tuples with opposite-sign polarity → automatic contradiction with `confidence=1.0`, skip the judge.
-- Same-scope tuples with adjacent ranges → flag as `uncertain` and pass to the judge with the numeric mismatch in the prompt context.
-
-### 4. OpenAI atomic-fact extractor
-`AnthropicExtractor` exists; the OpenAI counterpart was deferred. The Anthropic implementation in `consistency_checker/extract/atomic_facts.py` is the reference shape; mirror it in `OpenAIExtractor` using `client.beta.chat.completions.parse` with a Pydantic schema.
-
-### 5. CONTRADOC fetch + cache helper
-Today `benchmarks/contradoc_harness.py` expects a pre-normalised JSONL. Add a thin loader that:
-- Fetches the original CONTRADOC release from the canonical source.
-- Normalises to our JSONL shape and caches under `~/.cache/contradoc/`.
-- Skips re-download if the cached file exists. SHA-256 verification on the download.
-- Exposes `python -m benchmarks.contradoc_harness fetch` as a subcommand.
-
-## v0.3 — precision and provenance
-
-Higher-effort items that require more design discussion.
+Higher-effort items that require more design discussion. Some carry from the old v0.3 list because v0.3 ended up focused on the web UI (Block G) instead.
 
 ### 6. Three-document conditional contradictions — cluster-by-entity second pass
 
-v0.2 ships the graph-triangle approach (see [`docs/plans/v0.2-build-plan.md`](docs/plans/v0.2-build-plan.md) Block F): triangles enumerated on FAISS-similarity edges, opt-in via `--deep`. That catches conditional contradictions whose three assertions are pairwise similar enough to clear the gate threshold. It **misses** triangles whose edges fall below the gate — e.g. `A` and `C` referencing the same entity but in vocabulary that the embedder doesn't place near each other.
+v0.2 shipped the graph-triangle approach (see [`docs/plans/v0.2-build-plan.md`](docs/plans/v0.2-build-plan.md) Block F): triangles enumerated on FAISS-similarity edges, opt-in via `--deep`. That catches conditional contradictions whose three assertions are pairwise similar enough to clear the gate threshold. It **misses** triangles whose edges fall below the gate — e.g. `A` and `C` referencing the same entity but in vocabulary that the embedder doesn't place near each other.
 
-v0.3 adds a second pass that fires **after** the triangle pass and shares the same `multi_party_findings` table:
+v0.4 adds a second pass that fires **after** the triangle pass and shares the same `multi_party_findings` table:
 
 - Run a lightweight NER pass (see #7) to canonicalise entities across assertions.
 - For every entity that appears in ≥ 3 assertions spanning ≥ 2 documents, build a cluster.
@@ -56,15 +26,15 @@ Document A says "the Borrower", Document B says "ABC Corp". The current judge ca
 SQLite + FAISS works at corpus sizes up to ~1M assertions. Beyond that, LanceDB consolidates store + vectors with native filtering. Worth prototyping as an alternative `Store` Protocol so users can choose. ADR-0002's "domain model" alternative path goes here too — once LanceDB is in place, domain embedders are configurable rather than code-bound.
 
 ### 9. Reviewer workflow
-The audit DB has `findings.reviewer_verdict` columns reserved (or should — verify the schema). Build a tiny TUI (or web view) that walks reviewers through unreviewed findings and lets them set `reviewer_verdict` ∈ `{confirmed, false_positive, dismissed}`. Findings that reviewers confirm as false positives should feed back into prompt iteration.
+The audit DB has `findings.reviewer_verdict` columns reserved (or should — verify the schema). Build a tiny TUI (or web view) that walks reviewers through unreviewed findings and lets them set `reviewer_verdict` ∈ `{confirmed, false_positive, dismissed}`. Findings that reviewers confirm as false positives should feed back into prompt iteration. v0.3 Block G already provides the FastAPI/HTMX shell — #9 lives mostly in new templates + a `reviewer_verdict` column.
 
-## v0.4 — operational
+## v0.4+ — operational
 
 ### 10. Incremental scans
 Today every `check` invocation re-scans the whole corpus. If only one new document was added since last run, only its assertions need to be paired against pre-existing ones. Use the `documents.ingested_at` timestamp to compute a "new assertions" set, then gate against the old set without re-pairing the old set with itself. Audit logger gains a `prior_run_id` link so report can show "new vs. carry-forward findings."
 
-### 11. Web review surface
-Once #9 lands, wrap it in a FastAPI + a few HTMX templates. Read-only mode for stakeholders; reviewer mode for analysts. v0.3 Block G ships the underlying app shell ([`docs/plans/v0.3-block-g.md`](docs/plans/v0.3-block-g.md)) — #11 adds the reviewer-specific routes on top.
+### 11. Web review surface (extends v0.3 Block G)
+The FastAPI + HTMX app shell shipped in v0.3 ([`docs/plans/v0.3-block-g.md`](docs/plans/v0.3-block-g.md)). #11 adds the reviewer-specific routes once #9 lands: read-only mode for stakeholders, reviewer mode for analysts who can set `reviewer_verdict`.
 
 ### 12. Local-LLM judge provider
 For air-gapped deployments: a `LocalLlamaProvider` against `llama.cpp` or vLLM. The `JudgeProvider` Protocol already exists — this is mostly prompt tuning and tooling, not architecture. Document the quality trade-off in a new ADR.
@@ -83,6 +53,22 @@ v0.3 ships `consistency-check serve --open` which auto-launches the browser afte
 
 Pick A or B based on the target audience: A for technical users who already have Python; B for analyst-class users who don't. ADR-0008 captures the choice.
 
+## Deferred from the v0.3 simplify pass
+
+Flagged during the three-agent code review after G5 merged. Each is well-scoped but bigger than a one-line fix.
+
+### 15. Bulk-fetch helpers on `AssertionStore` (N+1 fix)
+`web/app.py::index` and `tab_assertions` issue per-row `get_assertion` / `get_document` queries. Add `get_assertions_bulk(ids: Sequence[str])` and `get_documents_bulk(ids)` with `WHERE id IN (...)` queries; the web routes collect all ids in a first pass, then build rows in a second. Cuts the index-page query count from `4 × n_findings + 2` to `4`.
+
+### 16. Cache embedder dimension to avoid a SentenceTransformers load per run
+`web/app.py::_run_check_in_background` calls `_open_stores()`, which constructs a real `SentenceTransformerEmbedder` (`pipeline.make_embedder`) purely to extract `.dim` for `FaissStore.open_or_create`. In production this triggers a multi-hundred-MB model load on every kick-off. Either persist `dim` to a config file / FAISS-file sidecar so `_open_stores` can skip the embedder when the index already exists on disk, or refactor `FaissStore.open_or_create` to read `dim` from the existing index header.
+
+### 17. Extract `cc__run_button.html` partial
+The `<form hx-post="/runs">` block appears in both `cc__upload_success.html` and `cc_contradictions.html` with minor style + label differences. Lift into a partial taking `button_label` / `inline` params and `{% include %}` from both sites.
+
+### 18. Lift `audit_logger.begin_run` out of `pipeline.check`
+v0.3 G5 added a `run_id` kwarg so the web layer could reuse a pending row. Cleaner: have all callers (CLI, web layer) call `begin_run` themselves and pass a required `run_id` into `pipeline.check`. Removes the dual-mode branch at the top of `check()` and keeps the function single-purpose.
+
 ## Known issues to fix opportunistically
 
 - `consistency_checker/cli/main.py:140` reaches into `store._conn` to fetch the most recent run id. Add a `AuditLogger.most_recent_run()` method so the CLI doesn't touch a private attribute.
@@ -94,3 +80,10 @@ Pick A or B based on the target audience: A for technical users who already have
 (Move items here as they ship, keep a one-line note on which release.)
 
 - **v0.1.0** — full 17-step build plan: ingest → chunk → atomic-fact extraction → embed → gate → NLI → judge → audit → report → CLI → CONTRADOC harness → CI. See `CHANGELOG.md`.
+- **v0.2.0** — Block D (PDF/DOCX loaders via `unstructured`), Block E (numeric short-circuit + range-overlap hint), Block F (three-document conditional contradictions via graph triangles, `--deep` flag). See [`docs/plans/v0.2-build-plan.md`](docs/plans/v0.2-build-plan.md).
+  - Item #1 (PDF/DOCX) — D2 / ADR-0004.
+  - Item #3 (numeric extractor) — E1–E3 / ADR-0005.
+  - Items #6 partial (three-doc graph-triangle half) — Block F / ADR-0006. Cluster-by-entity second pass still pending in v0.4.
+- **v0.3.0** — Block G web UI: FastAPI + HTMX, Contradictions / Documents / Assertions / Stats / Ingest tabs, Diff partials, HTMX self-polling, `consistency-check serve --open` CLI command, `run_status` migration + `BackgroundTasks` for check. See [`docs/plans/v0.3-block-g.md`](docs/plans/v0.3-block-g.md).
+  - Output naming helper (`audit/naming.py`) + optional `--out` on `report` / `export` (G0b).
+  - simplify pass: `RunStatus` Literal type, closure-captured overrides, dead-code cleanup.
