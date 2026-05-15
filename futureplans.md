@@ -51,7 +51,7 @@ v0.3 ships `consistency-check serve --open` which auto-launches the browser afte
 - **Option A — `pipx run consistency-checker-launcher`**: a tiny separate package that depends on `consistency-checker` and exposes a single entrypoint script which runs the equivalent of `consistency-check serve --open` plus a graceful shutdown handler. Users install once via `pipx`; subsequent launches are one shell command from any cwd.
 - **Option B — PyInstaller bundle**: a single-file executable per platform (macOS `.app`, Windows `.exe`, Linux AppImage) that bundles Python, the package, and the model caches. True double-click experience; larger artefacts (~200–400 MB once HuggingFace caches are baked in) and more release engineering. Decide whether to ship caches or download-on-first-run.
 
-Pick A or B based on the target audience: A for technical users who already have Python; B for analyst-class users who don't. ADR-0008 captures the choice.
+Pick A or B based on the target audience: A for technical users who already have Python; B for analyst-class users who don't. A new ADR captures the choice when this is scheduled.
 
 ## Deferred from the v0.3 simplify pass
 
@@ -69,9 +69,18 @@ The `<form hx-post="/runs">` block appears in both `cc__upload_success.html` and
 ### 18. Lift `audit_logger.begin_run` out of `pipeline.check`
 v0.3 G5 added a `run_id` kwarg so the web layer could reuse a pending row. Cleaner: have all callers (CLI, web layer) call `begin_run` themselves and pass a required `run_id` into `pipeline.check`. Removes the dual-mode branch at the top of `check()` and keeps the function single-purpose.
 
+## Persona-aware analysis and the detector family
+
+Design shape locked in [ADR-0008](docs/decisions/0008-persona-aware-analysis.md) (status: Proposed). Build is gated on eval data; capture here so the design doesn't drift.
+
+### 19. Persona-aware scoring + presentation
+The same document set is read differently by different consumers — employee vs manager vs HR professional; lender vs credit analyst vs borrower vs borrower's counsel. Per ADR-0008, this is a **view layer**, not forked judge agents: a `Persona` config object (interests, scope assumptions, materiality weights) feeds (a) an impact scorer that re-ranks/filters the shared `findings` per persona, and (b) an optional `persona_context` block spliced into the judge prompt the way E3's `numeric_context` already works. Core detector, audit trail, and cache stay single and shared. Ship the report/web persona *filter* first; add the prompt hook only once eval shows borderline scope calls actually flip per persona.
+
+### 20. Consistency-detector family (gap / definition / ambiguity detectors)
+The contradiction judge can only return verdicts about two assertions that both exist — so it structurally cannot find `X` vs silence (a **gap**) or `X` vs vague (an **ambiguity**). A borrower's counsel reading a loan package cares about exactly those: an obligation promised in the term sheet but unaddressed in the credit agreement; a defined term used inconsistently with its single definition; a "material adverse change" clause loose enough to litigate. These are *new detectors* that share CrossCheck's ingest / atomic-fact / embedding / audit infrastructure but ask a different question of the assertion graph. CrossCheck's contradiction detector is the first of the family. Each new detector gets its own ADR. Personas (#19) then map to *which detectors run*, not just how findings rank.
+
 ## Known issues to fix opportunistically
 
-- `consistency_checker/cli/main.py:140` reaches into `store._conn` to fetch the most recent run id. Add a `AuditLogger.most_recent_run()` method so the CLI doesn't touch a private attribute.
 - The benchmark harness bypasses Stage 7 (atomic-fact extraction). Worth surfacing in `docs/benchmarks.md` more loudly so users don't compare CONTRADOC F1 to "full pipeline F1" and get confused.
 - v0.1.0 ships with `embedder_model: "hash"` accepted by config validation only because Pydantic doesn't enforce the model name. A `Literal[...]` would catch typos at config-load time, but it would also lock out user-supplied HF model ids. Decide whether validation should be strict or permissive — currently permissive by accident.
 

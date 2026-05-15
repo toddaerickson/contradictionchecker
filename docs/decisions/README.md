@@ -15,3 +15,4 @@ Format: one decision per file, ~20–40 lines, sections `Status / Context / Deci
 | 0005  | [Numeric short-circuit before the LLM judge](0005-numeric-short-circuit.md) | Accepted |
 | 0006  | [Three-document conditional contradictions (graph triangles)](0006-three-doc-conditional.md) | Accepted |
 | 0007  | [Web UI: FastAPI + HTMX](0007-web-ui.md) | Accepted |
+| 0008  | [Persona-aware analysis: a view layer, not forked agents](0008-persona-aware-analysis.md) | Proposed |
