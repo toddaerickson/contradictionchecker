@@ -214,6 +214,26 @@ class AssertionStore:
         for row in self._conn.execute(sql, params):
             yield _row_to_document(row)
 
+    def get_documents_bulk(self, ids: Sequence[str]) -> dict[str, Document]:
+        """Fetch multiple documents in one query. Returns a dict keyed by doc_id."""
+        if not ids:
+            return {}
+        placeholders = ",".join("?" * len(ids))
+        rows = self._conn.execute(
+            f"SELECT * FROM documents WHERE doc_id IN ({placeholders})", list(ids)
+        ).fetchall()
+        return {row["doc_id"]: _row_to_document(row) for row in rows}
+
+    def get_assertions_bulk(self, ids: Sequence[str]) -> dict[str, Assertion]:
+        """Fetch multiple assertions in one query. Returns a dict keyed by assertion_id."""
+        if not ids:
+            return {}
+        placeholders = ",".join("?" * len(ids))
+        rows = self._conn.execute(
+            f"SELECT * FROM assertions WHERE assertion_id IN ({placeholders})", list(ids)
+        ).fetchall()
+        return {row["assertion_id"]: _row_to_assertion(row) for row in rows}
+
     def get_assertion(self, assertion_id: str) -> Assertion | None:
         row = self._conn.execute(
             "SELECT * FROM assertions WHERE assertion_id = ?", (assertion_id,)

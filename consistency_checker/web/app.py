@@ -160,23 +160,30 @@ def create_app(
             pair_findings: list[dict[str, Any]] = []
             multi_party_findings: list[dict[str, Any]] = []
             if run is not None:
-                for raw in (
+                raw_pair_findings = [
                     *audit.iter_findings(run_id=run.run_id, verdict="contradiction"),
                     *audit.iter_findings(run_id=run.run_id, verdict="numeric_short_circuit"),
-                ):
-                    a = store.get_assertion(raw.assertion_a_id)
-                    b = store.get_assertion(raw.assertion_b_id)
+                ]
+                assertion_ids = [
+                    aid
+                    for raw in raw_pair_findings
+                    for aid in (raw.assertion_a_id, raw.assertion_b_id)
+                ]
+                assertions = store.get_assertions_bulk(assertion_ids)
+                doc_ids = list({a.doc_id for a in assertions.values()})
+                documents = store.get_documents_bulk(doc_ids)
+                for raw in raw_pair_findings:
+                    a = assertions.get(raw.assertion_a_id)
+                    b = assertions.get(raw.assertion_b_id)
                     if a is None or b is None:
                         continue
-                    doc_a = store.get_document(a.doc_id)
-                    doc_b = store.get_document(b.doc_id)
                     pair_findings.append(
                         {
                             "finding_id": raw.finding_id,
                             "verdict": raw.judge_verdict,
                             "confidence": raw.judge_confidence,
-                            "doc_a_label": _document_label(doc_a, a.doc_id),
-                            "doc_b_label": _document_label(doc_b, b.doc_id),
+                            "doc_a_label": _document_label(documents.get(a.doc_id), a.doc_id),
+                            "doc_b_label": _document_label(documents.get(b.doc_id), b.doc_id),
                             "rationale_first_line": (raw.judge_rationale or "").splitlines()[:1],
                         }
                     )
@@ -383,16 +390,16 @@ def create_app(
             total = store.stats()["assertions"]
             pag = _pagination(page=page, total=total)
             offset = (pag["page"] - 1) * PAGE_SIZE
-            rows: list[dict[str, Any]] = []
-            for a in store.iter_assertions(limit=PAGE_SIZE, offset=offset):
-                doc = store.get_document(a.doc_id)
-                rows.append(
-                    {
-                        "assertion_id": a.assertion_id,
-                        "doc_label": _document_label(doc, a.doc_id),
-                        "text_preview": _truncate(a.assertion_text, 100),
-                    }
-                )
+            page_assertions = list(store.iter_assertions(limit=PAGE_SIZE, offset=offset))
+            documents = store.get_documents_bulk([a.doc_id for a in page_assertions])
+            rows = [
+                {
+                    "assertion_id": a.assertion_id,
+                    "doc_label": _document_label(documents.get(a.doc_id), a.doc_id),
+                    "text_preview": _truncate(a.assertion_text, 100),
+                }
+                for a in page_assertions
+            ]
         finally:
             store.close()
         return templates.TemplateResponse(

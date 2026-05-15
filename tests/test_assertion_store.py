@@ -187,6 +187,35 @@ def test_export_jsonl_includes_metadata(store: AssertionStore, tmp_path: Path) -
     assert row["char_start"] == 0
 
 
+def test_get_documents_bulk_returns_subset(store: AssertionStore) -> None:
+    doc_a = make_doc("Body A.", "a.txt")
+    doc_b = make_doc("Body B.", "b.txt")
+    store.add_document(doc_a)
+    store.add_document(doc_b)
+    result = store.get_documents_bulk([doc_a.doc_id, doc_b.doc_id, "nonexistent"])
+    assert set(result.keys()) == {doc_a.doc_id, doc_b.doc_id}
+    assert result[doc_a.doc_id].source_path == "a.txt"
+
+
+def test_get_documents_bulk_empty_ids_returns_empty(store: AssertionStore) -> None:
+    assert store.get_documents_bulk([]) == {}
+
+
+def test_get_assertions_bulk_returns_subset(store: AssertionStore) -> None:
+    doc = make_doc()
+    store.add_document(doc)
+    a1 = make_assertion(doc, "Revenue grew 10%.")
+    a2 = make_assertion(doc, "Revenue declined 5%.")
+    store.add_assertions([a1, a2])
+    result = store.get_assertions_bulk([a1.assertion_id, a2.assertion_id, "ghost"])
+    assert set(result.keys()) == {a1.assertion_id, a2.assertion_id}
+    assert result[a1.assertion_id].assertion_text == "Revenue grew 10%."
+
+
+def test_get_assertions_bulk_empty_ids_returns_empty(store: AssertionStore) -> None:
+    assert store.get_assertions_bulk([]) == {}
+
+
 def test_context_manager(tmp_path: Path) -> None:
     db_path = tmp_path / "ctx.db"
     with AssertionStore(db_path) as store:
