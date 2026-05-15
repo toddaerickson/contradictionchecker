@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,11 @@ from consistency_checker.corpus.loader import (
     load_path,
 )
 from consistency_checker.extract.schema import Document
+
+_skip_unstructured_on_win = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="unstructured/libmagic access violation on Windows; passes on CI (Ubuntu)",
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sample_docs"
 
@@ -227,6 +233,7 @@ def _assert_char_span_round_trip(loaded: LoadedDocument) -> None:
         assert loaded.text[c.char_start : c.char_end] == c.text
 
 
+@_skip_unstructured_on_win
 def test_unstructured_loader_loads_pdf(sample_pdf_path: Path) -> None:
     loaded = load_path(sample_pdf_path)
     assert "widgets" in loaded.text
@@ -235,6 +242,7 @@ def test_unstructured_loader_loads_pdf(sample_pdf_path: Path) -> None:
     _assert_char_span_round_trip(loaded)
 
 
+@_skip_unstructured_on_win
 def test_unstructured_loader_loads_docx(sample_docx_path: Path) -> None:
     loaded = load_path(sample_docx_path)
     assert "DOCX" in loaded.text or "body paragraph" in loaded.text.lower()
@@ -242,6 +250,7 @@ def test_unstructured_loader_loads_docx(sample_docx_path: Path) -> None:
     _assert_char_span_round_trip(loaded)
 
 
+@_skip_unstructured_on_win
 def test_unstructured_loader_records_element_spans(sample_docx_path: Path) -> None:
     """Element-spans must point at the substrings they describe."""
     loaded = load_path(sample_docx_path)
@@ -256,6 +265,7 @@ def test_unstructured_loader_records_element_spans(sample_docx_path: Path) -> No
         assert span["element_type"] in UnstructuredLoader.BODY_TYPES
 
 
+@_skip_unstructured_on_win
 def test_unstructured_loader_spans_are_contiguous(sample_docx_path: Path) -> None:
     """Adjacent element spans must be separated by exactly the element separator length."""
     loaded = load_path(sample_docx_path)
@@ -266,6 +276,7 @@ def test_unstructured_loader_spans_are_contiguous(sample_docx_path: Path) -> Non
         assert curr["char_start"] == prev["char_end"] + sep_len
 
 
+@_skip_unstructured_on_win
 def test_unstructured_loader_full_corpus_walk(
     sample_pdf_path: Path,
     sample_docx_path: Path,

@@ -15,6 +15,48 @@ from consistency_checker.check.nli_checker import FixtureNliChecker, NliResult
 from consistency_checker.extract.schema import Assertion, Document
 from consistency_checker.index.assertion_store import AssertionStore
 
+# --- run_status (migration 0004) -------------------------------------------
+
+
+def test_run_status_column_exists(store: AssertionStore) -> None:
+    """Migration 0004 adds run_status with a default of 'running'."""
+    cols = {row[1] for row in store._conn.execute("PRAGMA table_info(pipeline_runs)")}
+    assert "run_status" in cols
+
+
+def test_begin_run_defaults_to_running(store: AssertionStore) -> None:
+    logger = AuditLogger(store)
+    rid = logger.begin_run(run_id="r-running-default")
+    run = logger.get_run(rid)
+    assert run is not None
+    assert run.run_status == "running"
+
+
+def test_begin_run_accepts_pending_status(store: AssertionStore) -> None:
+    logger = AuditLogger(store)
+    rid = logger.begin_run(run_id="r-pending", run_status="pending")
+    run = logger.get_run(rid)
+    assert run is not None
+    assert run.run_status == "pending"
+
+
+def test_update_run_status_flips_value(store: AssertionStore) -> None:
+    logger = AuditLogger(store)
+    rid = logger.begin_run(run_id="r-flip", run_status="pending")
+    logger.update_run_status(rid, "running")
+    assert logger.get_run(rid).run_status == "running"  # type: ignore[union-attr]
+    logger.update_run_status(rid, "failed")
+    assert logger.get_run(rid).run_status == "failed"  # type: ignore[union-attr]
+
+
+def test_end_run_marks_status_done(store: AssertionStore) -> None:
+    logger = AuditLogger(store)
+    rid = logger.begin_run(run_id="r-done")
+    logger.end_run(rid, n_assertions=1, n_pairs_gated=0, n_pairs_judged=0, n_findings=0)
+    run = logger.get_run(rid)
+    assert run is not None
+    assert run.run_status == "done"
+
 
 def _seed_two_docs(store: AssertionStore) -> tuple[Document, Document]:
     doc_a = Document.from_content("Body A.", source_path="a.txt")

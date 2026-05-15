@@ -10,6 +10,9 @@ schema tests.
 Session-scoped ``sample_pdf_path`` and ``sample_docx_path`` fixtures generate
 small valid PDF and DOCX files under ``tmp_path_factory`` so binary fixtures
 don't have to be checked in. ``reportlab`` and ``python-docx`` are dev deps.
+
+``web_config`` and ``web_client`` fixtures are shared across all web test
+modules so the boilerplate Config + TestClient construction isn't duplicated.
 """
 
 from __future__ import annotations
@@ -22,7 +25,10 @@ import numpy as np
 import pytest
 
 if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
     from numpy.typing import NDArray
+
+    from consistency_checker.config import Config
 
 
 class HashEmbedder:
@@ -52,6 +58,38 @@ class HashEmbedder:
                 arr = arr / norm
             out[i] = arr.astype(np.float32)
         return out
+
+
+# --- generated binary fixtures ----------------------------------------------
+
+
+@pytest.fixture
+def web_config(tmp_path: Path) -> Config:
+    """Default web-layer Config for hermetic tests; no NLI/judge network calls."""
+    from consistency_checker.config import Config
+
+    return Config(
+        corpus_dir=tmp_path / "corpus",
+        judge_provider="fixture",
+        judge_model="test",
+        data_dir=tmp_path / "store",
+        log_dir=tmp_path / "logs",
+        embedder_model="hash",
+        nli_model="fixture",
+    )
+
+
+@pytest.fixture
+def web_client(web_config: Config) -> TestClient:
+    """TestClient wired with FixtureExtractor + HashEmbedder; no side-effects."""
+    from fastapi.testclient import TestClient
+
+    from consistency_checker.extract.atomic_facts import FixtureExtractor
+    from consistency_checker.web.app import create_app
+
+    return TestClient(
+        create_app(web_config, extractor=FixtureExtractor({}), embedder=HashEmbedder(dim=64))
+    )
 
 
 # --- generated binary fixtures ----------------------------------------------

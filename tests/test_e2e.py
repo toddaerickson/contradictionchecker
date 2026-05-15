@@ -18,6 +18,7 @@ Two flavours are exercised:
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -196,6 +197,10 @@ def _hash_id_for(content: str) -> str:
 
 
 @pytest.mark.e2e_fixture
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="unstructured/libmagic access violation on Windows; passes on CI (Ubuntu)",
+)
 def test_end_to_end_mixed_format_corpus(
     tmp_path: Path,
     sample_pdf_path: Path,

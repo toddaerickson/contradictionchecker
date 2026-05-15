@@ -76,69 +76,6 @@ def hermetic_client(tmp_path: Path) -> tuple[TestClient, Config]:
     return TestClient(app), cfg
 
 
-# --- run_status migration -------------------------------------------------
-
-
-def test_pipeline_runs_table_has_run_status_column(tmp_path: Path) -> None:
-    """Migration 0004 adds run_status with a default of 'pending'."""
-    cfg = _config(tmp_path)
-    store = AssertionStore(cfg.db_path)
-    store.migrate()
-    cols = {row[1] for row in store._conn.execute("PRAGMA table_info(pipeline_runs)")}
-    store.close()
-    assert "run_status" in cols
-
-
-def test_begin_run_defaults_to_running(tmp_path: Path) -> None:
-    cfg = _config(tmp_path)
-    store = AssertionStore(cfg.db_path)
-    store.migrate()
-    logger = AuditLogger(store)
-    rid = logger.begin_run(run_id="r-running-default")
-    run = logger.get_run(rid)
-    store.close()
-    assert run is not None
-    assert run.run_status == "running"
-
-
-def test_begin_run_accepts_pending_status(tmp_path: Path) -> None:
-    cfg = _config(tmp_path)
-    store = AssertionStore(cfg.db_path)
-    store.migrate()
-    logger = AuditLogger(store)
-    rid = logger.begin_run(run_id="r-pending", run_status="pending")
-    run = logger.get_run(rid)
-    store.close()
-    assert run is not None
-    assert run.run_status == "pending"
-
-
-def test_update_run_status_flips_value(tmp_path: Path) -> None:
-    cfg = _config(tmp_path)
-    store = AssertionStore(cfg.db_path)
-    store.migrate()
-    logger = AuditLogger(store)
-    rid = logger.begin_run(run_id="r-flip", run_status="pending")
-    logger.update_run_status(rid, "running")
-    assert logger.get_run(rid).run_status == "running"  # type: ignore[union-attr]
-    logger.update_run_status(rid, "failed")
-    assert logger.get_run(rid).run_status == "failed"  # type: ignore[union-attr]
-    store.close()
-
-
-def test_end_run_marks_status_done(tmp_path: Path) -> None:
-    cfg = _config(tmp_path)
-    store = AssertionStore(cfg.db_path)
-    store.migrate()
-    logger = AuditLogger(store)
-    rid = logger.begin_run(run_id="r-done")
-    logger.end_run(rid, n_assertions=1, n_pairs_gated=0, n_pairs_judged=0, n_findings=0)
-    run = logger.get_run(rid)
-    store.close()
-    assert run is not None
-    assert run.run_status == "done"
-
-
 # --- POST /runs + background task ----------------------------------------
 
 
