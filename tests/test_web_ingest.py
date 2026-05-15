@@ -46,12 +46,12 @@ def _client(cfg: Config) -> TestClient:
 
 
 def test_root_renders_contradictions_tab(tmp_path: Path) -> None:
-    """G2 moved the index to the Contradictions tab. With no runs, the empty-state
-    banner is shown rather than the upload form."""
+    """With no documents, index() redirects to the Ingest tab (U3)."""
     client = _client(_config(tmp_path))
     response = client.get("/", follow_redirects=False)
-    assert response.status_code == 200
-    assert "No runs yet" in response.text
+    # 303 redirect to /tabs/ingest when corpus is empty.
+    assert response.status_code == 303
+    assert "/tabs/ingest" in response.headers["location"]
 
 
 def test_ingest_tab_renders_upload_form(tmp_path: Path) -> None:
@@ -59,7 +59,7 @@ def test_ingest_tab_renders_upload_form(tmp_path: Path) -> None:
     response = client.get("/tabs/ingest")
     assert response.status_code == 200
     body = response.text
-    assert "Upload and ingest" in body
+    assert "Upload" in body
     assert 'hx-post="/uploads"' in body
     assert 'enctype="multipart/form-data"' in body or 'hx-encoding="multipart/form-data"' in body
 
@@ -70,7 +70,7 @@ def test_ingest_tab_htmx_request_omits_base_chrome(tmp_path: Path) -> None:
     response = client.get("/tabs/ingest", headers={"HX-Request": "true"})
     assert response.status_code == 200
     body = response.text
-    assert "Upload and ingest" in body
+    assert "Upload" in body
     # Base chrome (the <header>) is excluded so the swap target only gets content.
     assert "<header" not in body
     assert "<nav" not in body
@@ -137,7 +137,7 @@ def test_upload_success_card_includes_run_button(
     )
     assert response.status_code == 200
     body = response.text
-    assert "Run / Check now" in body
+    assert "Check for contradictions" in body
     assert 'hx-post="/runs"' in body
     assert 'name="deep"' in body  # the deep-mode checkbox is there
 

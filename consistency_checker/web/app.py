@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from consistency_checker.audit.logger import TERMINAL_RUN_STATUSES, AuditLogger
+from consistency_checker.audit.logger import AuditLogger
 from consistency_checker.config import Config
 from consistency_checker.corpus.chunker import chunk_document
 from consistency_checker.corpus.loader import load_path
@@ -86,6 +86,7 @@ def _live_counters(run: Any, audit: Any = None) -> dict[str, Any]:
         "n_pairs_judged": run.n_pairs_judged,
         "n_findings": run.n_findings,
         "n_multi_party_findings": n_multi_party_findings,
+        "error_message": run.error_message,
         "started_at": run.started_at.isoformat(timespec="seconds") if run.started_at else None,
         "finished_at": run.finished_at.isoformat(timespec="seconds") if run.finished_at else None,
     }
@@ -152,10 +153,17 @@ def create_app(
         return store, AuditLogger(store)
 
     @app.get("/", response_class=HTMLResponse)
-    def index(request: Request) -> HTMLResponse:
+    def index(request: Request) -> Response:
         """Contradictions tab — the main page (ADR-0007)."""
         store, audit = _open_audit()
         try:
+            if store.stats()["documents"] == 0:
+                store.close()
+                if _is_htmx(request):
+                    resp: Response = Response(status_code=200)
+                    resp.headers["HX-Redirect"] = "/tabs/ingest"
+                    return resp
+                return Response(status_code=303, headers={"Location": "/tabs/ingest"})
             run = audit.most_recent_run()
             pair_findings: list[dict[str, Any]] = []
             multi_party_findings: list[dict[str, Any]] = []
@@ -489,7 +497,7 @@ def create_app(
                 )
             except Exception as exc:
                 _log.exception("Run %s failed: %s", run_id, exc)
-                audit_logger.update_run_status(run_id, "failed")
+                audit_logger.update_run_status(run_id, "failed", error_message=str(exc))
         finally:
             store.close()
 
@@ -559,9 +567,12 @@ def create_app(
             counters = _live_counters(run, audit)
         finally:
             store.close()
-        template = (
-            "cc__stats_final.html" if status in TERMINAL_RUN_STATUSES else "cc__stats_live.html"
-        )
+        if status == "failed":
+            template = "cc__stats_failed.html"
+        elif status == "done":
+            template = "cc__stats_final.html"
+        else:
+            template = "cc__stats_live.html"
         return templates.TemplateResponse(
             request,
             template,
@@ -576,12 +587,18 @@ def create_app(
             (p for p in uploads_root.iterdir() if p.is_dir()),
             reverse=True,
         )
+        store, _audit = _open_audit()
+        try:
+            n_documents = store.stats()["documents"]
+        finally:
+            store.close()
         return templates.TemplateResponse(
             request,
             "cc_ingest.html",
             {
                 "htmx": _is_htmx(request),
                 "active_tab": "ingest",
+                "n_documents": n_documents,
                 "prior_uploads": [
                     {
                         "name": p.name,

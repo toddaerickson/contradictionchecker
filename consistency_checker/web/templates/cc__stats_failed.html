@@ -1,0 +1,16 @@
+<div class="cc-stats-panel cc-stats-panel--error">
+  <h3>Check failed</h3>
+  <p class="cc-muted">
+    Started {{ counters.started_at }} · run id <code>{{ counters.run_id }}</code>
+  </p>
+  {% if counters.error_message %}
+  <div class="cc-card cc-card--error" style="margin: 0.75rem 0;">
+    <strong>Error:</strong> {{ counters.error_message }}
+  </div>
+  {% endif %}
+  <p>
+    <form hx-post="/runs" hx-swap="none" style="display:inline;">
+      <button type="submit" class="cc-button cc-button--primary">Try again</button>
+    </form>
+  </p>
+</div>

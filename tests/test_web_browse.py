@@ -138,8 +138,8 @@ def test_assertions_tab_empty_state(tmp_path: Path) -> None:
     response = client.get("/tabs/assertions")
     assert response.status_code == 200
     body = response.text
-    assert "Assertions" in body
-    assert "No assertions extracted yet" in body
+    assert "Statements" in body
+    assert "No statements extracted yet" in body
 
 
 def test_assertions_tab_lists_with_doc_labels(tmp_path: Path) -> None:
@@ -148,7 +148,7 @@ def test_assertions_tab_lists_with_doc_labels(tmp_path: Path) -> None:
     response = client.get("/tabs/assertions")
     assert response.status_code == 200
     body = response.text
-    assert "4 atomic assertion(s)" in body
+    assert "4 statement(s)" in body
     assert "Doc 000" in body
     assert "Doc 001" in body
 

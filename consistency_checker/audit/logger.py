@@ -47,6 +47,7 @@ class PipelineRun:
     n_findings: int
     notes: str | None
     run_status: RunStatus = "pending"
+    error_message: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +112,7 @@ def _row_to_run(row: sqlite3.Row) -> PipelineRun:
         n_findings=int(row["n_findings"]),
         notes=row["notes"],
         run_status=row["run_status"],
+        error_message=row["error_message"],
     )
 
 
@@ -225,11 +227,13 @@ class AuditLogger:
                 ),
             )
 
-    def update_run_status(self, run_id: str, status: RunStatus) -> None:
+    def update_run_status(
+        self, run_id: str, status: RunStatus, *, error_message: str | None = None
+    ) -> None:
         with self._conn:
             self._conn.execute(
-                "UPDATE pipeline_runs SET run_status = ? WHERE run_id = ?",
-                (status, run_id),
+                "UPDATE pipeline_runs SET run_status = ?, error_message = ? WHERE run_id = ?",
+                (status, error_message, run_id),
             )
 
     # --- writes -------------------------------------------------------------

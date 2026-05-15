@@ -74,7 +74,7 @@ def test_stats_tab_running_state_renders_live_fragment(tmp_path: Path) -> None:
     assert "/runs/g4runrun/stats" in body
     assert "Run complete" not in body
     # Counters dl is present.
-    assert "Assertions" in body and "Pairs gated" in body and "Findings" in body
+    assert "Assertions" in body and "Candidates screened" in body and "Findings" in body
     del logger
 
 

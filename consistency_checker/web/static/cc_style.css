@@ -196,6 +196,7 @@ code { background: rgba(0,0,0,0.06); padding: 0.05rem 0.3rem; border-radius: 3px
 .cc-stats-panel { padding: 1rem; border-radius: 6px; }
 .cc-stats-panel--running { background: #f4f6fb; border: 1px solid #d0d8ec; }
 .cc-stats-panel--done { background: var(--cc-success-bg); border: 1px solid var(--cc-success-border); }
+.cc-stats-panel--error { background: var(--cc-error-bg); border: 1px solid var(--cc-error-border); }
 .cc-stats-panel h3 { margin: 0 0 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
 
 .cc-counters {
