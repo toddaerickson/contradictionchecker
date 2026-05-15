@@ -72,14 +72,20 @@ def _infer_run_status(run: Any) -> str:
     return "none" if run is None else str(run.run_status)
 
 
-def _live_counters(run: Any) -> dict[str, Any]:
+def _live_counters(run: Any, audit: Any = None) -> dict[str, Any]:
     """Counters in a shape shared by the live and final stats templates."""
+    n_multi_party_findings = (
+        sum(1 for _ in audit.iter_multi_party_findings(run_id=run.run_id))
+        if audit is not None
+        else None
+    )
     return {
         "run_id": run.run_id,
         "n_assertions": run.n_assertions,
         "n_pairs_gated": run.n_pairs_gated,
         "n_pairs_judged": run.n_pairs_judged,
         "n_findings": run.n_findings,
+        "n_multi_party_findings": n_multi_party_findings,
         "started_at": run.started_at.isoformat(timespec="seconds") if run.started_at else None,
         "finished_at": run.finished_at.isoformat(timespec="seconds") if run.finished_at else None,
     }
@@ -519,7 +525,7 @@ def create_app(
         try:
             run = audit.most_recent_run()
             status = _infer_run_status(run)
-            counters = _live_counters(run) if run is not None else None
+            counters = _live_counters(run, audit) if run is not None else None
         finally:
             store.close()
         return templates.TemplateResponse(
@@ -543,7 +549,7 @@ def create_app(
             if run is None:
                 raise HTTPException(status_code=404, detail=f"run {run_id} not found")
             status = _infer_run_status(run)
-            counters = _live_counters(run)
+            counters = _live_counters(run, audit)
         finally:
             store.close()
         template = (

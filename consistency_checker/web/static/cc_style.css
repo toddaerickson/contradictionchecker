@@ -23,28 +23,38 @@ body {
 }
 
 .cc-header {
+  display: flex;
+  align-items: stretch;
+  gap: 1.25rem;
+  padding: 0 1.25rem;
   border-bottom: 1px solid var(--cc-border);
-  padding: 1rem 1.5rem 0;
   background: white;
+  height: 44px;
 }
 
 .cc-header h1 {
-  margin: 0 0 0.5rem;
-  font-size: 1.25rem;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
 }
 
 .cc-tabs {
   display: flex;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
+  gap: 0;
 }
 
 .cc-tab {
-  padding: 0.5rem 1rem;
+  padding: 0 0.875rem;
   text-decoration: none;
   color: var(--cc-muted);
   border-bottom: 2px solid transparent;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  font-size: 0.9rem;
 }
 
 .cc-tab:hover { color: var(--cc-fg); }
@@ -55,12 +65,12 @@ body {
 }
 
 main {
-  padding: 1.5rem;
+  padding: 1rem 1.25rem;
   max-width: 960px;
   margin: 0 auto;
 }
 
-.cc-section { background: white; padding: 1.5rem; border: 1px solid var(--cc-border); border-radius: 6px; }
+.cc-section { background: white; padding: 1rem 1.25rem; border: 1px solid var(--cc-border); border-radius: 6px; }
 .cc-muted { color: var(--cc-muted); }
 
 .cc-upload-form { display: flex; align-items: center; gap: 1rem; margin: 1rem 0; }
@@ -94,7 +104,7 @@ code { background: rgba(0,0,0,0.06); padding: 0.05rem 0.3rem; border-radius: 3px
   background: #f4f6fb;
   border: 1px solid #d0d8ec;
   text-align: center;
-  padding: 2rem 1rem;
+  padding: 1.25rem 1rem;
 }
 .cc-banner h2 { margin-top: 0; }
 
