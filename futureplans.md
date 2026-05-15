@@ -53,6 +53,105 @@ v0.3 ships `consistency-check serve --open` which auto-launches the browser afte
 
 Pick A or B based on the target audience: A for technical users who already have Python; B for analyst-class users who don't. A new ADR captures the choice when this is scheduled.
 
+## Accessibility plan — making the tool usable by non-developers
+
+Phased plan targeting analysts, paralegals, and other "normal tech users" who are
+not comfortable with the CLI. Each phase is independently shippable.
+
+### Phase 1 — Zero-effort wins (no architecture changes, ~1 session)
+
+All five items touch only templates, CSS, and the stats route. No migration, no CLI
+changes, no new dependencies.
+
+**U1. Terminology audit across all templates.**
+Replace ML jargon with plain language throughout the web UI:
+
+| Current | Replacement |
+|---------|-------------|
+| Assertions | Statements |
+| Pairs judged | Statement pairs checked |
+| Pairs gated | Candidates screened |
+| Multi-party | Cross-document |
+| `uncertain` verdict label | (never shown; keep hidden) |
+
+Files: every `cc_*.html` and `cc__*.html` template. No Python changes.
+
+**U2. Surface run failure reason in Stats tab.**
+When `run_status = "failed"`, the stats panel shows "Run failed" with no context.
+Add an `error_message` column to `pipeline_runs` (migration 0006); populate it
+in `_run_check_in_background`'s `except` block via `update_run_status(run_id, "failed",
+error_message=str(exc))`; render it in `cc__stats_final.html` beneath the status
+heading. Users see "Run failed — No API key found" instead of a silent dead end.
+
+**U3. Redirect landing tab based on corpus state.**
+The `index()` route currently always loads the Contradictions tab. When there are
+zero documents in the store, redirect (HTMX-aware) to `/tabs/ingest` so new users
+land on the upload form rather than a blank screen. One `if store.stats()["documents"] == 0`
+guard in `index()` before the findings query.
+
+**U4. "Start here" empty-state banner on Ingest tab.**
+When zero documents are ingested, replace the current sparse Ingest empty state with
+a three-step visual: **① Upload → ② Check → ③ Review results**. Uses existing
+`.cc-banner` CSS. No new routes.
+
+**U5. Run-failure details partial.**
+Extract a `cc__stats_failed.html` partial (alongside the existing `cc__stats_live.html`
+and `cc__stats_final.html`) that shows the error message from U2 and a "Try again"
+button. Keeps the stats route switch statement clean.
+
+---
+
+### Phase 2 — Guided first-run flow (moderate effort, ~2 sessions)
+
+Requires one new route and small pipeline changes. No new dependencies.
+
+**U6. First-check confirmation dialog.**
+Before firing `POST /runs`, pop a `<dialog>` that explains what's about to happen:
+"This will analyse N statements across M documents using your configured LLM. Continue?"
+Prevents accidental API charges and makes the action feel deliberate. Uses the existing
+`cc-dialog` CSS class.
+
+**U7. Post-upload "Check now" auto-flow.**
+After a successful upload, the `cc__upload_success.html` partial currently shows a
+static "Run / Check now" button. Change it to: if there are no prior runs, render a
+prominent "Check for contradictions →" CTA that goes straight to the Stats tab after
+firing. If there are prior runs, keep the current button. Uses the existing HTMX
+redirect path in `POST /runs`.
+
+**U8. Download-warning gate in CLI before first check.**
+Before `pipeline.check()` instantiates `TransformerNliChecker` for the first time,
+check whether the HF model cache already contains the NLI model weights. If not,
+print a one-line warning: `"First run: downloading ~800 MB NLI model — this takes a
+few minutes."` No progress bar needed; the warning alone removes the "it hung"
+perception. Gate: `Path(huggingface_hub.constants.HF_HUB_CACHE) / <model_slug>`.
+
+**U9. Inline check progress on Stats tab.**
+The live-poll panel already shows "Run in progress" and counter tiles. Add a short
+English sentence computed from the counters: *"Checked 42 of ~210 pairs — about 3
+minutes remaining."* The estimate is rough (pairs_judged / elapsed × remaining) but
+gives users a sense of pace. Computed server-side in `_live_counters()`, rendered in
+`cc__stats_live.html`.
+
+---
+
+### Phase 3 — Packaging (deferred, high effort)
+
+Prerequisite: Phases 1–2 shipped and validated. No code changes planned here yet;
+entries are carried from the existing roadmap.
+
+**U10 (= item #14 Option A) — pipx launcher.**
+A tiny `consistency-checker-launcher` package on PyPI that runs `consistency-check serve --open`.
+Technical users install once via `pipx`; subsequent launches are one command from any
+directory. Avoids the `uv sync` / virtualenv friction entirely.
+
+**U11 (= item #14 Option B) — PyInstaller bundle.**
+Single-file executable per platform (macOS `.app`, Windows `.exe`). True double-click
+experience. Bundles Python and the package; model weights download on first run.
+~200–400 MB artefact. Requires a separate release pipeline. Decide A vs B via ADR
+once Phase 2 is validated with real users.
+
+---
+
 ## Deferred from the v0.3 simplify pass
 
 Flagged during the three-agent code review after G5 merged. Each is well-scoped but bigger than a one-line fix.
