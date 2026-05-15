@@ -15,9 +15,9 @@
 
   <dl class="cc-counters">
     <div><dt>Assertions</dt><dd>{{ counters.n_assertions }}</dd></div>
-    <div><dt>Pairs gated</dt><dd>{{ counters.n_pairs_gated }}</dd></div>
-    <div><dt>Pairs judged</dt><dd>{{ counters.n_pairs_judged }}</dd></div>
+    <div><dt>Candidates screened</dt><dd>{{ counters.n_pairs_gated }}</dd></div>
+    <div><dt>Pairs checked</dt><dd>{{ counters.n_pairs_judged }}</dd></div>
     <div><dt>Findings</dt><dd>{{ counters.n_findings }}</dd></div>
-    {% if counters.n_multi_party_findings is not none %}<div><dt>Multi-party</dt><dd>{{ counters.n_multi_party_findings }}</dd></div>{% endif %}
+    {% if counters.n_multi_party_findings is not none %}<div><dt>Cross-document</dt><dd>{{ counters.n_multi_party_findings }}</dd></div>{% endif %}
   </dl>
 </div>

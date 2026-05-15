@@ -103,17 +103,16 @@ def seeded(tmp_path: Path) -> tuple[Config, TestClient, AssertionStore, str]:
 
 
 def test_root_shows_empty_state_banner_when_no_runs(empty_client: TestClient) -> None:
-    response = empty_client.get("/")
+    # With no documents, index() redirects to Ingest (U3). Follow the redirect.
+    response = empty_client.get("/", follow_redirects=True)
     assert response.status_code == 200
     body = response.text
-    assert "No runs yet" in body
-    assert "Check now" in body
-    # G5 wired this up; the button now posts to /runs.
-    assert 'hx-post="/runs"' in body
+    # Landed on Ingest tab with the "Start here" three-step banner (U4).
+    assert "Get started" in body
 
 
 def test_root_empty_state_omits_contradictions_table(empty_client: TestClient) -> None:
-    response = empty_client.get("/")
+    response = empty_client.get("/", follow_redirects=True)
     assert response.status_code == 200
     body = response.text
     assert "cc-findings-table" not in body
@@ -130,8 +129,8 @@ def test_root_lists_pair_and_multi_party_findings(
     assert response.status_code == 200
     body = response.text
     assert run_id in body
-    assert "Pair contradictions" in body
-    assert "Multi-document conditional contradictions" in body
+    assert "Statement contradictions" in body
+    assert "Cross-document contradictions" in body
     assert "Opposite revenue signs" in body
     assert "engineers should get 4w" in body
 
@@ -158,7 +157,7 @@ def test_root_htmx_request_returns_fragment_only(
     assert 'class="cc-header"' not in body
     assert 'class="cc-tabs"' not in body
     assert 'id="cc-diff-dialog"' not in body
-    assert "Pair contradictions" in body
+    assert "Statement contradictions" in body
 
 
 # --- pair diff partial -----------------------------------------------------
@@ -225,7 +224,7 @@ def test_multi_party_diff_404_for_unknown_finding(empty_client: TestClient) -> N
 
 def test_base_layout_includes_diff_dialog(empty_client: TestClient) -> None:
     """G2 adds a single <dialog> element to base; diff buttons swap into it."""
-    response = empty_client.get("/")
+    response = empty_client.get("/", follow_redirects=True)
     body = response.text
     assert 'id="cc-diff-dialog"' in body
     assert 'id="cc-diff-content"' in body

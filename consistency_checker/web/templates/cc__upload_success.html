@@ -7,16 +7,16 @@
   <h3>Upload complete</h3>
   <p>
     Upload <code>{{ upload_id }}</code> ingested {{ saved | length }} file(s);
-    {{ n_assertions }} assertion(s) extracted.
+    {{ n_assertions }} statement(s) extracted.
   </p>
   {% if saved %}
     <ul>{% for name in saved %}<li>{{ name }}</li>{% endfor %}</ul>
   {% endif %}
   <form hx-post="/runs" hx-swap="none" style="margin: 0;">
     <label class="cc-muted">
-      <input type="checkbox" name="deep" value="true"> Deep mode (multi-document conditional contradictions)
+      <input type="checkbox" name="deep" value="true"> Include cross-document analysis
     </label>
-    <button type="submit" class="cc-button cc-button--primary">Run / Check now</button>
+    <button type="submit" class="cc-button cc-button--primary">Check for contradictions</button>
   </form>
 </div>
 {% endif %}

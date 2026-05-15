@@ -8,10 +8,12 @@
 
   {% if status == "none" %}
     <p class="cc-muted">
-      No runs yet. Use the <strong>Ingest</strong> tab to upload documents,
+      No runs yet. Go to the <strong>Ingest</strong> tab to upload documents,
       then start a check.
     </p>
-  {% elif status in ("done", "failed") %}
+  {% elif status == "failed" %}
+    {% include "cc__stats_failed.html" %}
+  {% elif status == "done" %}
     {% include "cc__stats_final.html" %}
   {% else %}
     {% include "cc__stats_live.html" %}

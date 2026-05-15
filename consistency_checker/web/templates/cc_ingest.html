@@ -2,11 +2,21 @@
 
 {% block content %}
 <section class="cc-section">
-  <h2>Ingest documents</h2>
+  {% if n_documents == 0 and not prior_uploads %}
+  <div class="cc-banner" style="margin-bottom: 1.25rem;">
+    <h2>Get started in three steps</h2>
+    <ol style="display:inline-block; text-align:left; margin: 0.5rem 0 1rem; padding-left: 1.5rem;">
+      <li><strong>Upload</strong> your documents below (.txt, .md, .pdf, .docx)</li>
+      <li><strong>Check</strong> — click "Check for contradictions" after uploading</li>
+      <li><strong>Review</strong> results on the Contradictions tab</li>
+    </ol>
+  </div>
+  {% endif %}
+
+  <h2>Upload documents</h2>
   <p class="cc-muted">
-    Drop <code>.txt</code> / <code>.md</code> / <code>.pdf</code> / <code>.docx</code>
-    files. Each upload becomes its own directory under
-    <code>&lt;data_dir&gt;/uploads/</code>.
+    Accepted formats: <code>.txt</code> / <code>.md</code> / <code>.pdf</code> / <code>.docx</code>.
+    Each upload is stored under <code>&lt;data_dir&gt;/uploads/</code>.
   </p>
 
   <form
@@ -20,26 +30,24 @@
       <span>Select files</span>
       <input id="cc-files" type="file" name="files" multiple required>
     </label>
-    <button type="submit" class="cc-button">Upload and ingest</button>
+    <button type="submit" class="cc-button">Upload</button>
   </form>
 
   <div id="cc-upload-result" aria-live="polite"></div>
 
-  <h3>Prior uploads</h3>
   {% if prior_uploads %}
-    <ul class="cc-uploads-list">
-      {% for upload in prior_uploads %}
-        <li>
-          <strong>{{ upload.name }}</strong>
-          <span class="cc-muted">— {{ upload.files | length }} file(s)</span>
-          {% if upload.files %}
-            <ul>{% for f in upload.files %}<li>{{ f }}</li>{% endfor %}</ul>
-          {% endif %}
-        </li>
-      {% endfor %}
-    </ul>
-  {% else %}
-    <p class="cc-muted">No uploads yet.</p>
+  <h3>Prior uploads</h3>
+  <ul class="cc-uploads-list">
+    {% for upload in prior_uploads %}
+      <li>
+        <strong>{{ upload.name }}</strong>
+        <span class="cc-muted">— {{ upload.files | length }} file(s)</span>
+        {% if upload.files %}
+          <ul>{% for f in upload.files %}<li>{{ f }}</li>{% endfor %}</ul>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
   {% endif %}
 </section>
 {% endblock %}
