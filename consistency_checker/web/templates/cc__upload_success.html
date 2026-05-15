@@ -6,17 +6,21 @@
 <div class="cc-card cc-card--success">
   <h3>Upload complete</h3>
   <p>
-    Upload <code>{{ upload_id }}</code> ingested {{ saved | length }} file(s);
-    {{ n_assertions }} statement(s) extracted.
+    {{ saved | length }} file(s) uploaded; {{ n_assertions }} statement(s) extracted.
   </p>
   {% if saved %}
     <ul>{% for name in saved %}<li>{{ name }}</li>{% endfor %}</ul>
   {% endif %}
-  <form hx-post="/runs" hx-swap="none" style="margin: 0;">
-    <label class="cc-muted">
+  {% if is_first_check %}
+  <p style="margin: 0.75rem 0 0.25rem; font-weight: 600;">Ready to check for contradictions?</p>
+  {% endif %}
+  <form hx-post="/runs" hx-swap="none" hx-confirm="This will use your configured AI model to check for contradictions. API usage charges may apply. Continue?" style="margin: 0.25rem 0 0;">
+    <label class="cc-muted" style="display:block; margin-bottom: 0.5rem;">
       <input type="checkbox" name="deep" value="true"> Include cross-document analysis
     </label>
-    <button type="submit" class="cc-button cc-button--primary">Check for contradictions</button>
+    <button type="submit" class="cc-button cc-button--primary">
+      {% if is_first_check %}Check for contradictions →{% else %}Check again{% endif %}
+    </button>
   </form>
 </div>
 {% endif %}

@@ -9,11 +9,11 @@
         Ingest some documents on the <strong>Ingest</strong> tab, then run a
         contradiction check to see results here.
       </p>
-      <form hx-post="/runs" hx-swap="none" style="display: inline-block;">
+      <form hx-post="/runs" hx-swap="none" hx-confirm="This will use your configured AI model to check for contradictions. API usage charges may apply. Continue?" style="display: inline-block;">
         <label class="cc-muted">
-          <input type="checkbox" name="deep" value="true"> Deep
+          <input type="checkbox" name="deep" value="true"> Include cross-document analysis
         </label>
-        <button type="submit" class="cc-button cc-button--primary">Check now</button>
+        <button type="submit" class="cc-button cc-button--primary">Check for contradictions →</button>
       </form>
     </div>
   {% else %}
