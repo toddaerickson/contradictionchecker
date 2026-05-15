@@ -119,6 +119,19 @@ def check(
     judge = make_judge(cfg)
     multi_party = make_multi_party_judge(cfg) if cfg.enable_multi_party else None
 
+    run_id = audit_logger.begin_run(
+        config={
+            "embedder_model": cfg.embedder_model,
+            "nli_model": cfg.nli_model,
+            "judge_provider": cfg.judge_provider,
+            "judge_model": cfg.judge_model,
+            "nli_contradiction_threshold": cfg.nli_contradiction_threshold,
+            "gate_top_k": cfg.gate_top_k,
+            "gate_similarity_threshold": cfg.gate_similarity_threshold,
+            "enable_multi_party": cfg.enable_multi_party,
+            "max_triangles_per_run": cfg.max_triangles_per_run,
+        }
+    )
     result = run_check(
         cfg,
         store=store,
@@ -127,6 +140,7 @@ def check(
         judge=judge,
         audit_logger=audit_logger,
         multi_party_judge=multi_party,
+        run_id=run_id,
     )
     store.close()
     deep_suffix = (

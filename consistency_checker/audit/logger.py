@@ -22,6 +22,7 @@ from typing import Any, Literal
 from consistency_checker.check.gate import CandidatePair
 from consistency_checker.check.llm_judge import JudgeVerdict
 from consistency_checker.check.nli_checker import NliResult
+from consistency_checker.check.providers.base import CONTRADICTION_VERDICTS
 from consistency_checker.extract.schema import hash_id
 from consistency_checker.index.assertion_store import AssertionStore
 from consistency_checker.logging_setup import get_logger
@@ -194,11 +195,19 @@ class AuditLogger:
         run_status: RunStatus = "done",
     ) -> None:
         if n_findings is None:
-            counted = self._conn.execute(
-                "SELECT COUNT(*) FROM findings WHERE run_id = ? AND judge_verdict = 'contradiction'",
+            verdicts = sorted(CONTRADICTION_VERDICTS)
+            placeholders = ", ".join("?" * len(verdicts))
+            pair_count = self._conn.execute(
+                f"SELECT COUNT(*) FROM findings WHERE run_id = ? "
+                f"AND judge_verdict IN ({placeholders})",
+                (run_id, *verdicts),
+            ).fetchone()[0]
+            mp_count = self._conn.execute(
+                "SELECT COUNT(*) FROM multi_party_findings WHERE run_id = ? "
+                "AND judge_verdict = 'multi_party_contradiction'",
                 (run_id,),
             ).fetchone()[0]
-            n_findings = int(counted)
+            n_findings = int(pair_count) + int(mp_count)
         finished = datetime.now().isoformat(timespec="seconds")
         with self._conn:
             self._conn.execute(
@@ -310,6 +319,14 @@ class AuditLogger:
                     judge_rationale,
                     spans_payload,
                 ),
+            )
+            # FK side table (migration 0005) — referential integrity into
+            # assertions. The INSERT OR REPLACE above cascade-deletes any prior
+            # join rows for this finding_id, so this only ever inserts fresh.
+            self._conn.executemany(
+                "INSERT INTO multi_party_finding_assertions "
+                "(finding_id, assertion_id, position) VALUES (?, ?, ?)",
+                [(finding_id, aid, idx) for idx, aid in enumerate(sorted_ids)],
             )
         return finding_id
 

@@ -56,8 +56,25 @@ def test_migrate_picks_up_0003_alongside_existing_migrations(tmp_path: Path) -> 
     assert 1 in applied  # 0001_init
     assert 2 in applied  # 0002_audit
     assert 3 in applied  # 0003_multi_party
+    assert 5 in applied  # 0005_multi_party_finding_assertions
     # idempotent
     assert s.migrate() == []
+
+
+def test_multi_party_finding_assertions_table_exists(tmp_path: Path) -> None:
+    s = AssertionStore(tmp_path / "x.db")
+    s.migrate()
+    conn = sqlite3.connect(tmp_path / "x.db")
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "multi_party_finding_assertions" in tables
+    indexes = {
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' "
+            "AND tbl_name='multi_party_finding_assertions'"
+        )
+    }
+    assert {"idx_mpfa_finding", "idx_mpfa_assertion"} <= indexes
 
 
 # --- record_multi_party_finding -------------------------------------------
@@ -149,6 +166,104 @@ def test_record_multi_party_rejects_single_document_triangle(
             doc_ids=[doc.doc_id, doc.doc_id, doc.doc_id],
             judge_verdict="multi_party_contradiction",
         )
+
+
+def test_record_multi_party_writes_assertion_join_rows(store: AssertionStore) -> None:
+    """Each recorded triangle inserts one row per assertion into the FK side table."""
+    assertions = _seed_three_docs(store)
+    logger = AuditLogger(store)
+    run_id = logger.begin_run()
+    fid = logger.record_multi_party_finding(
+        run_id,
+        assertion_ids=[a.assertion_id for a in assertions],
+        doc_ids=[a.doc_id for a in assertions],
+        judge_verdict="multi_party_contradiction",
+    )
+    rows = store._conn.execute(
+        "SELECT assertion_id, position FROM multi_party_finding_assertions "
+        "WHERE finding_id = ? ORDER BY position",
+        (fid,),
+    ).fetchall()
+    assert [r["position"] for r in rows] == [0, 1, 2]
+    assert sorted(r["assertion_id"] for r in rows) == sorted(a.assertion_id for a in assertions)
+
+
+def test_multi_party_idempotent_record_replaces_join_rows(store: AssertionStore) -> None:
+    """Re-recording the same triangle doesn't leave stale join rows behind."""
+    assertions = _seed_three_docs(store)
+    logger = AuditLogger(store)
+    run_id = logger.begin_run()
+    payload = {
+        "assertion_ids": [a.assertion_id for a in assertions],
+        "doc_ids": [a.doc_id for a in assertions],
+        "judge_verdict": "uncertain",
+    }
+    fid = logger.record_multi_party_finding(run_id, **payload)  # type: ignore[arg-type]
+    logger.record_multi_party_finding(run_id, **payload)  # type: ignore[arg-type]
+    count = store._conn.execute(
+        "SELECT COUNT(*) FROM multi_party_finding_assertions WHERE finding_id = ?",
+        (fid,),
+    ).fetchone()[0]
+    assert count == 3
+
+
+def test_multi_party_join_rows_cascade_when_finding_deleted(
+    store: AssertionStore,
+) -> None:
+    """Deleting the parent multi_party_findings row removes the join rows too."""
+    assertions = _seed_three_docs(store)
+    logger = AuditLogger(store)
+    run_id = logger.begin_run()
+    fid = logger.record_multi_party_finding(
+        run_id,
+        assertion_ids=[a.assertion_id for a in assertions],
+        doc_ids=[a.doc_id for a in assertions],
+        judge_verdict="uncertain",
+    )
+    store._conn.execute("DELETE FROM multi_party_findings WHERE finding_id = ?", (fid,))
+    store._conn.commit()
+    count = store._conn.execute(
+        "SELECT COUNT(*) FROM multi_party_finding_assertions WHERE finding_id = ?",
+        (fid,),
+    ).fetchone()[0]
+    assert count == 0
+
+
+def test_end_run_autocount_includes_multi_party_contradictions(
+    store: AssertionStore,
+) -> None:
+    """Counter from end_run(n_findings=None) sums pair + multi-party contradictions."""
+    from consistency_checker.check.gate import CandidatePair
+    from consistency_checker.check.llm_judge import JudgeVerdict
+
+    assertions = _seed_three_docs(store)
+    logger = AuditLogger(store)
+    run_id = logger.begin_run()
+    # One pair contradiction.
+    pair = CandidatePair(a=assertions[0], b=assertions[1], score=0.9)
+    logger.record_finding(
+        run_id,
+        candidate=pair,
+        nli=None,
+        verdict=JudgeVerdict(
+            assertion_a_id=assertions[0].assertion_id,
+            assertion_b_id=assertions[1].assertion_id,
+            verdict="contradiction",
+            confidence=0.9,
+            rationale="x",
+        ),
+    )
+    # One multi-party contradiction.
+    logger.record_multi_party_finding(
+        run_id,
+        assertion_ids=[a.assertion_id for a in assertions],
+        doc_ids=[a.doc_id for a in assertions],
+        judge_verdict="multi_party_contradiction",
+    )
+    logger.end_run(run_id)  # n_findings=None → auto-count
+    run = logger.get_run(run_id)
+    assert run is not None
+    assert run.n_findings == 2
 
 
 def test_record_multi_party_cascade_deletes_with_run(store: AssertionStore) -> None:
