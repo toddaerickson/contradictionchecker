@@ -66,6 +66,21 @@ def _open_faiss(config: Config, dim: int) -> FaissStore:
     )
 
 
+def _warn_if_model_download_needed(model_name: str) -> None:
+    """Print a one-line warning if the HF model isn't in the local cache."""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+
+        result = try_to_load_from_cache(model_name, "config.json")
+        if result is None:
+            typer.echo(
+                f"Note: first run will download ~800 MB ({model_name}). "
+                "This may take a few minutes — the tool is not hung."
+            )
+    except Exception:
+        pass  # huggingface_hub not available or lookup failed — skip silently
+
+
 # --- ingest -----------------------------------------------------------------
 
 
@@ -115,6 +130,7 @@ def check(
     # Lazy NLI import — keeps `ingest` fast when the model is not yet cached.
     from consistency_checker.check.nli_checker import TransformerNliChecker
 
+    _warn_if_model_download_needed(cfg.nli_model or TransformerNliChecker.DEFAULT_MODEL)
     nli = TransformerNliChecker(model_name=cfg.nli_model)
     judge = make_judge(cfg)
     multi_party = make_multi_party_judge(cfg) if cfg.enable_multi_party else None

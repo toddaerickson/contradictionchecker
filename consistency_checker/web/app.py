@@ -72,6 +72,22 @@ def _infer_run_status(run: Any) -> str:
     return "none" if run is None else str(run.run_status)
 
 
+def _progress_estimate(run: Any) -> str | None:
+    """Human-readable time-remaining estimate; None when not enough data."""
+    if not run.started_at or not run.n_pairs_gated or not run.n_pairs_judged:
+        return None
+    elapsed = (datetime.now() - run.started_at).total_seconds()
+    if elapsed <= 0 or run.n_pairs_judged <= 0:
+        return None
+    rate = run.n_pairs_judged / elapsed
+    remaining = (run.n_pairs_gated - run.n_pairs_judged) / rate
+    if remaining < 60:
+        return f"About {max(1, int(remaining))}s remaining"
+    if remaining < 3600:
+        return f"About {int(remaining / 60)}m remaining"
+    return f"About {int(remaining / 3600)}h remaining"
+
+
 def _live_counters(run: Any, audit: Any = None) -> dict[str, Any]:
     """Counters in a shape shared by the live and final stats templates."""
     n_multi_party_findings = (
@@ -87,6 +103,7 @@ def _live_counters(run: Any, audit: Any = None) -> dict[str, Any]:
         "n_findings": run.n_findings,
         "n_multi_party_findings": n_multi_party_findings,
         "error_message": run.error_message,
+        "progress_estimate": _progress_estimate(run),
         "started_at": run.started_at.isoformat(timespec="seconds") if run.started_at else None,
         "finished_at": run.finished_at.isoformat(timespec="seconds") if run.finished_at else None,
     }
@@ -645,6 +662,8 @@ def create_app(
                 extractor=extractor,
                 config=config,
             )
+            audit = AuditLogger(store)
+            is_first_check = audit.most_recent_run() is None
         finally:
             store.close()
 
@@ -661,6 +680,7 @@ def create_app(
                 "upload_id": upload_id,
                 "saved": [p.name for p in saved],
                 "n_assertions": n_assertions,
+                "is_first_check": is_first_check,
                 "error": None,
             },
         )

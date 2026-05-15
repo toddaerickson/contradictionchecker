@@ -11,6 +11,7 @@
   </h3>
   <p class="cc-muted">
     Started {{ counters.started_at }} · run id <code>{{ counters.run_id }}</code>
+    {% if counters.progress_estimate %} · {{ counters.progress_estimate }}{% endif %}
   </p>
 
   <dl class="cc-counters">
