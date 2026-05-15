@@ -38,6 +38,11 @@ MultiPartyVerdictLabel = Literal[
     "uncertain",
 ]
 
+#: Pair verdicts that count as a confirmed contradiction in run totals and
+#: reports. Includes the deterministic short-circuit value (ADR-0005). Shared
+#: by ``pipeline.check`` and ``AuditLogger.end_run`` so the two never drift.
+CONTRADICTION_VERDICTS: frozenset[str] = frozenset({"contradiction", "numeric_short_circuit"})
+
 
 class JudgePayload(BaseModel):
     """Strict schema every provider must satisfy before returning a verdict."""

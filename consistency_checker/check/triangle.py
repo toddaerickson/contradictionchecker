@@ -4,16 +4,20 @@ Given the same iterator of :class:`CandidatePair` the pairwise judge consumes,
 :func:`find_triangles` enumerates 3-cliques whose three edges all cleared the
 gate threshold. Triangles span at least 2 distinct documents (a single-doc
 triangle is irrelevant — the pair gate already filters intra-doc edges) and
-are deduplicated by sorted ``assertion_id`` tuple.
+are deduplicated by construction (the enumeration only emits ``u < v < w``
+triples).
 
-Output is sorted by minimum edge similarity descending; the top
-``max_per_run`` are yielded so dense corpora can't blow up the multi-party
-judge budget. Ties on ``min_edge_score`` are broken by the canonical
-``(a_id, b_id, c_id)`` tuple so output is deterministic.
+Output is sorted by minimum edge similarity descending; only the top
+``max_per_run`` survive. The cap is enforced via a bounded min-heap *during*
+enumeration, so a dense graph cannot blow memory with millions of
+``Triangle`` dataclasses before the cap fires. Ties on ``min_edge_score`` are
+broken by the canonical ``(a_id, b_id, c_id)`` tuple so output is
+deterministic.
 """
 
 from __future__ import annotations
 
+import heapq
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 
@@ -55,6 +59,27 @@ def _edge_key(a_id: str, b_id: str) -> tuple[str, str]:
     return (a_id, b_id) if a_id < b_id else (b_id, a_id)
 
 
+@dataclass(frozen=True, slots=True)
+class _HeapEntry:
+    """Min-heap entry whose ordering inverts the output sort.
+
+    The heap top is the entry to evict first — i.e. the *worst* triangle by
+    output sort key ``(-min_edge_score, assertion_ids)``. "Worst" = lower
+    ``min_edge_score``, or on tie, lexicographically larger ``assertion_ids``.
+    """
+
+    min_score: float
+    ids: tuple[str, str, str]
+    triangle: Triangle
+
+    def __lt__(self, other: _HeapEntry) -> bool:
+        if self.min_score == other.min_score:
+            # Equal scores: the lexicographically larger id-tuple is "worse"
+            # (loses the output tiebreak), so it sorts lower in the heap.
+            return self.ids > other.ids
+        return self.min_score < other.min_score
+
+
 def find_triangles(
     pairs: Iterable[CandidatePair],
     *,
@@ -65,9 +90,10 @@ def find_triangles(
     Args:
         pairs: Iterable of :class:`CandidatePair` from the gate (any order;
             ``(A, B)`` and ``(B, A)`` are treated as the same edge).
-        max_per_run: Cap on the number of triangles yielded. Triangles are
-            ranked by minimum edge similarity descending before truncation,
-            so the highest-confidence triangles always survive the cap.
+        max_per_run: Cap on the number of triangles retained. Enforced *during*
+            enumeration via a bounded heap, so memory stays O(``max_per_run``)
+            rather than O(total triangles in the graph). The highest-confidence
+            triangles by ``min_edge_score`` always survive the cap.
 
     Yields:
         :class:`Triangle` records, sorted by ``min_edge_score`` descending
@@ -94,9 +120,15 @@ def find_triangles(
             adjacency.setdefault(a_id, set()).add(b_id)
             adjacency.setdefault(b_id, set()).add(a_id)
 
-    triangles: list[Triangle] = []
-    seen: set[tuple[str, str, str]] = set()
+    if max_per_run == 0:
+        _log.info("find_triangles: %d edges → cap=0, yielding nothing", len(edge_score))
+        return
 
+    heap: list[_HeapEntry] = []
+    n_enumerated = 0
+
+    # u < v < w by construction (`higher` is sorted, `w` is later in it than
+    # `v`), so no dedupe set is needed — every triple is emitted at most once.
     for u in sorted(adjacency):
         u_neighbours = adjacency[u]
         higher = sorted(v for v in u_neighbours if v > u)
@@ -105,35 +137,39 @@ def find_triangles(
             for w in higher[i + 1 :]:
                 if w not in v_neighbours:
                     continue
-                triple = (u, v, w)
-                if triple in seen:
-                    continue
-                seen.add(triple)
 
                 a, b, c = assertions[u], assertions[v], assertions[w]
                 if len({a.doc_id, b.doc_id, c.doc_id}) < 2:
                     continue
 
-                triangles.append(
-                    Triangle(
-                        a=a,
-                        b=b,
-                        c=c,
-                        edge_scores=(
-                            (u, v, edge_score[_edge_key(u, v)]),
-                            (u, w, edge_score[_edge_key(u, w)]),
-                            (v, w, edge_score[_edge_key(v, w)]),
-                        ),
-                    )
+                triangle = Triangle(
+                    a=a,
+                    b=b,
+                    c=c,
+                    edge_scores=(
+                        (u, v, edge_score[_edge_key(u, v)]),
+                        (u, w, edge_score[_edge_key(u, w)]),
+                        (v, w, edge_score[_edge_key(v, w)]),
+                    ),
                 )
+                n_enumerated += 1
+                entry = _HeapEntry(triangle.min_edge_score, triangle.assertion_ids, triangle)
+                if len(heap) < max_per_run:
+                    heapq.heappush(heap, entry)
+                else:
+                    heapq.heappushpop(heap, entry)
 
-    triangles.sort(key=lambda t: (-t.min_edge_score, t.assertion_ids))
-
-    _log.info(
-        "find_triangles: %d edges → %d triangles (yielding top %d)",
-        len(edge_score),
-        len(triangles),
-        min(len(triangles), max_per_run),
+    result = sorted(
+        (e.triangle for e in heap),
+        key=lambda t: (-t.min_edge_score, t.assertion_ids),
     )
 
-    yield from triangles[:max_per_run]
+    _log.info(
+        "find_triangles: %d edges → %d enumerated, yielding top %d (cap=%d)",
+        len(edge_score),
+        n_enumerated,
+        len(result),
+        max_per_run,
+    )
+
+    yield from result

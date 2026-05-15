@@ -60,14 +60,8 @@ Flagged during the three-agent code review after G5 merged. Each is well-scoped 
 ### 15. Bulk-fetch helpers on `AssertionStore` (N+1 fix)
 `web/app.py::index` and `tab_assertions` issue per-row `get_assertion` / `get_document` queries. Add `get_assertions_bulk(ids: Sequence[str])` and `get_documents_bulk(ids)` with `WHERE id IN (...)` queries; the web routes collect all ids in a first pass, then build rows in a second. Cuts the index-page query count from `4 × n_findings + 2` to `4`.
 
-### 16. Cache embedder dimension to avoid a SentenceTransformers load per run
-`web/app.py::_run_check_in_background` calls `_open_stores()`, which constructs a real `SentenceTransformerEmbedder` (`pipeline.make_embedder`) purely to extract `.dim` for `FaissStore.open_or_create`. In production this triggers a multi-hundred-MB model load on every kick-off. Either persist `dim` to a config file / FAISS-file sidecar so `_open_stores` can skip the embedder when the index already exists on disk, or refactor `FaissStore.open_or_create` to read `dim` from the existing index header.
-
 ### 17. Extract `cc__run_button.html` partial
 The `<form hx-post="/runs">` block appears in both `cc__upload_success.html` and `cc_contradictions.html` with minor style + label differences. Lift into a partial taking `button_label` / `inline` params and `{% include %}` from both sites.
-
-### 18. Lift `audit_logger.begin_run` out of `pipeline.check`
-v0.3 G5 added a `run_id` kwarg so the web layer could reuse a pending row. Cleaner: have all callers (CLI, web layer) call `begin_run` themselves and pass a required `run_id` into `pipeline.check`. Removes the dual-mode branch at the top of `check()` and keeps the function single-purpose.
 
 ## Persona-aware analysis and the detector family
 
@@ -87,6 +81,8 @@ The contradiction judge can only return verdicts about two assertions that both 
 ## Completed
 
 (Move items here as they ship, keep a one-line note on which release.)
+
+- **f4-fixups** — `AuditLogger.most_recent_run()` + CLI private-attr fix (already done on branch); `FaissStore.open_or_create` made `dim`-optional (reads from existing index header); `_run_check_in_background` no longer loads the ~800 MB embedder model for check runs; `pipeline.check` now requires a pre-created `run_id` — callers own `begin_run` (items #16, #18, and the `main.py:140` known issue).
 
 - **v0.1.0** — full 17-step build plan: ingest → chunk → atomic-fact extraction → embed → gate → NLI → judge → audit → report → CLI → CONTRADOC harness → CI. See `CHANGELOG.md`.
 - **v0.2.0** — Block D (PDF/DOCX loaders via `unstructured`), Block E (numeric short-circuit + range-overlap hint), Block F (three-document conditional contradictions via graph triangles, `--deep` flag). See [`docs/plans/v0.2-build-plan.md`](docs/plans/v0.2-build-plan.md).

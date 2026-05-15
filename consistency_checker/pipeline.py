@@ -26,6 +26,7 @@ from consistency_checker.check.providers.anthropic import (
     AnthropicMultiPartyProvider,
     AnthropicProvider,
 )
+from consistency_checker.check.providers.base import CONTRADICTION_VERDICTS
 from consistency_checker.check.providers.openai import (
     OpenAIMultiPartyProvider,
     OpenAIProvider,
@@ -173,11 +174,6 @@ def _iter_candidates(
     return list(gate.candidates(store))
 
 
-#: Verdicts that count as "contradiction" for downstream summaries and reports.
-#: Includes the deterministic short-circuit value (ADR-0005).
-CONTRADICTION_VERDICTS: frozenset[str] = frozenset({"contradiction", "numeric_short_circuit"})
-
-
 def _build_numeric_context(a: Assertion, b: Assertion, *, threshold: float) -> str | None:
     """Build a structured numeric-disagreement hint for the judge prompt (E3).
 
@@ -278,25 +274,10 @@ def check(
     audit_logger: AuditLogger,
     gate: CandidateGate | None = None,
     multi_party_judge: MultiPartyJudge | None = None,
-    run_id: str | None = None,
+    run_id: str,
 ) -> CheckResult:
     """Stage A → Stage B → optional multi-party pass → audit. Returns run summary."""
-    if run_id is None:
-        run_id = audit_logger.begin_run(
-            config={
-                "embedder_model": config.embedder_model,
-                "nli_model": config.nli_model,
-                "judge_provider": config.judge_provider,
-                "judge_model": config.judge_model,
-                "nli_contradiction_threshold": config.nli_contradiction_threshold,
-                "gate_top_k": config.gate_top_k,
-                "gate_similarity_threshold": config.gate_similarity_threshold,
-                "enable_multi_party": multi_party_judge is not None,
-                "max_triangles_per_run": config.max_triangles_per_run,
-            }
-        )
-    else:
-        audit_logger.update_run_status(run_id, "running")
+    audit_logger.update_run_status(run_id, "running")
 
     pairs = _iter_candidates(config, store, faiss_store, gate)
     n_pairs_gated = len(pairs)

@@ -77,6 +77,7 @@ def test_check_without_multi_party_judge_skips_triangle_pass(
 ) -> None:
     cfg, store, fs, _ = three_doc_store
     audit_logger = AuditLogger(store)
+    run_id = audit_logger.begin_run()
     result = run_check(
         cfg,
         store=store,
@@ -85,6 +86,7 @@ def test_check_without_multi_party_judge_skips_triangle_pass(
         judge=FixtureJudge({}),
         audit_logger=audit_logger,
         gate=AllPairsGate(),
+        run_id=run_id,
     )
     assert result.n_triangles_judged == 0
     assert result.n_multi_party_findings == 0
@@ -115,6 +117,7 @@ def test_check_with_multi_party_judge_records_finding(
         }
     )
 
+    run_id = audit_logger.begin_run()
     result = run_check(
         cfg,
         store=store,
@@ -124,6 +127,7 @@ def test_check_with_multi_party_judge_records_finding(
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         multi_party_judge=multi_party_judge,
+        run_id=run_id,
     )
 
     assert result.n_triangles_judged == 1
@@ -149,6 +153,7 @@ def test_check_with_multi_party_judge_returns_uncertain_does_not_count_finding(
     # Fixture judge has no fixtures → defaults to uncertain for the only triangle.
     multi_party_judge = FixtureMultiPartyJudge({})
 
+    run_id = audit_logger.begin_run()
     result = run_check(
         cfg,
         store=store,
@@ -158,6 +163,7 @@ def test_check_with_multi_party_judge_returns_uncertain_does_not_count_finding(
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         multi_party_judge=multi_party_judge,
+        run_id=run_id,
     )
     assert result.n_triangles_judged == 1
     assert result.n_multi_party_findings == 0
@@ -202,6 +208,7 @@ def test_check_respects_max_triangles_per_run(tmp_path: Path) -> None:
     embed_pending(store, fs, embedder)
     audit_logger = AuditLogger(store)
 
+    run_id = audit_logger.begin_run()
     result = run_check(
         cfg,
         store=store,
@@ -211,6 +218,7 @@ def test_check_respects_max_triangles_per_run(tmp_path: Path) -> None:
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         multi_party_judge=FixtureMultiPartyJudge({}),
+        run_id=run_id,
     )
     assert result.n_triangles_judged == 0
     assert result.n_multi_party_findings == 0

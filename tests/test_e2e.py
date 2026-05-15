@@ -246,6 +246,7 @@ def test_end_to_end_mixed_format_corpus(
     assert ingest_result.n_embedded == ingest_result.n_assertions
 
     audit_logger = AuditLogger(store)
+    run_id = audit_logger.begin_run()
     check_result = run_check(
         cfg,
         store=store,
@@ -253,6 +254,7 @@ def test_end_to_end_mixed_format_corpus(
         nli_checker=FixtureNliChecker({}),
         judge=FixtureJudge({}),
         audit_logger=audit_logger,
+        run_id=run_id,
     )
     # No fixtures wired for any pair → FixtureJudge falls back to "uncertain",
     # so the mixed-format corpus must produce zero contradictions but every
@@ -294,6 +296,7 @@ def test_end_to_end_pipeline_fixture(tmp_path: Path) -> None:
 
     # 2. Check.
     audit_logger = AuditLogger(store)
+    run_id = audit_logger.begin_run()
     check_result = run_check(
         cfg,
         store=store,
@@ -301,6 +304,7 @@ def test_end_to_end_pipeline_fixture(tmp_path: Path) -> None:
         nli_checker=FixtureNliChecker(nli_fixtures),
         judge=FixtureJudge(judge_fixtures),
         audit_logger=audit_logger,
+        run_id=run_id,
     )
 
     # The planted contradiction must surface; the near-contradiction must not
@@ -386,6 +390,7 @@ def test_end_to_end_pipeline_live(tmp_path: Path) -> None:
     )
 
     audit_logger = AuditLogger(store)
+    run_id = audit_logger.begin_run()
     check_result = run_check(
         cfg,
         store=store,
@@ -393,6 +398,7 @@ def test_end_to_end_pipeline_live(tmp_path: Path) -> None:
         nli_checker=TransformerNliChecker(model_name=cfg.nli_model),
         judge=LLMJudge(AnthropicProvider(model=cfg.judge_model)),
         audit_logger=audit_logger,
+        run_id=run_id,
     )
     assert check_result.n_findings >= 1
     contradictions = list(

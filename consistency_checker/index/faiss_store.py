@@ -60,8 +60,14 @@ class FaissStore:
 
     @classmethod
     def open_or_create(
-        cls, *, index_path: Path | str, id_map_path: Path | str, dim: int
+        cls, *, index_path: Path | str, id_map_path: Path | str, dim: int | None = None
     ) -> FaissStore:
+        """Open an existing index or create a new one.
+
+        When an index already exists on disk, ``dim`` is read from the index
+        file and the ``dim`` argument is used only for validation (if provided).
+        When no index exists, ``dim`` is required.
+        """
         index_path = Path(index_path)
         id_map_path = Path(id_map_path)
         index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,19 +75,25 @@ class FaissStore:
         if index_path.exists() and id_map_path.exists():
             index = faiss.read_index(str(index_path))
             id_map = json.loads(id_map_path.read_text())
-            if index.d != dim:
+            actual_dim = int(index.d)
+            if dim is not None and dim != actual_dim:
                 raise ValueError(
-                    f"FAISS index dim {index.d} does not match expected dim {dim}; "
+                    f"FAISS index dim {actual_dim} does not match expected dim {dim}; "
                     "delete the index or rebuild with --rebuild-index."
                 )
             return cls(
-                dim=dim,
+                dim=actual_dim,
                 index_path=index_path,
                 id_map_path=id_map_path,
                 index=index,
                 id_map=id_map,
             )
 
+        if dim is None:
+            raise ValueError(
+                "dim is required when creating a new FAISS index; "
+                "run ingest first to build the index."
+            )
         index = faiss.IndexFlatIP(dim)
         return cls(
             dim=dim,

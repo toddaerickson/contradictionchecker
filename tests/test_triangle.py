@@ -221,6 +221,53 @@ def test_max_per_run_zero_yields_nothing() -> None:
     assert list(find_triangles(pairs, max_per_run=0)) == []
 
 
+def test_max_per_run_keeps_top_k_in_order() -> None:
+    """With max_per_run=2, the two highest-min-score triangles survive, ordered desc."""
+    d = [_doc(f"d{i}.txt") for i in range(9)]
+    a = [_make_assertion(doc.doc_id, f"text-{i}") for i, doc in enumerate(d)]
+    # Three disjoint triangles with min-edge scores 0.85, 0.70, 0.55.
+    pairs = [
+        _pair(a[0], a[1], 0.95),
+        _pair(a[1], a[2], 0.90),
+        _pair(a[0], a[2], 0.85),
+        _pair(a[3], a[4], 0.80),
+        _pair(a[4], a[5], 0.75),
+        _pair(a[3], a[5], 0.70),
+        _pair(a[6], a[7], 0.65),
+        _pair(a[7], a[8], 0.60),
+        _pair(a[6], a[8], 0.55),
+    ]
+    triangles = list(find_triangles(pairs, max_per_run=2))
+    assert len(triangles) == 2
+    assert triangles[0].min_edge_score == pytest.approx(0.85)
+    assert triangles[1].min_edge_score == pytest.approx(0.70)
+
+
+def test_max_per_run_tie_break_is_deterministic() -> None:
+    """Two triangles with identical min_edge_score: smaller assertion-id tuple wins."""
+    d = [_doc(f"d{i}.txt") for i in range(6)]
+    a = [_make_assertion(doc.doc_id, f"text-{i}") for i, doc in enumerate(d)]
+    # Both triangles share min_edge_score=0.50; canonical ordering picks the
+    # one with the lexicographically smaller assertion-id tuple.
+    pairs = [
+        _pair(a[0], a[1], 0.90),
+        _pair(a[1], a[2], 0.50),
+        _pair(a[0], a[2], 0.80),
+        _pair(a[3], a[4], 0.90),
+        _pair(a[4], a[5], 0.50),
+        _pair(a[3], a[5], 0.80),
+    ]
+    cap_one = list(find_triangles(pairs, max_per_run=1))
+    assert len(cap_one) == 1
+    expected = min(
+        (
+            tuple(sorted([a[0].assertion_id, a[1].assertion_id, a[2].assertion_id])),
+            tuple(sorted([a[3].assertion_id, a[4].assertion_id, a[5].assertion_id])),
+        ),
+    )
+    assert cap_one[0].assertion_ids == expected
+
+
 def test_max_per_run_rejects_negative() -> None:
     with pytest.raises(ValueError, match="max_per_run"):
         list(find_triangles([], max_per_run=-1))

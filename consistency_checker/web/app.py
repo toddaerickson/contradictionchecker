@@ -430,11 +430,18 @@ def create_app(
 
     def _run_check_in_background(run_id: str, deep: bool) -> None:
         # SQLite handles can't safely be shared across threads, so the
-        # background task opens its own store.
+        # background task opens its own store. The embedder is not needed for
+        # check (only for ingest), so open faiss directly to avoid the ~800 MB
+        # model load that _open_stores() would trigger.
         from consistency_checker.pipeline import check as run_check
 
-        store, faiss_store, _embedder = _open_stores()
+        store = AssertionStore(config.db_path)
+        store.migrate()
         try:
+            faiss_store = FaissStore.open_or_create(
+                index_path=config.faiss_path,
+                id_map_path=config.faiss_path.with_suffix(".idmap.json"),
+            )
             audit_logger = AuditLogger(store)
             try:
                 if nli_checker is None:
