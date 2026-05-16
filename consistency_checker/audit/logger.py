@@ -411,14 +411,11 @@ class AuditLogger:
                 (pair_key, detector_type, verdict, note),
             )
 
-    def delete_reviewer_verdict(
-        self, *, pair_key: str, detector_type: DetectorType
-    ) -> None:
+    def delete_reviewer_verdict(self, *, pair_key: str, detector_type: DetectorType) -> None:
         """Remove a verdict (backs the undo toast for first-click cases)."""
         with self._conn:
             self._conn.execute(
-                "DELETE FROM reviewer_verdicts "
-                "WHERE pair_key = ? AND detector_type = ?",
+                "DELETE FROM reviewer_verdicts WHERE pair_key = ? AND detector_type = ?",
                 (pair_key, detector_type),
             )
 

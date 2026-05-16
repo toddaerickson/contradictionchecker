@@ -253,20 +253,14 @@ def _append_multi_party_section(
         if (f.judge_confidence or 0.0) >= min_confidence
     ]
 
-    multi_keys = [
-        (":".join(sorted(f.assertion_ids)), "multi_party")
-        for f in multi
-    ]
+    multi_keys = [(":".join(sorted(f.assertion_ids)), "multi_party") for f in multi]
     multi_verdicts = audit_logger.get_reviewer_verdicts_bulk(multi_keys)
     multi = [
         f
         for f in multi
         if (
-            multi_verdicts.get((":".join(sorted(f.assertion_ids)), "multi_party"))
-            is None
-            or multi_verdicts[
-                (":".join(sorted(f.assertion_ids)), "multi_party")
-            ].verdict
+            multi_verdicts.get((":".join(sorted(f.assertion_ids)), "multi_party")) is None
+            or multi_verdicts[(":".join(sorted(f.assertion_ids)), "multi_party")].verdict
             != "false_positive"
         )
     ]

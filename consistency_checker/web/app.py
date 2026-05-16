@@ -296,9 +296,7 @@ def create_app(
                         run_id=run.run_id, verdict="multi_party_contradiction"
                     )
                 )
-                all_mp_keys = [
-                    ":".join(sorted(mp.assertion_ids)) for mp in raw_mp_findings
-                ]
+                all_mp_keys = [":".join(sorted(mp.assertion_ids)) for mp in raw_mp_findings]
                 mp_reviewer_verdicts = audit.get_reviewer_verdicts_bulk(
                     [(pk, "multi_party") for pk in all_mp_keys]
                 )
@@ -328,9 +326,7 @@ def create_app(
                 audit.count_reviewer_verdicts(detector_type="contradiction").values()
             )
             pair_total = _count_total_findings(store, "contradiction")
-            mp_reviewed = sum(
-                audit.count_reviewer_verdicts(detector_type="multi_party").values()
-            )
+            mp_reviewed = sum(audit.count_reviewer_verdicts(detector_type="multi_party").values())
             mp_total = _count_total_findings(store, "multi_party")
         finally:
             store.close()
@@ -610,9 +606,7 @@ def create_app(
                 findings.sort(key=lambda f: (f["term"].lower(), -(f["confidence"] or 0.0)))
 
             reviewed_count = sum(
-                audit.count_reviewer_verdicts(
-                    detector_type="definition_inconsistency"
-                ).values()
+                audit.count_reviewer_verdicts(detector_type="definition_inconsistency").values()
             )
             total_count = _count_total_findings(store, "definition_inconsistency")
         finally:

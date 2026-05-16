@@ -25,8 +25,16 @@ Document A says "the Borrower", Document B says "ABC Corp". The current judge ca
 ### 8. LanceDB migration option
 SQLite + FAISS works at corpus sizes up to ~1M assertions. Beyond that, LanceDB consolidates store + vectors with native filtering. Worth prototyping as an alternative `Store` Protocol so users can choose. ADR-0002's "domain model" alternative path goes here too — once LanceDB is in place, domain embedders are configurable rather than code-bound.
 
-### 9. Reviewer workflow
-The audit DB has `findings.reviewer_verdict` columns reserved (or should — verify the schema). Build a tiny TUI (or web view) that walks reviewers through unreviewed findings and lets them set `reviewer_verdict` ∈ `{confirmed, false_positive, dismissed}`. Findings that reviewers confirm as false positives should feed back into prompt iteration. v0.3 Block G already provides the FastAPI/HTMX shell — #9 lives mostly in new templates + a `reviewer_verdict` column.
+### 9b. Reviewer workflow — Phase B (dedicated queue + small extensions)
+Parked from the v0.4 Phase A build (item #9, shipped). Three pieces:
+
+- **Dedicated "Review" tab** — focused per-finding queue with big buttons,
+  skip/back navigation, optional batch-mode keyboard flow. The schema and
+  setter API landed in Phase A; this is a new UI surface that uses them.
+- **Note column UI** — `reviewer_verdicts.note` exists in the schema with
+  no v1 UI. The queue page is the natural place to surface it.
+- **Findings CSV export** with a `reviewer_verdict` column for downstream
+  tooling.
 
 ## v0.4+ — operational
 
@@ -195,3 +203,4 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
   - Output naming helper (`audit/naming.py`) + optional `--out` on `report` / `export` (G0b).
   - simplify pass: `RunStatus` Literal type, closure-captured overrides, dead-code cleanup.
 - **v0.4 (definition-inconsistency detector)** — flavor A of item #20: divergent definitions of the same canonical term across the corpus. New migrations `0007_assertion_kind.sql` (`assertions.kind/term/definition_text`) and `0008_finding_detector_type.sql` (`findings.detector_type`); definitions extracted alongside atomic facts via the existing tool-use schema; new `DefinitionChecker` skips the NLI gate in favour of canonical-term grouping; new `DefinitionJudge` provider surface (Anthropic + OpenAI); audit, report, web UI, and CLI extended; `--no-definitions` opt-out. ADR-0009. Flavor B (definition ↔ usage) parked as item #20a.
+- **v0.4 (reviewer workflow, Phase A)** — item #9: inline verdict buttons on Contradictions / Definitions / Cross-document tabs; content-keyed `reviewer_verdicts` table (migration 0009) keyed by `(pair_key, detector_type)` so verdicts survive re-runs; hide-by-default with per-section "Show reviewed" toggle; persistent undo toast (no auto-dismiss); keyboard shortcuts C/F/D when a finding row has focus; markdown report filters `false_positive` and tags surviving findings with `**Reviewer:** Real issue/Dismissed/Pending review`. Phase B (dedicated queue, note column UI, findings CSV) parked as item #9b.

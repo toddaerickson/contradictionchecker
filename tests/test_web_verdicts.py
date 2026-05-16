@@ -125,15 +125,19 @@ def test_post_verdicts_undo_first_click_case_deletes(
     client.post(
         "/verdicts",
         data={
-            "pair_key": "a:b", "detector_type": "contradiction",
-            "verdict": "confirmed", "prior_verdict": "",
+            "pair_key": "a:b",
+            "detector_type": "contradiction",
+            "verdict": "confirmed",
+            "prior_verdict": "",
         },
         headers={"HX-Request": "true"},
     )
     resp = client.post(
         "/verdicts/undo",
         data={
-            "pair_key": "a:b", "detector_type": "contradiction", "prior_verdict": "",
+            "pair_key": "a:b",
+            "detector_type": "contradiction",
+            "prior_verdict": "",
         },
         headers={"HX-Request": "true"},
     )
@@ -152,23 +156,28 @@ def test_post_verdicts_undo_rejudge_case_restores_prior(
     client.post(
         "/verdicts",
         data={
-            "pair_key": "a:b", "detector_type": "contradiction",
-            "verdict": "confirmed", "prior_verdict": "",
+            "pair_key": "a:b",
+            "detector_type": "contradiction",
+            "verdict": "confirmed",
+            "prior_verdict": "",
         },
         headers={"HX-Request": "true"},
     )
     client.post(
         "/verdicts",
         data={
-            "pair_key": "a:b", "detector_type": "contradiction",
-            "verdict": "false_positive", "prior_verdict": "confirmed",
+            "pair_key": "a:b",
+            "detector_type": "contradiction",
+            "verdict": "false_positive",
+            "prior_verdict": "confirmed",
         },
         headers={"HX-Request": "true"},
     )
     resp = client.post(
         "/verdicts/undo",
         data={
-            "pair_key": "a:b", "detector_type": "contradiction",
+            "pair_key": "a:b",
+            "detector_type": "contradiction",
             "prior_verdict": "confirmed",
         },
         headers={"HX-Request": "true"},
@@ -189,7 +198,8 @@ def test_post_verdicts_undo_rejects_bogus_prior_verdict(
     resp = client.post(
         "/verdicts/undo",
         data={
-            "pair_key": "a:b", "detector_type": "contradiction",
+            "pair_key": "a:b",
+            "detector_type": "contradiction",
             "prior_verdict": "banana",
         },
         headers={"HX-Request": "true"},
@@ -204,6 +214,7 @@ def _seed_pair_contradiction(cfg: Config) -> tuple[str, str]:
     from consistency_checker.check.llm_judge import JudgeVerdict
     from consistency_checker.check.nli_checker import NliResult
     from consistency_checker.extract.schema import Assertion, Document
+
     store = AssertionStore(cfg.db_path)
     store.migrate()
     doc_a = Document.from_content("A body.", source_path="a.md", title="Doc A")
@@ -242,8 +253,10 @@ def test_contradictions_tab_hides_reviewed_by_default(
     client.post(
         "/verdicts",
         data={
-            "pair_key": pair_key, "detector_type": "contradiction",
-            "verdict": "confirmed", "prior_verdict": "",
+            "pair_key": pair_key,
+            "detector_type": "contradiction",
+            "verdict": "confirmed",
+            "prior_verdict": "",
         },
         headers={"HX-Request": "true"},
     )
@@ -262,8 +275,10 @@ def test_contradictions_tab_shows_reviewed_when_toggle_on(
     client.post(
         "/verdicts",
         data={
-            "pair_key": pair_key, "detector_type": "contradiction",
-            "verdict": "confirmed", "prior_verdict": "",
+            "pair_key": pair_key,
+            "detector_type": "contradiction",
+            "verdict": "confirmed",
+            "prior_verdict": "",
         },
         headers={"HX-Request": "true"},
     )
@@ -306,12 +321,18 @@ def _seed_definition_finding(cfg: Config) -> tuple[str, str]:
     store.add_document(doc_a)
     store.add_document(doc_b)
     a = Assertion.build(
-        doc_a.doc_id, '"MAE" means A.',
-        kind="definition", term="MAE", definition_text="A",
+        doc_a.doc_id,
+        '"MAE" means A.',
+        kind="definition",
+        term="MAE",
+        definition_text="A",
     )
     b = Assertion.build(
-        doc_b.doc_id, '"MAE" means B.',
-        kind="definition", term="MAE", definition_text="B",
+        doc_b.doc_id,
+        '"MAE" means B.',
+        kind="definition",
+        term="MAE",
+        definition_text="B",
     )
     store.add_assertions([a, b])
     logger = AuditLogger(store)
@@ -324,7 +345,9 @@ def _seed_definition_finding(cfg: Config) -> tuple[str, str]:
                 assertion_a_id=min(a.assertion_id, b.assertion_id),
                 assertion_b_id=max(a.assertion_id, b.assertion_id),
                 verdict="definition_divergent",
-                confidence=0.9, rationale="scope shift", evidence_spans=[],
+                confidence=0.9,
+                rationale="scope shift",
+                evidence_spans=[],
             ),
         ),
     )
@@ -342,8 +365,10 @@ def test_definitions_tab_hides_reviewed_by_default(
     client.post(
         "/verdicts",
         data={
-            "pair_key": pair_key, "detector_type": "definition_inconsistency",
-            "verdict": "confirmed", "prior_verdict": "",
+            "pair_key": pair_key,
+            "detector_type": "definition_inconsistency",
+            "verdict": "confirmed",
+            "prior_verdict": "",
         },
         headers={"HX-Request": "true"},
     )
@@ -361,8 +386,10 @@ def test_definitions_tab_shows_reviewed_when_toggle_on(
     client.post(
         "/verdicts",
         data={
-            "pair_key": pair_key, "detector_type": "definition_inconsistency",
-            "verdict": "confirmed", "prior_verdict": "",
+            "pair_key": pair_key,
+            "detector_type": "definition_inconsistency",
+            "verdict": "confirmed",
+            "prior_verdict": "",
         },
         headers={"HX-Request": "true"},
     )

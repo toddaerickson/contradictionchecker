@@ -516,22 +516,19 @@ def test_set_reviewer_verdict_inserts_row(tmp_path: Path) -> None:
 def test_set_reviewer_verdict_upserts_on_conflict(tmp_path: Path) -> None:
     """Second set with different verdict overwrites; set_at refreshes."""
     import time
+
     store = AssertionStore(tmp_path / "test.db")
     store.migrate()
     logger = AuditLogger(store)
     logger.set_reviewer_verdict(
         pair_key="a:b", detector_type="contradiction", verdict="confirmed", note="initial"
     )
-    first = store._conn.execute(
-        "SELECT verdict, note, set_at FROM reviewer_verdicts"
-    ).fetchone()
+    first = store._conn.execute("SELECT verdict, note, set_at FROM reviewer_verdicts").fetchone()
     time.sleep(1.1)
     logger.set_reviewer_verdict(
         pair_key="a:b", detector_type="contradiction", verdict="false_positive", note="changed"
     )
-    second = store._conn.execute(
-        "SELECT verdict, note, set_at FROM reviewer_verdicts"
-    ).fetchone()
+    second = store._conn.execute("SELECT verdict, note, set_at FROM reviewer_verdicts").fetchone()
     assert second["verdict"] == "false_positive"
     assert second["note"] == "changed"
     assert second["set_at"] > first["set_at"]
@@ -543,9 +540,7 @@ def test_set_reviewer_verdict_same_pair_different_detector_coexist(tmp_path: Pat
     store = AssertionStore(tmp_path / "test.db")
     store.migrate()
     logger = AuditLogger(store)
-    logger.set_reviewer_verdict(
-        pair_key="a:b", detector_type="contradiction", verdict="confirmed"
-    )
+    logger.set_reviewer_verdict(pair_key="a:b", detector_type="contradiction", verdict="confirmed")
     logger.set_reviewer_verdict(
         pair_key="a:b", detector_type="definition_inconsistency", verdict="false_positive"
     )
@@ -564,9 +559,7 @@ def test_delete_reviewer_verdict_removes_row(tmp_path: Path) -> None:
     store = AssertionStore(tmp_path / "test.db")
     store.migrate()
     logger = AuditLogger(store)
-    logger.set_reviewer_verdict(
-        pair_key="a:b", detector_type="contradiction", verdict="confirmed"
-    )
+    logger.set_reviewer_verdict(pair_key="a:b", detector_type="contradiction", verdict="confirmed")
     logger.delete_reviewer_verdict(pair_key="a:b", detector_type="contradiction")
     rows = store._conn.execute("SELECT COUNT(*) FROM reviewer_verdicts").fetchone()
     assert rows[0] == 0
@@ -577,16 +570,12 @@ def test_delete_reviewer_verdict_targets_only_matching_detector(tmp_path: Path) 
     store = AssertionStore(tmp_path / "test.db")
     store.migrate()
     logger = AuditLogger(store)
-    logger.set_reviewer_verdict(
-        pair_key="a:b", detector_type="contradiction", verdict="confirmed"
-    )
+    logger.set_reviewer_verdict(pair_key="a:b", detector_type="contradiction", verdict="confirmed")
     logger.set_reviewer_verdict(
         pair_key="a:b", detector_type="definition_inconsistency", verdict="false_positive"
     )
     logger.delete_reviewer_verdict(pair_key="a:b", detector_type="contradiction")
-    rows = store._conn.execute(
-        "SELECT detector_type FROM reviewer_verdicts"
-    ).fetchall()
+    rows = store._conn.execute("SELECT detector_type FROM reviewer_verdicts").fetchall()
     assert len(rows) == 1
     assert rows[0]["detector_type"] == "definition_inconsistency"
     store.close()
@@ -596,9 +585,7 @@ def test_get_reviewer_verdicts_bulk_returns_present_only(tmp_path: Path) -> None
     store = AssertionStore(tmp_path / "test.db")
     store.migrate()
     logger = AuditLogger(store)
-    logger.set_reviewer_verdict(
-        pair_key="a:b", detector_type="contradiction", verdict="confirmed"
-    )
+    logger.set_reviewer_verdict(pair_key="a:b", detector_type="contradiction", verdict="confirmed")
     logger.set_reviewer_verdict(
         pair_key="c:d", detector_type="definition_inconsistency", verdict="dismissed"
     )
