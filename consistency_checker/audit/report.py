@@ -78,6 +78,12 @@ def render_report(
     if not contradictions:
         lines.append("_No contradictions met the reporting threshold._")
         lines.append("")
+        _append_multi_party_section(
+            lines, audit_logger, store, run_id=run_id, min_confidence=min_confidence
+        )
+        _append_definition_section(
+            lines, audit_logger, store, run_id=run_id, min_confidence=min_confidence
+        )
         return "\n".join(lines) + "\n"
 
     # --- summary table ------------------------------------------------------
@@ -183,6 +189,14 @@ def render_report(
         min_confidence=min_confidence,
     )
 
+    _append_definition_section(
+        lines,
+        audit_logger,
+        store,
+        run_id=run_id,
+        min_confidence=min_confidence,
+    )
+
     return "\n".join(lines) + "\n"
 
 
@@ -234,4 +248,79 @@ def _append_multi_party_section(
             lines.append("")
         if finding.judge_rationale:
             lines.append(f"**Rationale.** {finding.judge_rationale}")
+            lines.append("")
+
+
+def _append_definition_section(
+    lines: list[str],
+    audit_logger: AuditLogger,
+    store: AssertionStore,
+    *,
+    run_id: str,
+    min_confidence: float,
+) -> None:
+    """Render the optional definition-inconsistencies section.
+
+    Emitted only when the run produced at least one `definition_divergent`
+    finding so prior-shape runs stay byte-stable.
+    """
+    findings = [
+        f
+        for f in audit_logger.iter_findings(
+            run_id=run_id,
+            verdict="definition_divergent",
+            detector_type="definition_inconsistency",
+        )
+        if (f.judge_confidence or 0.0) >= min_confidence
+    ]
+    if not findings:
+        return
+
+    # Resolve assertions + canonical terms (term lives on the assertion row).
+    assertions: dict[str, Assertion] = {}
+    documents: dict[str, Document] = {}
+    for finding in findings:
+        for aid in (finding.assertion_a_id, finding.assertion_b_id):
+            if aid in assertions:
+                continue
+            got = store.get_assertion(aid)
+            if got is None:
+                continue
+            assertions[aid] = got
+            if got.doc_id not in documents:
+                doc = store.get_document(got.doc_id)
+                if doc is not None:
+                    documents[got.doc_id] = doc
+
+    # Group by the term on assertion A.
+    grouped: dict[str, list[Finding]] = defaultdict(list)
+    for finding in findings:
+        a = assertions.get(finding.assertion_a_id)
+        if a is None or a.term is None:
+            continue
+        grouped[a.term].append(finding)
+
+    lines.append("## Definition inconsistencies")
+    lines.append("")
+    for term in sorted(grouped.keys(), key=str.lower):
+        items = sorted(
+            grouped[term], key=lambda f: -(f.judge_confidence or 0.0)
+        )
+        lines.append(f'### "{term}"')
+        lines.append("")
+        for finding in items:
+            a = assertions.get(finding.assertion_a_id)
+            b = assertions.get(finding.assertion_b_id)
+            if a is None or b is None:
+                continue
+            doc_a = documents.get(a.doc_id)
+            doc_b = documents.get(b.doc_id)
+            a_label = doc_a.title or doc_a.source_path if doc_a else a.doc_id
+            b_label = doc_b.title or doc_b.source_path if doc_b else b.doc_id
+            lines.append(f"- **{a_label}**: {a.assertion_text}")
+            lines.append(f"- **{b_label}**: {b.assertion_text}")
+            lines.append("")
+            lines.append(
+                f"**Verdict:** {finding.judge_verdict} — {finding.judge_rationale or ''}"
+            )
             lines.append("")

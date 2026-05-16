@@ -400,6 +400,7 @@ class AuditLogger:
         *,
         run_id: str | None = None,
         verdict: str | None = None,
+        detector_type: str | None = None,
     ) -> Iterator[Finding]:
         clauses: list[str] = []
         params: list[Any] = []
@@ -409,6 +410,9 @@ class AuditLogger:
         if verdict is not None:
             clauses.append("judge_verdict = ?")
             params.append(verdict)
+        if detector_type is not None:
+            clauses.append("detector_type = ?")
+            params.append(detector_type)
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         cursor = self._conn.execute(
             f"SELECT * FROM findings {where} ORDER BY created_at, finding_id",
