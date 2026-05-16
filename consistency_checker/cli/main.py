@@ -4,6 +4,7 @@ Thin wrapper around :mod:`consistency_checker.pipeline`. Subcommands:
 
 - ``ingest <corpus_dir>`` — load + chunk + extract + embed.
 - ``check`` — Stage A + Stage B + audit.
+- ``estimate-cost`` — pre-flight API-spend ceiling for a check run.
 - ``report`` — render markdown from the latest run.
 - ``export csv|jsonl`` — emit assertions for downstream tooling.
 - ``store stats|rebuild-index`` — store maintenance.
@@ -201,18 +202,31 @@ def estimate_cost(
     per_call_low: float = typer.Option(
         0.003,
         "--per-call-low",
-        help="Low end of per-judge-call cost in USD (default ~$0.003 for Sonnet).",
+        help="Low end of per-judge-call cost in USD; override to match your model.",
     ),
     per_call_high: float = typer.Option(
         0.010,
         "--per-call-high",
-        help="High end of per-judge-call cost in USD (default ~$0.010 for Sonnet).",
+        help="High end of per-judge-call cost in USD; override to match your model.",
     ),
 ) -> None:
     cfg = _load_config(config)
-    embedder = make_embedder(cfg)
     store = _open_store(cfg)
-    faiss_store = _open_faiss(cfg, dim=embedder.dim)
+    # `dim=None` reads the dimension from the existing FAISS index. This
+    # skips the sentence-transformers model load that `make_embedder` would
+    # trigger — a multi-GB download on a cold cache that would defeat the
+    # whole "fast pre-flight" point of this command.
+    try:
+        faiss_store = FaissStore.open_or_create(
+            index_path=cfg.faiss_path,
+            id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
+            dim=None,
+        )
+    except ValueError as exc:
+        store.close()
+        raise typer.BadParameter(
+            f"{exc} Run `consistency-check ingest <corpus_dir>` first."
+        ) from exc
     est = run_estimate_cost(
         cfg,
         store=store,

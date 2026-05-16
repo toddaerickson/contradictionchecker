@@ -133,3 +133,54 @@ def test_estimate_cost_empty_store_returns_zero(cfg: Config) -> None:
     assert est.judge_calls_ceiling == 0
     assert est.est_cost_low == 0.0
     assert est.est_cost_high == 0.0
+
+
+def test_estimate_cost_multiple_term_groups(cfg: Config) -> None:
+    """Two terms with 2 and 3 definitions respectively => 1 + 3 = 4 def pairs."""
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    embedder = HashEmbedder(dim=64)
+    cfg.data_dir.mkdir(parents=True, exist_ok=True)
+    faiss = FaissStore.open_or_create(
+        index_path=cfg.faiss_path,
+        id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
+        dim=embedder.dim,
+    )
+    doc = Document.from_content("Body.", source_path="doc.md")
+    store.add_document(doc)
+    store.add_assertions(
+        [
+            Assertion.build(
+                doc.doc_id, '"MAE" means A.', kind="definition", term="MAE", definition_text="A"
+            ),
+            Assertion.build(
+                doc.doc_id, '"MAE" means B.', kind="definition", term="MAE", definition_text="B"
+            ),
+            Assertion.build(
+                doc.doc_id,
+                '"Borrower" means X.',
+                kind="definition",
+                term="Borrower",
+                definition_text="X",
+            ),
+            Assertion.build(
+                doc.doc_id,
+                '"Borrower" means Y.',
+                kind="definition",
+                term="Borrower",
+                definition_text="Y",
+            ),
+            Assertion.build(
+                doc.doc_id,
+                '"Borrower" means Z.',
+                kind="definition",
+                term="Borrower",
+                definition_text="Z",
+            ),
+        ]
+    )
+    embed_pending(store, faiss, embedder)
+    est = estimate_cost(cfg, store=store, faiss_store=faiss)
+    store.close()
+    # C(2,2) + C(3,2) = 1 + 3 = 4
+    assert est.n_definition_pairs == 4
