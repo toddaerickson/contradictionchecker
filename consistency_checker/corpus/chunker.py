@@ -49,17 +49,19 @@ def chunk_document(
     Args:
         loaded: The loaded document to chunk.
         max_chars: Target maximum size of a chunk, measured in source characters.
-        overlap_chars: Reserved for future use. Non-zero raises ``NotImplementedError``;
-            the MVP supports only non-overlapping chunks.
+        overlap_chars: When > 0, successive chunks overlap by approximately this many
+            characters, snapped to sentence boundaries (no partial sentences). Clamped
+            to ``max_chars - 1`` to guarantee forward progress.
     """
-    if overlap_chars != 0:
-        raise NotImplementedError(
-            "overlap_chars > 0 is not implemented yet; set chunk_overlap_chars: 0 in config."
-        )
     if max_chars < 1:
         raise ValueError("max_chars must be positive")
+    if overlap_chars < 0:
+        raise ValueError("overlap_chars must be non-negative")
     if not loaded.text:
         return []
+
+    if overlap_chars >= max_chars:
+        overlap_chars = max_chars - 1
 
     segmenter = _segmenter()
     sentences = segmenter.segment(loaded.text)
@@ -69,10 +71,14 @@ def chunk_document(
     doc_id = loaded.document.doc_id
     chunks: list[Chunk] = []
 
-    current_start: int | None = None
-    current_end: int = 0
+    # window_sents tracks sentences currently buffered as (char_start, char_end) tuples.
+    window_sents: list[tuple[int, int]] = []
 
-    def emit(start: int, end: int) -> None:
+    def emit_window() -> None:
+        if not window_sents:
+            return
+        start = window_sents[0][0]
+        end = window_sents[-1][1]
         text = loaded.text[start:end]
         chunks.append(
             Chunk(
@@ -84,14 +90,36 @@ def chunk_document(
             )
         )
 
+    def rewind_for_overlap() -> None:
+        """Drop leading sentences from the window once it has been emitted.
+
+        With ``overlap_chars == 0`` the window is fully cleared. Otherwise we keep
+        the tail-most sentences whose ``char_start`` lies at or after the overlap
+        boundary, snapping to sentence edges (no partial sentences).
+        """
+        nonlocal window_sents
+        if not window_sents:
+            return
+        if overlap_chars <= 0:
+            window_sents = []
+            return
+        last_end = window_sents[-1][1]
+        boundary = last_end - overlap_chars
+        retained = [(s, e) for s, e in window_sents if s >= boundary]
+        # Forward-progress guard: if we somehow retained the whole window
+        # (e.g. a single huge sentence longer than the overlap), drop everything
+        # so the next sentence opens a fresh chunk.
+        if len(retained) == len(window_sents):
+            retained = []
+        window_sents = retained
+
     for sent in sentences:
         sent_start = int(sent.start)
         sent_end = int(sent.end)
         sent_len = sent_end - sent_start
 
-        if current_start is None:
-            current_start = sent_start
-            current_end = sent_end
+        if not window_sents:
+            window_sents.append((sent_start, sent_end))
             if sent_len > max_chars:
                 _log.warning(
                     "Sentence at chars %d-%d in %s exceeds max_chars=%d (len=%d); "
@@ -104,15 +132,15 @@ def chunk_document(
                 )
             continue
 
-        prospective_len = sent_end - current_start
+        prospective_len = sent_end - window_sents[0][0]
         if prospective_len > max_chars:
-            emit(current_start, current_end)
-            current_start = sent_start
-            current_end = sent_end
+            emit_window()
+            rewind_for_overlap()
+            window_sents.append((sent_start, sent_end))
         else:
-            current_end = sent_end
+            window_sents.append((sent_start, sent_end))
 
-    if current_start is not None:
-        emit(current_start, current_end)
+    if window_sents:
+        emit_window()
 
     return chunks

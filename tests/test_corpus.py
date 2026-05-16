@@ -205,10 +205,10 @@ def test_unicode_chars_preserved() -> None:
     assert rebuilt  # non-empty
 
 
-def test_overlap_not_implemented() -> None:
+def test_overlap_chars_negative_raises() -> None:
     loaded = _load_text("Hello. World.")
-    with pytest.raises(NotImplementedError):
-        chunk_document(loaded, overlap_chars=10)
+    with pytest.raises(ValueError):
+        chunk_document(loaded, overlap_chars=-1)
 
 
 def test_negative_max_chars_raises() -> None:
