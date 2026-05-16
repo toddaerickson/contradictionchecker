@@ -1,0 +1,40 @@
+{# Renders three icon-only verdict buttons for a single finding row.
+   Required context: pair_key, detector_type, prior_verdict (possibly empty). #}
+<div class="cc-verdict-buttons" role="group" aria-label="Reviewer actions">
+  <button class="cc-verdict-btn cc-verdict-btn--confirmed"
+          type="button"
+          aria-label="Mark as real issue"
+          title="Real issue — model flagged this correctly (C)"
+          data-verdict="confirmed"
+          hx-post="/verdicts"
+          hx-vals='{"pair_key": "{{ pair_key }}",
+                    "detector_type": "{{ detector_type }}",
+                    "verdict": "confirmed",
+                    "prior_verdict": "{{ prior_verdict|default('') }}"}'
+          hx-target="closest tr"
+          hx-swap="outerHTML">✓</button>
+  <button class="cc-verdict-btn cc-verdict-btn--false-positive"
+          type="button"
+          aria-label="Mark as not an issue"
+          title="Not an issue — model flagged this incorrectly (F)"
+          data-verdict="false_positive"
+          hx-post="/verdicts"
+          hx-vals='{"pair_key": "{{ pair_key }}",
+                    "detector_type": "{{ detector_type }}",
+                    "verdict": "false_positive",
+                    "prior_verdict": "{{ prior_verdict|default('') }}"}'
+          hx-target="closest tr"
+          hx-swap="outerHTML">✗</button>
+  <button class="cc-verdict-btn cc-verdict-btn--dismissed"
+          type="button"
+          aria-label="Skip for now"
+          title="Skip — real but not yours to resolve (D)"
+          data-verdict="dismissed"
+          hx-post="/verdicts"
+          hx-vals='{"pair_key": "{{ pair_key }}",
+                    "detector_type": "{{ detector_type }}",
+                    "verdict": "dismissed",
+                    "prior_verdict": "{{ prior_verdict|default('') }}"}'
+          hx-target="closest tr"
+          hx-swap="outerHTML">—</button>
+</div>
