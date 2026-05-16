@@ -155,18 +155,32 @@ class Extractor(Protocol):
 
 
 class FixtureExtractor:
-    """Returns canned assertion texts keyed by chunk id.
+    """Canned-response extractor for hermetic tests.
 
-    Intended for hermetic tests. If a chunk id is missing from the fixture map,
-    yields an empty list (matching the LLM's "no claims" path).
+    Two call forms — the legacy positional ``FixtureExtractor({chunk_id: [facts]})``
+    keeps working for older tests; the keyword form
+    ``FixtureExtractor(facts=..., definitions=...)`` adds definition support.
     """
 
-    def __init__(self, fixtures: Mapping[str, list[str]]) -> None:
-        self._fixtures = dict(fixtures)
+    def __init__(
+        self,
+        fixtures: Mapping[str, list[str]] | None = None,
+        *,
+        facts: Mapping[str, list[str]] | None = None,
+        definitions: Mapping[str, list[Mapping[str, str]]] | None = None,
+    ) -> None:
+        if fixtures is not None and facts is not None:
+            raise ValueError("pass either fixtures (legacy) or facts=, not both")
+        self._facts: dict[str, list[str]] = dict(fixtures or facts or {})
+        self._definitions: dict[str, list[Mapping[str, str]]] = dict(definitions or {})
 
     def extract(self, chunk: Chunk) -> list[Assertion]:
-        texts = self._fixtures.get(chunk.chunk_id, [])
-        payload = _ExtractionPayload(assertions=texts, definitions=[])
+        payload = _ExtractionPayload(
+            assertions=list(self._facts.get(chunk.chunk_id, [])),
+            definitions=[
+                _DefinitionItem(**d) for d in self._definitions.get(chunk.chunk_id, [])
+            ],
+        )
         return _assertions_from_payload(chunk, payload)
 
 

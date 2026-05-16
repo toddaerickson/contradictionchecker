@@ -301,3 +301,38 @@ def test_assertions_from_payload_routes_definition_to_kind_definition() -> None:
     assert defn.term == "Borrower"
     assert defn.definition_text == "ABC Corp"
     assert defn.assertion_text == '"Borrower" means ABC Corp.'
+
+
+def test_fixture_extractor_emits_definitions() -> None:
+    chunk = make_chunk(text='"Borrower" means ABC Corp.', doc_id="doc_a")
+    extractor = FixtureExtractor(
+        facts={},
+        definitions={
+            chunk.chunk_id: [
+                {
+                    "term": "Borrower",
+                    "definition_text": "ABC Corp",
+                    "containing_sentence": '"Borrower" means ABC Corp.',
+                }
+            ]
+        },
+    )
+    out = extractor.extract(chunk)
+    assert len(out) == 1
+    assert out[0].kind == "definition"
+    assert out[0].term == "Borrower"
+    assert out[0].definition_text == "ABC Corp"
+    assert out[0].assertion_text == '"Borrower" means ABC Corp.'
+
+
+def test_fixture_extractor_back_compat_facts_only() -> None:
+    chunk = make_chunk(text="Revenue grew 12%.", doc_id="doc_a")
+    extractor = FixtureExtractor({chunk.chunk_id: ["Revenue grew 12 percent in fiscal 2025."]})
+    out = extractor.extract(chunk)
+    assert len(out) == 1
+    assert out[0].kind == "claim"
+
+
+def test_fixture_extractor_rejects_both_positional_and_keyword() -> None:
+    with pytest.raises(ValueError, match=r"either fixtures.*or facts"):
+        FixtureExtractor({"x": ["y"]}, facts={"x": ["z"]})
