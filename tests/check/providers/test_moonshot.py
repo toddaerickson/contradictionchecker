@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from consistency_checker.check.providers.base import JudgePayload
-from consistency_checker.check.providers.moonshot import MoonshotJudgeProvider
+from consistency_checker.check.providers.base import JudgePayload, MultiPartyJudgePayload
+from consistency_checker.check.providers.moonshot import (
+    MoonshotJudgeProvider,
+    MoonshotMultiPartyJudgeProvider,
+)
 
 
 def test_moonshot_judge_provider_returns_valid_payload(monkeypatch):
@@ -106,3 +109,59 @@ def test_moonshot_judge_validates_payload():
     # (OpenAI SDK validates via pydantic.parse internally)
     with pytest.raises((ValidationError, AttributeError, ValueError)):
         provider.request_payload("system", "user")
+
+
+@pytest.mark.live
+def test_moonshot_judge_provider_real_api_pairwise():
+    """Integration test: call real Moonshot API for pairwise judgment.
+
+    Requires MOONSHOT_API_KEY env var. Marked @pytest.mark.live to skip in CI.
+    """
+    provider = MoonshotJudgeProvider(model="kimi-k2.6")
+
+    system_prompt = (
+        "You are a judge determining if two assertions contradict each other. "
+        "Return a JSON verdict."
+    )
+    user_prompt = (
+        "Assertion A: The Earth is round.\n"
+        "Assertion B: The Earth is a perfect sphere.\n"
+        "Do these assertions contradict? Respond with JSON."
+    )
+
+    payload = provider.request_payload(system_prompt, user_prompt)
+
+    # Validate structure
+    assert isinstance(payload, JudgePayload)
+    assert payload.verdict in ["contradiction", "not_contradiction", "uncertain"]
+    assert 0.0 <= payload.confidence <= 1.0
+    assert len(payload.rationale) > 0
+
+
+@pytest.mark.live
+def test_moonshot_judge_provider_real_api_multi_party():
+    """Integration test: call real Moonshot API for multi-party judgment.
+
+    Requires MOONSHOT_API_KEY env var. Marked @pytest.mark.live to skip in CI.
+    """
+    provider = MoonshotMultiPartyJudgeProvider(model="kimi-k2.6")
+
+    system_prompt = "You are a judge. Return a JSON verdict for three assertions."
+    user_prompt = (
+        "Assertion A: Water boils at 100°C.\n"
+        "Assertion B: Water boils at higher temperatures at higher altitudes.\n"
+        "Assertion C: Water boils at 100°C regardless of altitude.\n"
+        "Determine if any subset jointly contradicts. Respond with JSON."
+    )
+
+    payload = provider.request_payload(system_prompt, user_prompt)
+
+    # Validate structure
+    assert isinstance(payload, MultiPartyJudgePayload)
+    assert payload.verdict in ["multi_party_contradiction", "not_contradiction", "uncertain"]
+    assert 0.0 <= payload.confidence <= 1.0
+    assert len(payload.rationale) > 0
+
+    # If verdict is multi_party_contradiction, subset should not be empty
+    if payload.verdict == "multi_party_contradiction":
+        assert len(payload.contradicting_subset) > 0
