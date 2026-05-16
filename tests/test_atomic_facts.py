@@ -273,3 +273,31 @@ def test_extraction_payload_defaults_empty() -> None:
     payload = _ExtractionPayload.model_validate({"assertions": [], "definitions": []})
     assert payload.assertions == []
     assert payload.definitions == []
+
+
+def test_assertions_from_payload_routes_definition_to_kind_definition() -> None:
+    from consistency_checker.extract.atomic_facts import (
+        _assertions_from_payload,
+        _DefinitionItem,
+    )
+    chunk = make_chunk(text='"Borrower" means ABC Corp.', doc_id="doc_a")
+    payload = _ExtractionPayload(
+        assertions=["Revenue grew 12 percent in fiscal 2025."],
+        definitions=[
+            _DefinitionItem(
+                term="Borrower",
+                definition_text="ABC Corp",
+                containing_sentence='"Borrower" means ABC Corp.',
+            )
+        ],
+    )
+    out = _assertions_from_payload(chunk, payload)
+    assert len(out) == 2
+    claim = next(a for a in out if a.kind == "claim")
+    defn = next(a for a in out if a.kind == "definition")
+    assert claim.assertion_text == "Revenue grew 12 percent in fiscal 2025."
+    assert claim.term is None
+    assert claim.definition_text is None
+    assert defn.term == "Borrower"
+    assert defn.definition_text == "ABC Corp"
+    assert defn.assertion_text == '"Borrower" means ABC Corp.'

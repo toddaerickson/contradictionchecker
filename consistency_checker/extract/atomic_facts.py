@@ -114,20 +114,6 @@ def parse_tool_response(response: Any) -> _ExtractionPayload:
     raise ValueError(f"No tool_use block named {TOOL_NAME!r} found in response")
 
 
-def _assertions_from_texts(chunk: Chunk, texts: list[str]) -> list[Assertion]:
-    return [
-        Assertion.build(
-            chunk.doc_id,
-            text,
-            chunk_id=chunk.chunk_id,
-            char_start=chunk.char_start,
-            char_end=chunk.char_end,
-        )
-        for text in texts
-        if text.strip()
-    ]
-
-
 def _assertions_from_payload(
     chunk: Chunk, payload: _ExtractionPayload
 ) -> list[Assertion]:
@@ -205,9 +191,7 @@ class AnthropicExtractor:
 
     def extract(self, chunk: Chunk) -> list[Assertion]:
         prompt = render_prompt(chunk.text)
-        # The Anthropic SDK uses TypedDicts that mypy can't infer from dict literals.
-        # Structural shape is validated by SDK at runtime; suppress the overload noise.
-        response = self._client.messages.create(  # type: ignore[call-overload]
+        response = self._client.messages.create(
             model=self._model,
             max_tokens=self._max_tokens,
             messages=[{"role": "user", "content": prompt}],
