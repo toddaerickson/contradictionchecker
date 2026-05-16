@@ -598,3 +598,97 @@ def test_estimate_cost_per_call_flags_flow_through(
     assert result.exit_code == 0, result.stdout
     assert captured["per_call_low"] == 0.001
     assert captured["per_call_high"] == 0.020
+
+
+# --- eval -----------------------------------------------------------------
+
+
+def _seed_reviewed_finding(cfg: Config) -> None:
+    """Record one pair finding + matching reviewer verdict so eval has data."""
+    from consistency_checker.check.gate import CandidatePair
+
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    doc_a = Document.from_content("A body.", source_path="a.txt", title="A")
+    doc_b = Document.from_content("B body.", source_path="b.txt", title="B")
+    store.add_document(doc_a)
+    store.add_document(doc_b)
+    a = Assertion.build(doc_a.doc_id, "Revenue grew 12%.")
+    b = Assertion.build(doc_b.doc_id, "Revenue declined 5%.")
+    store.add_assertions([a, b])
+    logger = AuditLogger(store)
+    rid = logger.begin_run()
+    logger.record_finding(
+        rid,
+        candidate=CandidatePair(a=a, b=b, score=0.9),
+        nli=NliResult.from_scores(p_contradiction=0.7, p_entailment=0.1, p_neutral=0.2),
+        verdict=JudgeVerdict(
+            assertion_a_id=a.assertion_id,
+            assertion_b_id=b.assertion_id,
+            verdict="contradiction",
+            confidence=0.92,
+            rationale="r",
+        ),
+    )
+    logger.set_reviewer_verdict(
+        pair_key=":".join(sorted([a.assertion_id, b.assertion_id])),
+        detector_type="contradiction",
+        verdict="confirmed",
+    )
+    store.close()
+
+
+def test_eval_prints_precision_and_calibration(runner: CliRunner, tmp_path: Path) -> None:
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_reviewed_finding(cfg)
+    result = runner.invoke(app, ["eval", "--config", str(cfg_path)])
+    assert result.exit_code == 0, result.stdout
+    assert "Per-detector precision" in result.stdout
+    assert "contradiction" in result.stdout
+    assert "100.0%" in result.stdout  # 1 confirmed, 0 false_positive
+    assert "Calibration on 'contradiction'" in result.stdout
+
+
+def test_eval_empty_db_does_not_error(runner: CliRunner, tmp_path: Path) -> None:
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    # Store exists but no findings / verdicts.
+    AssertionStore(cfg.db_path).migrate()
+    result = runner.invoke(app, ["eval", "--config", str(cfg_path)])
+    assert result.exit_code == 0, result.stdout
+    assert "No reviewed findings" in result.stdout
+
+
+def test_eval_out_writes_csvs(runner: CliRunner, tmp_path: Path) -> None:
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_reviewed_finding(cfg)
+    out_dir = tmp_path / "eval_out"
+    result = runner.invoke(app, ["eval", "--config", str(cfg_path), "--out", str(out_dir)])
+    assert result.exit_code == 0, result.stdout
+    written = sorted(p.name for p in out_dir.iterdir())
+    assert any(name.startswith("cc_eval_precision_") for name in written)
+    assert any(name.startswith("cc_eval_calibration_") for name in written)
+
+
+def test_eval_detector_flag_switches_calibration_table(runner: CliRunner, tmp_path: Path) -> None:
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_reviewed_finding(cfg)
+    result = runner.invoke(
+        app,
+        ["eval", "--config", str(cfg_path), "--detector", "definition_inconsistency"],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "definition_inconsistency" in result.stdout
+
+
+def test_eval_rejects_unknown_detector(runner: CliRunner, tmp_path: Path) -> None:
+    """Typo in --detector must fail loudly instead of silently rendering an empty table."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_reviewed_finding(cfg)
+    result = runner.invoke(app, ["eval", "--config", str(cfg_path), "--detector", "contraddiction"])
+    assert result.exit_code != 0
+    assert "must be one of" in (result.stdout + result.stderr).lower()
