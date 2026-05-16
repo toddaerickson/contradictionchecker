@@ -590,3 +590,58 @@ def test_delete_reviewer_verdict_targets_only_matching_detector(tmp_path: Path) 
     assert len(rows) == 1
     assert rows[0]["detector_type"] == "definition_inconsistency"
     store.close()
+
+
+def test_get_reviewer_verdicts_bulk_returns_present_only(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    logger = AuditLogger(store)
+    logger.set_reviewer_verdict(
+        pair_key="a:b", detector_type="contradiction", verdict="confirmed"
+    )
+    logger.set_reviewer_verdict(
+        pair_key="c:d", detector_type="definition_inconsistency", verdict="dismissed"
+    )
+    out = logger.get_reviewer_verdicts_bulk(
+        [
+            ("a:b", "contradiction"),
+            ("c:d", "definition_inconsistency"),
+            ("ghost:ghost", "contradiction"),
+        ]
+    )
+    assert set(out.keys()) == {("a:b", "contradiction"), ("c:d", "definition_inconsistency")}
+    assert out[("a:b", "contradiction")].verdict == "confirmed"
+    store.close()
+
+
+def test_get_reviewer_verdicts_bulk_empty_input_no_query(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    logger = AuditLogger(store)
+    assert logger.get_reviewer_verdicts_bulk([]) == {}
+    store.close()
+
+
+def test_count_reviewer_verdicts_groups_by_verdict(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    logger = AuditLogger(store)
+    logger.set_reviewer_verdict(pair_key="a:b", detector_type="contradiction", verdict="confirmed")
+    logger.set_reviewer_verdict(pair_key="c:d", detector_type="contradiction", verdict="confirmed")
+    logger.set_reviewer_verdict(pair_key="e:f", detector_type="contradiction", verdict="dismissed")
+    counts = logger.count_reviewer_verdicts()
+    assert counts == {"confirmed": 2, "dismissed": 1}
+    store.close()
+
+
+def test_count_reviewer_verdicts_filtered_by_detector(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    logger = AuditLogger(store)
+    logger.set_reviewer_verdict(pair_key="a:b", detector_type="contradiction", verdict="confirmed")
+    logger.set_reviewer_verdict(
+        pair_key="c:d", detector_type="definition_inconsistency", verdict="confirmed"
+    )
+    counts = logger.count_reviewer_verdicts(detector_type="contradiction")
+    assert counts == {"confirmed": 1}
+    store.close()
