@@ -479,9 +479,7 @@ def create_app(
                         detector_type="definition_inconsistency",
                     )
                 )
-                assertion_ids = [
-                    aid for r in raw for aid in (r.assertion_a_id, r.assertion_b_id)
-                ]
+                assertion_ids = [aid for r in raw for aid in (r.assertion_a_id, r.assertion_b_id)]
                 assertions = store.get_assertions_bulk(assertion_ids)
                 doc_ids = list({a.doc_id for a in assertions.values()})
                 documents = store.get_documents_bulk(doc_ids)

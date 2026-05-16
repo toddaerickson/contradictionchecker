@@ -334,8 +334,12 @@ def test_report_definition_section_when_no_contradictions(
     doc_b = Document.from_content("B body.", source_path="b.md", title="Doc B")
     seeded_store.add_document(doc_a)
     seeded_store.add_document(doc_b)
-    a = Assertion.build(doc_a.doc_id, '"X" means foo.', kind="definition", term="X", definition_text="foo")
-    b = Assertion.build(doc_b.doc_id, '"X" means bar.', kind="definition", term="X", definition_text="bar")
+    a = Assertion.build(
+        doc_a.doc_id, '"X" means foo.', kind="definition", term="X", definition_text="foo"
+    )
+    b = Assertion.build(
+        doc_b.doc_id, '"X" means bar.', kind="definition", term="X", definition_text="bar"
+    )
     seeded_store.add_assertions([a, b])
     logger = AuditLogger(seeded_store)
     run_id = logger.begin_run()

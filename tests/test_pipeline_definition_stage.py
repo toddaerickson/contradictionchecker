@@ -99,9 +99,7 @@ def test_check_runs_definition_stage_and_logs_findings(
         rationale="A vs B",
         evidence_spans=["A", "B"],
     )
-    definition_checker = DefinitionChecker(
-        judge=FixtureDefinitionJudge({key: fixture_verdict})
-    )
+    definition_checker = DefinitionChecker(judge=FixtureDefinitionJudge({key: fixture_verdict}))
 
     result = check(
         config,

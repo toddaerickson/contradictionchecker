@@ -94,9 +94,7 @@ class DefinitionJudge(Protocol):
 class FixtureDefinitionJudge:
     """Returns canned verdicts keyed by the canonical assertion-id pair."""
 
-    def __init__(
-        self, fixtures: Mapping[tuple[str, str], DefinitionJudgeVerdict]
-    ) -> None:
+    def __init__(self, fixtures: Mapping[tuple[str, str], DefinitionJudgeVerdict]) -> None:
         self._fixtures = dict(fixtures)
 
     def judge(self, a: Assertion, b: Assertion) -> DefinitionJudgeVerdict:
@@ -109,9 +107,7 @@ class FixtureDefinitionJudge:
 class LLMDefinitionJudge:
     """Provider-backed judge with retry-on-malformed and degraded fallback."""
 
-    def __init__(
-        self, provider: DefinitionJudgeProvider, *, max_retries: int = 2
-    ) -> None:
+    def __init__(self, provider: DefinitionJudgeProvider, *, max_retries: int = 2) -> None:
         if max_retries < 0:
             raise ValueError("max_retries must be >= 0")
         self._provider = provider

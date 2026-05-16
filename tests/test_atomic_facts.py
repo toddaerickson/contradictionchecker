@@ -280,6 +280,7 @@ def test_assertions_from_payload_routes_definition_to_kind_definition() -> None:
         _assertions_from_payload,
         _DefinitionItem,
     )
+
     chunk = make_chunk(text='"Borrower" means ABC Corp.', doc_id="doc_a")
     payload = _ExtractionPayload(
         assertions=["Revenue grew 12 percent in fiscal 2025."],

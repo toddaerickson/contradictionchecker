@@ -114,9 +114,7 @@ def parse_tool_response(response: Any) -> _ExtractionPayload:
     raise ValueError(f"No tool_use block named {TOOL_NAME!r} found in response")
 
 
-def _assertions_from_payload(
-    chunk: Chunk, payload: _ExtractionPayload
-) -> list[Assertion]:
+def _assertions_from_payload(chunk: Chunk, payload: _ExtractionPayload) -> list[Assertion]:
     out: list[Assertion] = []
     for text in payload.assertions:
         if not text.strip():
@@ -177,9 +175,7 @@ class FixtureExtractor:
     def extract(self, chunk: Chunk) -> list[Assertion]:
         payload = _ExtractionPayload(
             assertions=list(self._facts.get(chunk.chunk_id, [])),
-            definitions=[
-                _DefinitionItem(**d) for d in self._definitions.get(chunk.chunk_id, [])
-            ],
+            definitions=[_DefinitionItem(**d) for d in self._definitions.get(chunk.chunk_id, [])],
         )
         return _assertions_from_payload(chunk, payload)
 

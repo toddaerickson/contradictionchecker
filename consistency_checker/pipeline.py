@@ -144,9 +144,7 @@ def make_definition_judge(config: Config) -> DefinitionJudge:
         return LLMDefinitionJudge(AnthropicDefinitionProvider(model=config.judge_model))
     if config.judge_provider == "openai":
         return LLMDefinitionJudge(OpenAIDefinitionProvider(model=config.judge_model))
-    raise ValueError(
-        f"make_definition_judge(): provider {config.judge_provider!r} has no factory."
-    )
+    raise ValueError(f"make_definition_judge(): provider {config.judge_provider!r} has no factory.")
 
 
 def make_definition_checker(config: Config) -> DefinitionChecker:

@@ -73,9 +73,7 @@ class DefinitionChecker:
     def __init__(self, *, judge: DefinitionJudge) -> None:
         self._judge = judge
 
-    def find_inconsistencies(
-        self, definitions: Sequence[Assertion]
-    ) -> Iterator[DefinitionFinding]:
+    def find_inconsistencies(self, definitions: Sequence[Assertion]) -> Iterator[DefinitionFinding]:
         groups = _group_by_canonical_term(definitions)
         for pair in _enumerate_pairs(groups):
             verdict = self._judge.judge(pair.a, pair.b)

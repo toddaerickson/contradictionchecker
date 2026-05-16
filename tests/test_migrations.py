@@ -11,8 +11,7 @@ def test_migration_0007_adds_kind_columns(tmp_path: Path) -> None:
     store = AssertionStore(tmp_path / "test.db")
     store.migrate()
     cols = {
-        row["name"]: row
-        for row in store._conn.execute("PRAGMA table_info(assertions)").fetchall()
+        row["name"]: row for row in store._conn.execute("PRAGMA table_info(assertions)").fetchall()
     }
     assert "kind" in cols
     assert cols["kind"]["dflt_value"] == "'claim'"
@@ -43,8 +42,7 @@ def test_migration_0008_adds_detector_type(tmp_path: Path) -> None:
     store = AssertionStore(tmp_path / "test.db")
     store.migrate()
     cols = {
-        row["name"]: row
-        for row in store._conn.execute("PRAGMA table_info(findings)").fetchall()
+        row["name"]: row for row in store._conn.execute("PRAGMA table_info(findings)").fetchall()
     }
     assert "detector_type" in cols
     assert cols["detector_type"]["dflt_value"] == "'contradiction'"

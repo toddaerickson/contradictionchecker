@@ -414,8 +414,12 @@ def test_record_definition_finding_writes_detector_type(tmp_path: Path) -> None:
     store.migrate()
     store.add_document(Document(doc_id="docA", source_path="/A.txt"))
     store.add_document(Document(doc_id="docB", source_path="/B.txt"))
-    a = Assertion.build("docA", '"X" means foo.', kind="definition", term="X", definition_text="foo")
-    b = Assertion.build("docB", '"X" means bar.', kind="definition", term="X", definition_text="bar")
+    a = Assertion.build(
+        "docA", '"X" means foo.', kind="definition", term="X", definition_text="foo"
+    )
+    b = Assertion.build(
+        "docB", '"X" means bar.', kind="definition", term="X", definition_text="bar"
+    )
     store.add_assertions([a, b])
     logger = AuditLogger(store)
     run_id = logger.begin_run()
@@ -442,6 +446,7 @@ def test_record_definition_finding_writes_detector_type(tmp_path: Path) -> None:
     assert rows[0]["gate_score"] is None
     assert rows[0]["nli_label"] is None
     import json as _json
+
     assert _json.loads(rows[0]["evidence_spans_json"]) == ["foo", "bar"]
     store.close()
 
@@ -458,8 +463,12 @@ def test_record_definition_finding_idempotent(tmp_path: Path) -> None:
     store.migrate()
     store.add_document(Document(doc_id="docA", source_path="/A.txt"))
     store.add_document(Document(doc_id="docB", source_path="/B.txt"))
-    a = Assertion.build("docA", '"X" means foo.', kind="definition", term="X", definition_text="foo")
-    b = Assertion.build("docB", '"X" means bar.', kind="definition", term="X", definition_text="bar")
+    a = Assertion.build(
+        "docA", '"X" means foo.', kind="definition", term="X", definition_text="foo"
+    )
+    b = Assertion.build(
+        "docB", '"X" means bar.', kind="definition", term="X", definition_text="bar"
+    )
     store.add_assertions([a, b])
     logger = AuditLogger(store)
     run_id = logger.begin_run()

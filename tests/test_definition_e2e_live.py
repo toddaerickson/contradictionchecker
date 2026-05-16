@@ -59,16 +59,14 @@ def test_mae_divergence_detected_by_real_judge(tmp_path: Path) -> None:
         dim=embedder.dim,
     )
     extractor = make_extractor(cfg)
-    run_ingest(
-        cfg, store=store, faiss_store=faiss_store, extractor=extractor, embedder=embedder
-    )
+    run_ingest(cfg, store=store, faiss_store=faiss_store, extractor=extractor, embedder=embedder)
 
     # Sanity: at least the two MAE definitions must have been extracted.
     definitions = list(store.iter_definitions())
-    mae_defs = [d for d in definitions if canonicalize_term(d.term or "") == "material adverse effect"]
-    assert len(mae_defs) >= 2, (
-        f"expected ≥2 MAE definitions extracted; got {len(mae_defs)}"
-    )
+    mae_defs = [
+        d for d in definitions if canonicalize_term(d.term or "") == "material adverse effect"
+    ]
+    assert len(mae_defs) >= 2, f"expected ≥2 MAE definitions extracted; got {len(mae_defs)}"
 
     from consistency_checker.check.nli_checker import TransformerNliChecker
 

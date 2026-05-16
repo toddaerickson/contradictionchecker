@@ -53,6 +53,7 @@ def test_definition_user_prompt_requires_term() -> None:
     a = Assertion.build("docA", "no term", kind="definition")
     b = Assertion.build("docB", "no term", kind="definition")
     import pytest
+
     with pytest.raises(ValueError, match=r"requires both assertions to have a `term`"):
         render_definition_user_prompt(a, b)
 
@@ -132,10 +133,14 @@ def test_llm_definition_judge_retries_then_falls_back() -> None:
 
 def test_llm_definition_judge_rejects_negative_retries() -> None:
     import pytest
+
     with pytest.raises(ValueError, match=r"max_retries must be"):
-        LLMDefinitionJudge(_StubProvider(  # type: ignore[arg-type]
-            DefinitionJudgePayload(verdict="uncertain", confidence=0.0, rationale="x")
-        ), max_retries=-1)
+        LLMDefinitionJudge(
+            _StubProvider(  # type: ignore[arg-type]
+                DefinitionJudgePayload(verdict="uncertain", confidence=0.0, rationale="x")
+            ),
+            max_retries=-1,
+        )
 
 
 def test_definition_uncertain_fallback_shape() -> None:

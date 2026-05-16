@@ -141,8 +141,7 @@ DEFINITION_TOOL_NAME = "record_definition_verdict"
 DEFINITION_TOOL_SCHEMA: dict[str, Any] = {
     "name": DEFINITION_TOOL_NAME,
     "description": (
-        "Record whether two definitions of the same term are consistent or "
-        "materially divergent."
+        "Record whether two definitions of the same term are consistent or materially divergent."
     ),
     "input_schema": {
         "type": "object",

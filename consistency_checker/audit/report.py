@@ -303,9 +303,7 @@ def _append_definition_section(
     lines.append("## Definition inconsistencies")
     lines.append("")
     for term in sorted(grouped.keys(), key=str.lower):
-        items = sorted(
-            grouped[term], key=lambda f: -(f.judge_confidence or 0.0)
-        )
+        items = sorted(grouped[term], key=lambda f: -(f.judge_confidence or 0.0))
         lines.append(f'### "{term}"')
         lines.append("")
         for finding in items:
@@ -320,7 +318,5 @@ def _append_definition_section(
             lines.append(f"- **{a_label}**: {a.assertion_text}")
             lines.append(f"- **{b_label}**: {b.assertion_text}")
             lines.append("")
-            lines.append(
-                f"**Verdict:** {finding.judge_verdict} — {finding.judge_rationale or ''}"
-            )
+            lines.append(f"**Verdict:** {finding.judge_verdict} — {finding.judge_rationale or ''}")
             lines.append("")
