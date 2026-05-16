@@ -1,0 +1,19 @@
+Compare these two definitions of the same term and decide whether they
+materially diverge.
+
+## Term
+
+{term}
+
+## Definition A (from document {doc_a_id})
+
+{assertion_a_text}
+
+## Definition B (from document {doc_b_id})
+
+{assertion_b_text}
+
+## Decision
+
+Is Definition A and Definition B consistent or materially divergent?
+Respond using the structured tool.
