@@ -553,3 +553,48 @@ def test_estimate_cost_command_prints_ceiling(
     assert "Assertions in store:" in result.stdout
     assert "Estimated API cost:" in result.stdout
     assert "CEILING" in result.stdout
+
+
+def test_estimate_cost_per_call_flags_flow_through(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--per-call-low / --per-call-high are wired into the estimate."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    captured: dict[str, float] = {}
+
+    def fake_estimate_cost(_cfg: Any, **kwargs: Any) -> Any:
+        captured["per_call_low"] = kwargs["per_call_low"]
+        captured["per_call_high"] = kwargs["per_call_high"]
+        from consistency_checker.pipeline import CostEstimate
+
+        return CostEstimate(
+            n_assertions=0,
+            n_candidate_pairs=0,
+            n_definition_pairs=0,
+            judge_calls_ceiling=0,
+            est_cost_low=0.0,
+            est_cost_high=0.0,
+            per_call_low=kwargs["per_call_low"],
+            per_call_high=kwargs["per_call_high"],
+        )
+
+    monkeypatch.setattr("consistency_checker.cli.main.run_estimate_cost", fake_estimate_cost)
+
+    result = runner.invoke(
+        app,
+        [
+            "estimate-cost",
+            "--config",
+            str(cfg_path),
+            "--per-call-low",
+            "0.001",
+            "--per-call-high",
+            "0.020",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert captured["per_call_low"] == 0.001
+    assert captured["per_call_high"] == 0.020

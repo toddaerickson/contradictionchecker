@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from consistency_checker.audit.logger import AuditLogger
 from consistency_checker.check.definition_checker import (
     DefinitionChecker,
+    _group_by_canonical_term,
 )
 from consistency_checker.check.definition_judge import (
     DefinitionJudge,
@@ -81,12 +82,9 @@ class IngestResult:
 
 @dataclass(frozen=True, slots=True)
 class CostEstimate:
-    """Upper-bound estimate of API spend for a check run.
-
-    Counts judge calls without making any LLM or NLI calls. The NLI gate
-    typically filters 30-70% of gate-pass pairs before they reach the
-    judge, so the dollar bounds here are a CEILING — real spend is
-    usually lower.
+    """Upper-bound estimate of API spend for a check run — the NLI gate
+    typically filters 30-70% of gate-pass pairs before they reach the judge,
+    so the dollar bounds here are a CEILING, not an actual-spend prediction.
     """
 
     n_assertions: int
@@ -453,36 +451,16 @@ def estimate_cost(
 ) -> CostEstimate:
     """Count judge calls a check run would make, without making any LLM calls.
 
-    Runs the FAISS gate only — no NLI, no judge, no audit. Returns an
-    upper-bound cost ceiling sized in dollars at the supplied per-call
-    range. The NLI gate is not run because (a) it requires the ~800 MB
-    DeBERTa model download and (b) the user wants a fast pre-flight
-    estimate, not a real-cost figure. Real spend is usually 30-70% lower
-    than this ceiling because NLI filters most gate-pass pairs.
+    NLI is skipped because (a) it requires the ~800 MB DeBERTa model
+    download and (b) the user wants a fast pre-flight estimate, not a
+    real-cost figure. Real spend is usually 30-70% lower than this
+    ceiling because NLI filters most gate-pass pairs.
     """
-    from itertools import combinations as _combinations
+    candidates = _iter_candidates(config, store, faiss_store, gate=None)
+    n_candidate_pairs = len(candidates)
 
-    from consistency_checker.check.definition_terms import canonicalize_term
-
-    gate = AnnGate(
-        faiss_store,
-        top_k=config.gate_top_k,
-        similarity_threshold=config.gate_similarity_threshold,
-    )
-    n_candidate_pairs = sum(1 for _ in gate.candidates(store))
-
-    definitions = list(store.iter_definitions())
-    groups: dict[str, int] = {}
-    for d in definitions:
-        if d.term is None:
-            continue
-        canonical = canonicalize_term(d.term)
-        if not canonical:
-            continue
-        groups[canonical] = groups.get(canonical, 0) + 1
-    n_definition_pairs = sum(
-        len(list(_combinations(range(n), 2))) for n in groups.values() if n >= 2
-    )
+    groups = _group_by_canonical_term(store.iter_definitions())
+    n_definition_pairs = sum(len(v) * (len(v) - 1) // 2 for v in groups.values())
 
     judge_calls_ceiling = n_candidate_pairs + n_definition_pairs
     return CostEstimate(
