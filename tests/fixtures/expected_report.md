@@ -28,6 +28,8 @@
 
 > **B** (Gamma memo): The Beta initiative began in 2023.
 
+**Reviewer:** Pending review
+
 **Rationale.** Different start years for the same Beta initiative.
 
 ### Beta brief ⇄ Alpha report
@@ -42,6 +44,8 @@
 > **A** (Beta brief): Revenue grew 12% in fiscal 2025.
 
 > **B** (Alpha report): Revenue declined 5% in fiscal 2025.
+
+**Reviewer:** Pending review
 
 **Rationale.** Opposite revenue signs in the same fiscal year.
 

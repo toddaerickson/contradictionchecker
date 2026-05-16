@@ -359,3 +359,70 @@ def test_report_definition_section_when_no_contradictions(
 
     out = render_report(seeded_store, logger, run_id=run_id)
     assert "## Definition inconsistencies" in out  # rendered despite no contradictions
+
+
+def test_report_excludes_false_positive_findings(seeded_store: AssertionStore) -> None:
+    _populate_three_doc_fixture(seeded_store)
+    logger = AuditLogger(seeded_store)
+    run_id = logger.begin_run()
+    _record_three_findings(seeded_store, logger, run_id)
+    logger.end_run(run_id, n_assertions=4, n_pairs_gated=3, n_pairs_judged=3)
+    a_list = list(seeded_store.iter_assertions())
+    by_text = {a.assertion_text: a for a in a_list}
+    a1 = by_text["Revenue grew 12% in fiscal 2025."]
+    b1 = by_text["Revenue declined 5% in fiscal 2025."]
+    pair_key = ":".join(sorted([a1.assertion_id, b1.assertion_id]))
+    logger.set_reviewer_verdict(
+        pair_key=pair_key, detector_type="contradiction", verdict="false_positive"
+    )
+    out = render_report(seeded_store, logger, run_id=run_id)
+    # The false_positive finding's rationale must not appear
+    assert "Opposite revenue signs" not in out
+    # But the other contradiction must still appear
+    assert "Different start years" in out
+
+
+def test_report_renders_reviewer_tag_for_confirmed(seeded_store: AssertionStore) -> None:
+    _populate_three_doc_fixture(seeded_store)
+    logger = AuditLogger(seeded_store)
+    run_id = logger.begin_run()
+    _record_three_findings(seeded_store, logger, run_id)
+    logger.end_run(run_id, n_assertions=4, n_pairs_gated=3, n_pairs_judged=3)
+    a_list = list(seeded_store.iter_assertions())
+    by_text = {a.assertion_text: a for a in a_list}
+    a1 = by_text["Revenue grew 12% in fiscal 2025."]
+    b1 = by_text["Revenue declined 5% in fiscal 2025."]
+    pair_key = ":".join(sorted([a1.assertion_id, b1.assertion_id]))
+    logger.set_reviewer_verdict(
+        pair_key=pair_key, detector_type="contradiction", verdict="confirmed"
+    )
+    out = render_report(seeded_store, logger, run_id=run_id)
+    assert "**Reviewer:** Real issue" in out
+
+
+def test_report_renders_reviewer_tag_for_dismissed(seeded_store: AssertionStore) -> None:
+    _populate_three_doc_fixture(seeded_store)
+    logger = AuditLogger(seeded_store)
+    run_id = logger.begin_run()
+    _record_three_findings(seeded_store, logger, run_id)
+    logger.end_run(run_id, n_assertions=4, n_pairs_gated=3, n_pairs_judged=3)
+    a_list = list(seeded_store.iter_assertions())
+    by_text = {a.assertion_text: a for a in a_list}
+    a1 = by_text["Revenue grew 12% in fiscal 2025."]
+    b1 = by_text["Revenue declined 5% in fiscal 2025."]
+    pair_key = ":".join(sorted([a1.assertion_id, b1.assertion_id]))
+    logger.set_reviewer_verdict(
+        pair_key=pair_key, detector_type="contradiction", verdict="dismissed"
+    )
+    out = render_report(seeded_store, logger, run_id=run_id)
+    assert "**Reviewer:** Dismissed" in out
+
+
+def test_report_renders_reviewer_tag_for_unreviewed(seeded_store: AssertionStore) -> None:
+    _populate_three_doc_fixture(seeded_store)
+    logger = AuditLogger(seeded_store)
+    run_id = logger.begin_run()
+    _record_three_findings(seeded_store, logger, run_id)
+    logger.end_run(run_id, n_assertions=4, n_pairs_gated=3, n_pairs_judged=3)
+    out = render_report(seeded_store, logger, run_id=run_id)
+    assert "**Reviewer:** Pending review" in out
