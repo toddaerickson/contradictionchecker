@@ -61,6 +61,42 @@ v0.3 ships `consistency-check serve --open` which auto-launches the browser afte
 
 Pick A or B based on the target audience: A for technical users who already have Python; B for analyst-class users who don't. A new ADR captures the choice when this is scheduled.
 
+## v0.4.1 — embedding, matching, and semantic tuning
+
+Four focused improvements to gate quality and triangle recall. These emerged from the precision audit and targeted-eval phase.
+
+### 2. Entity Resolution
+
+**Problem:** Assertions about "John Smith" and "J. Smith" are treated as separate entities across documents. This causes false negatives on contradictions that span variant names.
+
+**Approach:** Implement entity linking to canonical forms. Use heuristics (prefix matching, edit distance under 2) as first pass; reserve ML-based entity clustering for v0.5.
+
+**Impact:** Catch contradictions that would otherwise be silent due to name variance across corpus.
+
+### 3. FAISS Triangle Recall
+
+**Problem:** `find_triangles()` uses brute-force O(n³) search. For corpora with >10k assertions, the triangle finder becomes a bottleneck. Many conditional contradictions (A vs B, B vs C, therefore A vs C) are never formed because the search times out.
+
+**Approach:** Index triangle candidates by assertion pairs in FAISS as a pre-filter. Query: given a strong pair (A, B), find all C that are similar to B. Rank by similarity and check top-k for transitive edges.
+
+**Impact:** 10–100× speedup for large corpora; unlock triangle detection at scale.
+
+### 4. Embedding Model
+
+**Problem:** `sentence-transformers/all-MiniLM-L6-v2` (384 dims, 22M params) is small and fast but misses semantic distinctions. Semantic contradictions (e.g., "all employees have benefits" vs "some employees lack healthcare") rely on embedding quality.
+
+**Approach:** Evaluate larger models: `all-mpnet-base-v2` (768 dims, 110M), `all-mpnet-base-v2-distilled` (384 dims, faster than MiniLM). Benchmark on synthetic contradiction pairs and real corpus. Make configurable in `config.py`.
+
+**Impact:** Catch contradictions that fall below the similarity gate due to weak embeddings. Trade: slower ingestion (mitigated by batch processing).
+
+### 5. MNLI Model
+
+**Problem:** DeBERTa (`microsoft/deberta-v3-small`) is the NLI gate, but it's a general-purpose model. Specialized MNLI fine-tuning or task-specific calibration could reduce false negatives on domain-specific contradictions (e.g., financial/legal term precision).
+
+**Approach:** Evaluate fine-tuned MNLI models or ONNX-accelerated variants. Add config field `nli_model_name`. Benchmark gate recall on real contradictions. If using a heavier model, prototype ONNX export for inference speed.
+
+**Impact:** Higher-confidence gate verdicts; reduce hallucination-driven false contradictions. Trade: ingestion latency increase (partially offset by ONNX or quantization).
+
 ## Accessibility plan — making the tool usable by non-developers
 
 Phased plan targeting analysts, paralegals, and other "normal tech users" who are
