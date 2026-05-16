@@ -17,7 +17,7 @@ import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from consistency_checker.check.gate import CandidatePair
 from consistency_checker.check.llm_judge import JudgeVerdict
@@ -26,6 +26,9 @@ from consistency_checker.check.providers.base import CONTRADICTION_VERDICTS
 from consistency_checker.extract.schema import hash_id
 from consistency_checker.index.assertion_store import AssertionStore
 from consistency_checker.logging_setup import get_logger
+
+if TYPE_CHECKING:
+    from consistency_checker.check.definition_checker import DefinitionFinding
 
 _log = get_logger(__name__)
 
@@ -275,6 +278,49 @@ class AuditLogger:
             )
         return finding_id
 
+    def record_definition_finding(
+        self,
+        run_id: str,
+        *,
+        finding: DefinitionFinding,
+    ) -> str:
+        """Persist a definition-inconsistency finding into the shared findings table.
+
+        Uses ``detector_type='definition_inconsistency'``. The NLI and gate-score
+        columns are intentionally left null — the definition detector bypasses
+        the NLI gate (term-grouping replaces it).
+        """
+        a_id = finding.pair.a.assertion_id
+        b_id = finding.pair.b.assertion_id
+        finding_id = hash_id(run_id, "definition", a_id, b_id)
+        spans_json = json.dumps(finding.verdict.evidence_spans)
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO findings ("
+                "finding_id, run_id, assertion_a_id, assertion_b_id, "
+                "gate_score, nli_label, nli_p_contradiction, nli_p_entailment, nli_p_neutral, "
+                "judge_verdict, judge_confidence, judge_rationale, evidence_spans_json, "
+                "detector_type"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    finding_id,
+                    run_id,
+                    a_id,
+                    b_id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    finding.verdict.verdict,
+                    finding.verdict.confidence,
+                    finding.verdict.rationale,
+                    spans_json,
+                    "definition_inconsistency",
+                ),
+            )
+        return finding_id
+
     def record_multi_party_finding(
         self,
         run_id: str,
@@ -354,6 +400,7 @@ class AuditLogger:
         *,
         run_id: str | None = None,
         verdict: str | None = None,
+        detector_type: str | None = None,
     ) -> Iterator[Finding]:
         clauses: list[str] = []
         params: list[Any] = []
@@ -363,6 +410,9 @@ class AuditLogger:
         if verdict is not None:
             clauses.append("judge_verdict = ?")
             params.append(verdict)
+        if detector_type is not None:
+            clauses.append("detector_type = ?")
+            params.append(detector_type)
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         cursor = self._conn.execute(
             f"SELECT * FROM findings {where} ORDER BY created_at, finding_id",

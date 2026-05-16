@@ -15,6 +15,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from consistency_checker.audit.logger import AuditLogger
+from consistency_checker.check.definition_checker import (
+    DefinitionChecker,
+)
+from consistency_checker.check.definition_judge import (
+    DefinitionJudge,
+    LLMDefinitionJudge,
+)
 from consistency_checker.check.gate import AnnGate, CandidateGate, CandidatePair
 from consistency_checker.check.llm_judge import Judge, JudgeVerdict, LLMJudge
 from consistency_checker.check.multi_party_judge import (
@@ -23,11 +30,16 @@ from consistency_checker.check.multi_party_judge import (
 )
 from consistency_checker.check.nli_checker import NliChecker, score_bidirectional
 from consistency_checker.check.providers.anthropic import (
+    AnthropicDefinitionProvider,
     AnthropicMultiPartyProvider,
     AnthropicProvider,
 )
 from consistency_checker.check.providers.base import CONTRADICTION_VERDICTS
+from consistency_checker.check.providers.definition_base import (
+    DEFINITION_INCONSISTENCY_VERDICTS,
+)
 from consistency_checker.check.providers.openai import (
+    OpenAIDefinitionProvider,
     OpenAIMultiPartyProvider,
     OpenAIProvider,
 )
@@ -76,6 +88,8 @@ class CheckResult:
     n_findings: int
     n_triangles_judged: int = 0
     n_multi_party_findings: int = 0
+    n_definition_pairs_judged: int = 0
+    n_definition_findings: int = 0
 
 
 # --- factories --------------------------------------------------------------
@@ -113,6 +127,28 @@ def make_multi_party_judge(config: Config) -> MultiPartyJudge:
         f"make_multi_party_judge(): provider {config.judge_provider!r} has no factory; "
         "construct a FixtureMultiPartyJudge directly in tests."
     )
+
+
+def make_definition_judge(config: Config) -> DefinitionJudge:
+    """Build the definition judge from config.
+
+    The ``fixture`` provider returns an empty :class:`FixtureDefinitionJudge`,
+    mirroring how ``make_extractor`` handles fixture-mode for the web app's
+    hermetic tests.
+    """
+    if config.judge_provider == "fixture":
+        from consistency_checker.check.definition_judge import FixtureDefinitionJudge
+
+        return FixtureDefinitionJudge({})
+    if config.judge_provider == "anthropic":
+        return LLMDefinitionJudge(AnthropicDefinitionProvider(model=config.judge_model))
+    if config.judge_provider == "openai":
+        return LLMDefinitionJudge(OpenAIDefinitionProvider(model=config.judge_model))
+    raise ValueError(f"make_definition_judge(): provider {config.judge_provider!r} has no factory.")
+
+
+def make_definition_checker(config: Config) -> DefinitionChecker:
+    return DefinitionChecker(judge=make_definition_judge(config))
 
 
 # --- ingest -----------------------------------------------------------------
@@ -264,6 +300,29 @@ def _run_multi_party_pass(
     return n_triangles_judged, n_multi_party_findings
 
 
+def _run_definition_pass(
+    *,
+    store: AssertionStore,
+    checker: DefinitionChecker,
+    audit_logger: AuditLogger,
+    run_id: str,
+) -> tuple[int, int]:
+    """Run the definition checker over all stored definitions and log findings.
+
+    Returns ``(n_judged, n_findings)``. The NLI gate is bypassed for this stage
+    by design — see DefinitionChecker for the rationale.
+    """
+    definitions = list(store.iter_definitions())
+    n_judged = 0
+    n_findings = 0
+    for finding in checker.find_inconsistencies(definitions):
+        audit_logger.record_definition_finding(run_id, finding=finding)
+        n_judged += 1
+        if finding.verdict.verdict in DEFINITION_INCONSISTENCY_VERDICTS:
+            n_findings += 1
+    return n_judged, n_findings
+
+
 def check(
     config: Config,
     *,
@@ -274,9 +333,10 @@ def check(
     audit_logger: AuditLogger,
     gate: CandidateGate | None = None,
     multi_party_judge: MultiPartyJudge | None = None,
+    definition_checker: DefinitionChecker | None = None,
     run_id: str,
 ) -> CheckResult:
-    """Stage A → Stage B → optional multi-party pass → audit. Returns run summary."""
+    """Stage A → Stage B → optional multi-party + definition passes → audit."""
     audit_logger.update_run_status(run_id, "running")
 
     pairs = _iter_candidates(config, store, faiss_store, gate)
@@ -316,21 +376,36 @@ def check(
             max_per_run=config.max_triangles_per_run,
         )
 
+    # ADR-0009: definition-inconsistency detector. Term-grouping replaces the
+    # NLI gate; bypasses the contradiction pipeline entirely.
+    n_definition_pairs_judged = 0
+    n_definition_findings = 0
+    if definition_checker is not None:
+        n_definition_pairs_judged, n_definition_findings = _run_definition_pass(
+            store=store,
+            checker=definition_checker,
+            audit_logger=audit_logger,
+            run_id=run_id,
+        )
+
     audit_logger.end_run(
         run_id,
         n_assertions=n_assertions,
         n_pairs_gated=n_pairs_gated,
         n_pairs_judged=n_pairs_judged,
-        n_findings=n_findings,
+        n_findings=n_findings + n_definition_findings,
     )
     _log.info(
-        "Run %s — %d gated / %d judged / %d findings / %d triangles / %d multi-party",
+        "Run %s — %d gated / %d judged / %d findings / %d triangles / "
+        "%d multi-party / %d definition pairs / %d definition findings",
         run_id,
         n_pairs_gated,
         n_pairs_judged,
         n_findings,
         n_triangles_judged,
         n_multi_party_findings,
+        n_definition_pairs_judged,
+        n_definition_findings,
     )
     return CheckResult(
         run_id=run_id,
@@ -340,6 +415,8 @@ def check(
         n_findings=n_findings,
         n_triangles_judged=n_triangles_judged,
         n_multi_party_findings=n_multi_party_findings,
+        n_definition_pairs_judged=n_definition_pairs_judged,
+        n_definition_findings=n_definition_findings,
     )
 
 

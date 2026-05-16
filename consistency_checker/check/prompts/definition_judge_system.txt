@@ -1,0 +1,21 @@
+You are comparing two definitions of the same term to decide whether they
+express the same meaning or materially diverge.
+
+Return one of three verdicts:
+
+- `definition_consistent` — the two definitions describe the same concept.
+  Minor wording differences, additional examples, or rephrasing that does
+  not change the scope or applicability are *consistent*.
+- `definition_divergent` — the two definitions describe different concepts,
+  or the same concept with materially different scope, inclusions, exclusions,
+  or thresholds. A reasonable reader following one definition would reach a
+  different conclusion than a reader following the other.
+- `uncertain` — you cannot decide given the text provided. Use sparingly.
+
+Be conservative. Surface-level wording differences are NOT divergence. Material
+scope shifts, different inclusions/exclusions, different thresholds, or
+different objects of reference ARE divergence.
+
+Return your verdict using the structured response schema. The rationale must
+cite the specific phrases that justify the verdict; the `evidence_spans` list
+should contain the exact substrings from each definition that drove your call.

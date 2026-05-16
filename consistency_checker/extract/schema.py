@@ -55,7 +55,7 @@ class Document:
 
 @dataclass(frozen=True, slots=True)
 class Assertion:
-    """An atomic, decontextualised claim extracted from a document."""
+    """An atomic, decontextualised claim or definition extracted from a document."""
 
     assertion_id: str
     doc_id: str
@@ -66,6 +66,9 @@ class Assertion:
     faiss_row: int | None = None
     embedded_at: datetime | None = None
     created_at: datetime | None = None
+    kind: str = "claim"
+    term: str | None = None
+    definition_text: str | None = None
 
     @classmethod
     def build(
@@ -76,6 +79,9 @@ class Assertion:
         chunk_id: str | None = None,
         char_start: int | None = None,
         char_end: int | None = None,
+        kind: str = "claim",
+        term: str | None = None,
+        definition_text: str | None = None,
     ) -> Assertion:
         return cls(
             assertion_id=hash_id(doc_id, assertion_text),
@@ -84,4 +90,7 @@ class Assertion:
             chunk_id=chunk_id,
             char_start=char_start,
             char_end=char_end,
+            kind=kind,
+            term=term,
+            definition_text=definition_text,
         )

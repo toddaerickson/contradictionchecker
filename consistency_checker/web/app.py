@@ -29,6 +29,7 @@ from consistency_checker.index.faiss_store import FaissStore
 from consistency_checker.logging_setup import get_logger
 
 if TYPE_CHECKING:
+    from consistency_checker.check.definition_judge import DefinitionJudge
     from consistency_checker.check.llm_judge import Judge
     from consistency_checker.check.multi_party_judge import MultiPartyJudge
     from consistency_checker.check.nli_checker import NliChecker
@@ -95,6 +96,28 @@ def _live_counters(run: Any, audit: Any = None) -> dict[str, Any]:
         if audit is not None
         else None
     )
+    n_definition_pairs_judged = (
+        sum(
+            1
+            for _ in audit.iter_findings(
+                run_id=run.run_id, detector_type="definition_inconsistency"
+            )
+        )
+        if audit is not None
+        else None
+    )
+    n_definition_findings = (
+        sum(
+            1
+            for _ in audit.iter_findings(
+                run_id=run.run_id,
+                verdict="definition_divergent",
+                detector_type="definition_inconsistency",
+            )
+        )
+        if audit is not None
+        else None
+    )
     return {
         "run_id": run.run_id,
         "n_assertions": run.n_assertions,
@@ -102,6 +125,8 @@ def _live_counters(run: Any, audit: Any = None) -> dict[str, Any]:
         "n_pairs_judged": run.n_pairs_judged,
         "n_findings": run.n_findings,
         "n_multi_party_findings": n_multi_party_findings,
+        "n_definition_pairs_judged": n_definition_pairs_judged,
+        "n_definition_findings": n_definition_findings,
         "error_message": run.error_message,
         "progress_estimate": _progress_estimate(run),
         "started_at": run.started_at.isoformat(timespec="seconds") if run.started_at else None,
@@ -117,13 +142,14 @@ def create_app(
     nli_checker: NliChecker | None = None,
     judge: Judge | None = None,
     multi_party_judge: MultiPartyJudge | None = None,
+    definition_judge: DefinitionJudge | None = None,
 ) -> FastAPI:
     """Build the FastAPI app bound to ``config``.
 
     Tests inject ``extractor`` / ``embedder`` / ``nli_checker`` / ``judge`` /
-    ``multi_party_judge`` to keep ingest and check hermetic. In production
-    all default to ``None`` and the app falls back to the same factories the
-    CLI uses.
+    ``multi_party_judge`` / ``definition_judge`` to keep ingest and check
+    hermetic. In production all default to ``None`` and the app falls back
+    to the same factories the CLI uses.
     """
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -438,6 +464,57 @@ def create_app(
             },
         )
 
+    @app.get("/tabs/definitions", response_class=HTMLResponse)
+    def tab_definitions(request: Request) -> HTMLResponse:
+        """Definition-inconsistencies tab (ADR-0009)."""
+        store, audit = _open_audit()
+        try:
+            run = audit.most_recent_run()
+            findings: list[dict[str, Any]] = []
+            if run is not None:
+                raw = list(
+                    audit.iter_findings(
+                        run_id=run.run_id,
+                        verdict="definition_divergent",
+                        detector_type="definition_inconsistency",
+                    )
+                )
+                assertion_ids = [aid for r in raw for aid in (r.assertion_a_id, r.assertion_b_id)]
+                assertions = store.get_assertions_bulk(assertion_ids)
+                doc_ids = list({a.doc_id for a in assertions.values()})
+                documents = store.get_documents_bulk(doc_ids)
+                for r in raw:
+                    a = assertions.get(r.assertion_a_id)
+                    b = assertions.get(r.assertion_b_id)
+                    if a is None or b is None:
+                        continue
+                    findings.append(
+                        {
+                            "finding_id": r.finding_id,
+                            "term": a.term or "",
+                            "confidence": r.judge_confidence,
+                            "doc_a_label": _document_label(documents.get(a.doc_id), a.doc_id),
+                            "doc_b_label": _document_label(documents.get(b.doc_id), b.doc_id),
+                            "def_a_text": a.assertion_text,
+                            "def_b_text": b.assertion_text,
+                            "rationale": r.judge_rationale or "",
+                        }
+                    )
+                findings.sort(key=lambda f: (f["term"].lower(), -(f["confidence"] or 0.0)))
+        finally:
+            store.close()
+
+        return templates.TemplateResponse(
+            request,
+            "cc_definitions.html",
+            {
+                "htmx": _is_htmx(request),
+                "active_tab": "definitions",
+                "run": {"run_id": run.run_id} if run is not None else None,
+                "findings": findings,
+            },
+        )
+
     @app.get("/assertions/{assertion_id}", response_class=HTMLResponse)
     def assertion_detail(request: Request, assertion_id: str) -> HTMLResponse:
         store, _audit = _open_audit()
@@ -502,6 +579,19 @@ def create_app(
 
                     mp_judge = make_multi_party_judge(config)
 
+                from consistency_checker.check.definition_checker import (
+                    DefinitionChecker,
+                )
+
+                if definition_judge is not None:
+                    def_checker: DefinitionChecker | None = DefinitionChecker(
+                        judge=definition_judge
+                    )
+                else:
+                    from consistency_checker.pipeline import make_definition_checker
+
+                    def_checker = make_definition_checker(config)
+
                 run_check(
                     config.model_copy(update={"enable_multi_party": deep}),
                     store=store,
@@ -510,6 +600,7 @@ def create_app(
                     judge=judge_inst,
                     audit_logger=audit_logger,
                     multi_party_judge=mp_judge if deep else None,
+                    definition_checker=def_checker,
                     run_id=run_id,
                 )
             except Exception as exc:

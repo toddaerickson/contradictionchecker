@@ -1,0 +1,55 @@
+{% if not htmx %}{% extends "cc_base.html" %}{% endif %}
+
+{% block content %}
+<section class="cc-section">
+  {% if run is none %}
+    <div class="cc-card cc-banner">
+      <h2>No runs yet</h2>
+      <p class="cc-muted">
+        Ingest documents on the <strong>Ingest</strong> tab, then run a check
+        to surface definition inconsistencies here.
+      </p>
+    </div>
+  {% else %}
+    <header class="cc-section-header">
+      <h2>Definition inconsistencies</h2>
+      <p class="cc-muted">
+        <a hx-get="/tabs/stats" hx-target="#cc-tab-content" hx-push-url="true" style="color:inherit"><code>{{ run.run_id }}</code></a>
+      </p>
+    </header>
+
+    {% if findings %}
+      <table class="cc-findings-table">
+        <thead>
+          <tr>
+            <th>Term</th>
+            <th>Confidence</th>
+            <th>Doc A</th>
+            <th>Doc B</th>
+            <th>Rationale</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for f in findings %}
+            <tr>
+              <td><strong>{{ f.term }}</strong></td>
+              <td>{{ "%.2f"|format(f.confidence or 0.0) }}</td>
+              <td>{{ f.doc_a_label }}</td>
+              <td>{{ f.doc_b_label }}</td>
+              <td>{{ f.rationale }}</td>
+            </tr>
+            <tr class="cc-findings-row-detail">
+              <td colspan="5">
+                <div class="cc-muted"><strong>Def A:</strong> {{ f.def_a_text }}</div>
+                <div class="cc-muted"><strong>Def B:</strong> {{ f.def_b_text }}</div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="cc-muted">No definition inconsistencies in this run.</p>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

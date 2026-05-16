@@ -253,3 +253,109 @@ def test_report_multi_party_excludes_uncertain(seeded_store: AssertionStore) -> 
     logger.end_run(run_id, n_assertions=4, n_pairs_gated=3, n_pairs_judged=3)
     report = render_report(seeded_store, logger, run_id=run_id)
     assert "Multi-document conditional contradictions" not in report
+
+
+def test_report_omits_definition_section_when_no_findings(
+    seeded_store: AssertionStore,
+) -> None:
+    _populate_three_doc_fixture(seeded_store)
+    logger = AuditLogger(seeded_store)
+    run_id = logger.begin_run()
+    _record_three_findings(seeded_store, logger, run_id)
+    logger.end_run(run_id, n_assertions=4, n_pairs_gated=3, n_pairs_judged=3)
+    out = render_report(seeded_store, logger, run_id=run_id)
+    assert "Definition inconsistencies" not in out
+
+
+def test_report_includes_definition_section_when_findings_exist(
+    seeded_store: AssertionStore,
+) -> None:
+    from consistency_checker.check.definition_checker import (
+        DefinitionFinding,
+        DefinitionPair,
+    )
+    from consistency_checker.check.definition_judge import DefinitionJudgeVerdict
+
+    doc_a = Document.from_content("Term sheet body.", source_path="ts.md", title="Term Sheet")
+    doc_b = Document.from_content("Credit agt body.", source_path="ca.md", title="Credit Agreement")
+    seeded_store.add_document(doc_a)
+    seeded_store.add_document(doc_b)
+    a = Assertion.build(
+        doc_a.doc_id,
+        '"MAE" means a material adverse effect on the Borrower\'s business.',
+        kind="definition",
+        term="MAE",
+        definition_text="a material adverse effect on the Borrower's business",
+    )
+    b = Assertion.build(
+        doc_b.doc_id,
+        '"MAE" means an effect that materially impairs performance.',
+        kind="definition",
+        term="MAE",
+        definition_text="an effect that materially impairs performance",
+    )
+    seeded_store.add_assertions([a, b])
+    logger = AuditLogger(seeded_store)
+    run_id = logger.begin_run()
+    finding = DefinitionFinding(
+        pair=DefinitionPair(a=a, b=b, canonical_term="mae"),
+        verdict=DefinitionJudgeVerdict(
+            assertion_a_id=min(a.assertion_id, b.assertion_id),
+            assertion_b_id=max(a.assertion_id, b.assertion_id),
+            verdict="definition_divergent",
+            confidence=0.92,
+            rationale="A scopes business; B scopes performance.",
+            evidence_spans=["business", "performance"],
+        ),
+    )
+    logger.record_definition_finding(run_id, finding=finding)
+    logger.end_run(run_id, n_assertions=2, n_pairs_gated=0, n_pairs_judged=0)
+
+    out = render_report(seeded_store, logger, run_id=run_id)
+    assert "## Definition inconsistencies" in out
+    assert '### "MAE"' in out
+    assert "Term Sheet" in out
+    assert "Credit Agreement" in out
+    assert "definition_divergent" in out
+    assert "scopes business" in out
+
+
+def test_report_definition_section_when_no_contradictions(
+    seeded_store: AssertionStore,
+) -> None:
+    """A run with only definition findings must still render the definition section."""
+    from consistency_checker.check.definition_checker import (
+        DefinitionFinding,
+        DefinitionPair,
+    )
+    from consistency_checker.check.definition_judge import DefinitionJudgeVerdict
+
+    doc_a = Document.from_content("A body.", source_path="a.md", title="Doc A")
+    doc_b = Document.from_content("B body.", source_path="b.md", title="Doc B")
+    seeded_store.add_document(doc_a)
+    seeded_store.add_document(doc_b)
+    a = Assertion.build(
+        doc_a.doc_id, '"X" means foo.', kind="definition", term="X", definition_text="foo"
+    )
+    b = Assertion.build(
+        doc_b.doc_id, '"X" means bar.', kind="definition", term="X", definition_text="bar"
+    )
+    seeded_store.add_assertions([a, b])
+    logger = AuditLogger(seeded_store)
+    run_id = logger.begin_run()
+    finding = DefinitionFinding(
+        pair=DefinitionPair(a=a, b=b, canonical_term="x"),
+        verdict=DefinitionJudgeVerdict(
+            assertion_a_id=min(a.assertion_id, b.assertion_id),
+            assertion_b_id=max(a.assertion_id, b.assertion_id),
+            verdict="definition_divergent",
+            confidence=0.9,
+            rationale="scope diff",
+            evidence_spans=[],
+        ),
+    )
+    logger.record_definition_finding(run_id, finding=finding)
+    logger.end_run(run_id, n_assertions=2, n_pairs_gated=0, n_pairs_judged=0)
+
+    out = render_report(seeded_store, logger, run_id=run_id)
+    assert "## Definition inconsistencies" in out  # rendered despite no contradictions

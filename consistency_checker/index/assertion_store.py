@@ -37,6 +37,9 @@ _ALL_ASSERTION_COLUMNS: tuple[str, ...] = (
     "faiss_row",
     "embedded_at",
     "created_at",
+    "kind",
+    "term",
+    "definition_text",
 )
 
 
@@ -81,6 +84,9 @@ def _row_to_assertion(row: sqlite3.Row) -> Assertion:
         faiss_row=row["faiss_row"],
         embedded_at=_parse_timestamp(row["embedded_at"]),
         created_at=_parse_timestamp(row["created_at"]),
+        kind=row["kind"],
+        term=row["term"],
+        definition_text=row["definition_text"],
     )
 
 
@@ -174,6 +180,9 @@ class AssertionStore:
                 a.chunk_id,
                 a.char_start,
                 a.char_end,
+                a.kind,
+                a.term,
+                a.definition_text,
             )
             for a in assertions
         ]
@@ -182,8 +191,9 @@ class AssertionStore:
         with self._conn:
             self._conn.executemany(
                 "INSERT OR IGNORE INTO assertions"
-                "(assertion_id, doc_id, assertion_text, chunk_id, char_start, char_end) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(assertion_id, doc_id, assertion_text, chunk_id, char_start, char_end, "
+                "kind, term, definition_text) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
 
@@ -239,6 +249,14 @@ class AssertionStore:
             "SELECT * FROM assertions WHERE assertion_id = ?", (assertion_id,)
         ).fetchone()
         return _row_to_assertion(row) if row else None
+
+    def iter_definitions(self) -> Iterator[Assertion]:
+        """Iterate every assertion with ``kind='definition'`` ordered by created_at."""
+        cursor = self._conn.execute(
+            "SELECT * FROM assertions WHERE kind = 'definition' ORDER BY created_at, assertion_id"
+        )
+        for row in cursor:
+            yield _row_to_assertion(row)
 
     def iter_assertions(
         self,

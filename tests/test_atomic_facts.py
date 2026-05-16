@@ -12,8 +12,10 @@ from consistency_checker.corpus.chunker import Chunk
 from consistency_checker.extract.atomic_facts import (
     PROMPT_PATH,
     TOOL_NAME,
+    TOOL_SCHEMA,
     AnthropicExtractor,
     FixtureExtractor,
+    _ExtractionPayload,
     parse_tool_response,
     render_prompt,
 )
@@ -55,19 +57,24 @@ def test_parse_tool_response_extracts_assertions() -> None:
     block = SimpleNamespace(
         type="tool_use",
         name=TOOL_NAME,
-        input={"assertions": ["First claim.", "Second claim."]},
+        input={"assertions": ["First claim.", "Second claim."], "definitions": []},
     )
     response = SimpleNamespace(content=[block])
-    assert parse_tool_response(response) == ["First claim.", "Second claim."]
+    result = parse_tool_response(response)
+    assert result.assertions == ["First claim.", "Second claim."]
+    assert result.definitions == []
 
 
 def test_parse_tool_response_ignores_other_blocks() -> None:
     text_block = SimpleNamespace(type="text", text="some commentary")
     tool_block = SimpleNamespace(
-        type="tool_use", name=TOOL_NAME, input={"assertions": ["Only one."]}
+        type="tool_use",
+        name=TOOL_NAME,
+        input={"assertions": ["Only one."], "definitions": []},
     )
     response = SimpleNamespace(content=[text_block, tool_block])
-    assert parse_tool_response(response) == ["Only one."]
+    result = parse_tool_response(response)
+    assert result.assertions == ["Only one."]
 
 
 def test_parse_tool_response_missing_tool_raises() -> None:
@@ -92,9 +99,13 @@ def test_parse_tool_response_invalid_payload_raises() -> None:
 
 
 def test_parse_tool_response_empty_assertions_ok() -> None:
-    block = SimpleNamespace(type="tool_use", name=TOOL_NAME, input={"assertions": []})
+    block = SimpleNamespace(
+        type="tool_use", name=TOOL_NAME, input={"assertions": [], "definitions": []}
+    )
     response = SimpleNamespace(content=[block])
-    assert parse_tool_response(response) == []
+    result = parse_tool_response(response)
+    assert result.assertions == []
+    assert result.definitions == []
 
 
 # --- FixtureExtractor -------------------------------------------------------
@@ -169,7 +180,7 @@ class _FakeAnthropicClient:
         block = SimpleNamespace(
             type="tool_use",
             name=TOOL_NAME,
-            input={"assertions": self._assertions},
+            input={"assertions": self._assertions, "definitions": []},
         )
         return SimpleNamespace(content=[block])
 
@@ -222,3 +233,115 @@ def test_anthropic_extractor_live_call() -> None:
     chunk = make_chunk("The Alpha project shipped in Q1 2025. Revenue from Alpha grew 12% YoY.")
     assertions = extractor.extract(chunk)
     assert any("Alpha" in a.assertion_text for a in assertions)
+
+
+# --- new schema + payload tests (Task 7) ------------------------------------
+
+
+def test_tool_schema_includes_definitions_array() -> None:
+    props = TOOL_SCHEMA["input_schema"]["properties"]
+    assert "assertions" in props
+    assert "definitions" in props
+    assert props["definitions"]["type"] == "array"
+    item = props["definitions"]["items"]
+    assert item["type"] == "object"
+    assert "term" in item["properties"]
+    assert "definition_text" in item["properties"]
+    assert "containing_sentence" in item["properties"]
+    assert set(item["required"]) == {"term", "definition_text", "containing_sentence"}
+
+
+def test_extraction_payload_parses_combined_response() -> None:
+    payload = _ExtractionPayload.model_validate(
+        {
+            "assertions": ["Revenue grew 12 percent in fiscal 2025."],
+            "definitions": [
+                {
+                    "term": "Borrower",
+                    "definition_text": "ABC Corp and its Subsidiaries",
+                    "containing_sentence": '"Borrower" means ABC Corp and its Subsidiaries.',
+                }
+            ],
+        }
+    )
+    assert len(payload.assertions) == 1
+    assert len(payload.definitions) == 1
+    assert payload.definitions[0].term == "Borrower"
+
+
+def test_extraction_payload_defaults_empty() -> None:
+    payload = _ExtractionPayload.model_validate({"assertions": [], "definitions": []})
+    assert payload.assertions == []
+    assert payload.definitions == []
+
+
+def test_assertions_from_payload_routes_definition_to_kind_definition() -> None:
+    from consistency_checker.extract.atomic_facts import (
+        _assertions_from_payload,
+        _DefinitionItem,
+    )
+
+    chunk = make_chunk(text='"Borrower" means ABC Corp.', doc_id="doc_a")
+    payload = _ExtractionPayload(
+        assertions=["Revenue grew 12 percent in fiscal 2025."],
+        definitions=[
+            _DefinitionItem(
+                term="Borrower",
+                definition_text="ABC Corp",
+                containing_sentence='"Borrower" means ABC Corp.',
+            )
+        ],
+    )
+    out = _assertions_from_payload(chunk, payload)
+    assert len(out) == 2
+    claim = next(a for a in out if a.kind == "claim")
+    defn = next(a for a in out if a.kind == "definition")
+    assert claim.assertion_text == "Revenue grew 12 percent in fiscal 2025."
+    assert claim.term is None
+    assert claim.definition_text is None
+    assert defn.term == "Borrower"
+    assert defn.definition_text == "ABC Corp"
+    assert defn.assertion_text == '"Borrower" means ABC Corp.'
+
+
+def test_fixture_extractor_emits_definitions() -> None:
+    chunk = make_chunk(text='"Borrower" means ABC Corp.', doc_id="doc_a")
+    extractor = FixtureExtractor(
+        facts={},
+        definitions={
+            chunk.chunk_id: [
+                {
+                    "term": "Borrower",
+                    "definition_text": "ABC Corp",
+                    "containing_sentence": '"Borrower" means ABC Corp.',
+                }
+            ]
+        },
+    )
+    out = extractor.extract(chunk)
+    assert len(out) == 1
+    assert out[0].kind == "definition"
+    assert out[0].term == "Borrower"
+    assert out[0].definition_text == "ABC Corp"
+    assert out[0].assertion_text == '"Borrower" means ABC Corp.'
+
+
+def test_fixture_extractor_back_compat_facts_only() -> None:
+    chunk = make_chunk(text="Revenue grew 12%.", doc_id="doc_a")
+    extractor = FixtureExtractor({chunk.chunk_id: ["Revenue grew 12 percent in fiscal 2025."]})
+    out = extractor.extract(chunk)
+    assert len(out) == 1
+    assert out[0].kind == "claim"
+
+
+def test_fixture_extractor_rejects_both_positional_and_keyword() -> None:
+    with pytest.raises(ValueError, match=r"either fixtures.*or facts"):
+        FixtureExtractor({"x": ["y"]}, facts={"x": ["z"]})
+
+
+def test_prompt_mentions_definitions() -> None:
+    rendered = render_prompt("Some chunk text.")
+    assert "definitions" in rendered.lower()
+    assert "means" in rendered
+    assert "for purposes of" in rendered.lower()
+    assert "record_extraction" in rendered
