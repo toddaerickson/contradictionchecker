@@ -14,30 +14,40 @@ from consistency_checker.check.providers.moonshot import (
 def test_moonshot_judge_provider_returns_valid_payload(monkeypatch):
     """Test that MoonshotJudgeProvider.request_payload returns a JudgePayload."""
 
+    def make_response():
+        parsed_payload = JudgePayload(
+            verdict="contradiction",
+            confidence=0.95,
+            rationale="The two assertions directly conflict.",
+            evidence_spans=["assertion A text", "assertion B text"],
+        )
+
+        class Message:
+            pass
+
+        msg = Message()
+        msg.parsed = parsed_payload
+
+        class Choice:
+            pass
+
+        choice = Choice()
+        choice.message = msg
+
+        class Response:
+            pass
+
+        resp = Response()
+        resp.choices = [choice]
+        return resp
+
     class MockClient:
         class Beta:
             class Chat:
                 class Completions:
                     @staticmethod
                     def parse(**kwargs):
-                        # Return an object that looks like a parsed response
-                        parsed_payload = JudgePayload(
-                            verdict="contradiction",
-                            confidence=0.95,
-                            rationale="The two assertions directly conflict.",
-                            evidence_spans=["assertion A text", "assertion B text"],
-                        )
-
-                        class Message:
-                            parsed = parsed_payload
-
-                        class Choice:
-                            message = Message()
-
-                        class Response:
-                            choices = [Choice()]
-
-                        return Response()
+                        return make_response()
 
                 completions = Completions()
 
@@ -75,26 +85,37 @@ def test_moonshot_judge_validates_payload():
     """Test that malformed responses raise ValidationError."""
     from pydantic import ValidationError
 
+    def make_bad_response():
+        class Message:
+            pass
+
+        msg = Message()
+        msg.parsed = {
+            "verdict": "invalid_verdict",  # Not in enum
+            "confidence": 0.5,
+            "rationale": "test",
+        }
+
+        class Choice:
+            pass
+
+        choice = Choice()
+        choice.message = msg
+
+        class BadResponse:
+            pass
+
+        resp = BadResponse()
+        resp.choices = [choice]
+        return resp
+
     class BadMockClient:
         class Beta:
             class Chat:
                 class Completions:
                     @staticmethod
                     def parse(**kwargs):
-                        class BadResponse:
-                            class Choice:
-                                class Message:
-                                    parsed = {
-                                        "verdict": "invalid_verdict",  # Not in enum
-                                        "confidence": 0.5,
-                                        "rationale": "test",
-                                    }
-
-                                message = Message()
-
-                            choices = [Choice()]
-
-                        return BadResponse()
+                        return make_bad_response()
 
                 completions = Completions()
 
