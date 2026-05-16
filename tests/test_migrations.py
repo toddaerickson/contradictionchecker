@@ -37,3 +37,23 @@ def test_migration_0007_idempotent(tmp_path: Path) -> None:
     applied = store.migrate()
     assert applied == []
     store.close()
+
+
+def test_migration_0008_adds_detector_type(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    cols = {
+        row["name"]: row
+        for row in store._conn.execute("PRAGMA table_info(findings)").fetchall()
+    }
+    assert "detector_type" in cols
+    assert cols["detector_type"]["dflt_value"] == "'contradiction'"
+    assert cols["detector_type"]["notnull"] == 1
+    idx = {
+        row["name"]
+        for row in store._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='findings'"
+        ).fetchall()
+    }
+    assert "idx_findings_detector" in idx
+    store.close()
