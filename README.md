@@ -33,14 +33,20 @@ cd contradictionchecker
 uv sync
 ```
 
+> **Corporate / sensitive-data users:** read [`CORPORATE_SETUP.md`](CORPORATE_SETUP.md) **first**. This tool sends every document chunk to a third-party LLM API — confirm that's allowed by your data-classification policy before running it.
+
 ## Quickstart
 
 ```sh
 # 1. Copy and edit config
 cp config.example.yml config.yml
-# Set corpus_dir, choose judge_provider (anthropic | openai), API keys via env.
+# Set corpus_dir, choose judge_provider (anthropic | openai). The API key
+# is read from the environment, NEVER from config.yml — config.yml is
+# safe to commit; your key is not.
 
 # 2. Set credentials for whichever provider you chose
+# Prefer your corporate secret manager or a .gitignore'd .env file over
+# baking the key into your shell rc. See CORPORATE_SETUP.md §3.
 export ANTHROPIC_API_KEY=...      # or OPENAI_API_KEY=...
 
 # 3a. Web UI flow (v0.3+)
@@ -51,7 +57,8 @@ uv run consistency-check serve --open    # browser opens to http://127.0.0.1:800
 
 # 3b. CLI-only flow
 uv run consistency-check ingest path/to/corpus/
-uv run consistency-check check                       # add --deep for triangle pass
+uv run consistency-check estimate-cost               # rough API-spend ceiling before you commit
+uv run consistency-check check                       # add --deep for triangle pass; --no-definitions to skip the definition stage
 uv run consistency-check report                      # writes data/store/reports/cc_report_<ts>_<run_id>.md
 uv run consistency-check export csv                  # writes data/store/reports/cc_assertions_<ts>.csv
 ```
