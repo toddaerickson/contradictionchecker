@@ -1,0 +1,19 @@
+You are reviewing the attached corpus for internal contradictions.
+
+A contradiction means two statements that cannot both be true within the same scope (same entity, same time period, same conditions). Distinguish a real contradiction from a general rule with a more-specific exception, from different effective periods of the same predicate, and from compatible permissions and obligations.
+
+Return JSON only, with no surrounding prose. Use exactly this shape:
+
+[
+  {
+    "doc_a": "<filename or short title of first document>",
+    "span_a": "<verbatim sentence from doc_a>",
+    "doc_b": "<filename or short title of second document>",
+    "span_b": "<verbatim sentence from doc_b>",
+    "type": "contradiction" | "scope_mismatch" | "ambiguous",
+    "confidence": <number between 0.0 and 1.0>,
+    "rationale": "<one sentence explaining why these two cannot both be true>"
+  }
+]
+
+Be conservative. When in doubt, omit. Prefer 5 high-confidence findings over 30 hedged ones.
