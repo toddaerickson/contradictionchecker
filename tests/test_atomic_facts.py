@@ -336,3 +336,11 @@ def test_fixture_extractor_back_compat_facts_only() -> None:
 def test_fixture_extractor_rejects_both_positional_and_keyword() -> None:
     with pytest.raises(ValueError, match=r"either fixtures.*or facts"):
         FixtureExtractor({"x": ["y"]}, facts={"x": ["z"]})
+
+
+def test_prompt_mentions_definitions() -> None:
+    rendered = render_prompt("Some chunk text.")
+    assert "definitions" in rendered.lower()
+    assert "means" in rendered
+    assert "for purposes of" in rendered.lower()
+    assert "record_extraction" in rendered

@@ -1,4 +1,7 @@
-You are extracting atomic, decontextualised assertions from a chunk of text.
+You are extracting two kinds of items from a chunk of text: atomic assertions
+and definitions.
+
+## Atomic assertions
 
 An atomic assertion is a short declarative sentence that:
 - Encodes exactly one factual claim (no compound conjunctions).
@@ -17,11 +20,38 @@ Examples of what NOT to do:
 - "Things looked positive." (no verifiable claim)
 
 If the chunk contains no verifiable claims (e.g. headers, navigation, boilerplate),
-return an empty list.
+return an empty assertions list.
+
+## Definitions
+
+A definition is a sentence where the author tells you what a term means. Capture
+both formal and informal forms:
+
+- Formal: `"X" means …`, `X shall mean …`, `X refers to …`, `(the "X")`, `"X" is defined as …`.
+- Informal: `by X we mean …`, `an eligible Y is …`, `for purposes of this policy, X is …`,
+  `we consider X to be …`.
+- Implicit / descriptive: a sentence whose function is to tell the reader what
+  category of thing X is (e.g. "An eligible employee is someone who has
+  completed 90 days of continuous service.").
+
+For each definition, return:
+- `term`: the term being defined, as written (do not normalise case).
+- `definition_text`: the right-hand side — what the term means.
+- `containing_sentence`: the full sentence (or clause) that contains the
+  definition, copied verbatim from the source. This is what gets stored as
+  the assertion text and is what the judge will see.
+
+If the same sentence is also an atomic claim, return it in BOTH lists
+(definitions for the definition detector, assertions for the contradiction
+detector). They are independent.
+
+If the chunk contains no definitions, return an empty definitions list.
+
+## Output
 
 Text chunk:
 ---
 {chunk_text}
 ---
 
-Call the ``record_extraction`` tool with the atomic assertions and any definitions you extracted.
+Call the ``record_extraction`` tool with both lists.
