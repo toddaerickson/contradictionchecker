@@ -247,7 +247,11 @@ code { background: rgba(0,0,0,0.06); padding: 0.05rem 0.3rem; border-radius: 3px
   height: 1em;
 }
 .cc-upload-indicator__text { line-height: 1.45; }
-.cc-upload-indicator__text strong { display: block; margin-bottom: 0.15rem; }
+.cc-upload-indicator__heading {
+  display: block;
+  margin-bottom: 0.15rem;
+  font-weight: 600;
+}
 
 /* --- Reviewer-verdict surface ------------------------------------------- */
 

@@ -64,6 +64,16 @@ def test_ingest_tab_renders_upload_form(tmp_path: Path) -> None:
     assert 'enctype="multipart/form-data"' in body or 'hx-encoding="multipart/form-data"' in body
 
 
+def test_ingest_tab_renders_upload_indicator(tmp_path: Path) -> None:
+    """The htmx-indicator block must be present so users see progress while ingest runs."""
+    client = _client(_config(tmp_path))
+    body = client.get("/tabs/ingest").text
+    assert 'id="cc-upload-indicator"' in body
+    assert "htmx-indicator" in body
+    assert 'hx-indicator="#cc-upload-indicator"' in body
+    assert "hx-disabled-elt" in body
+
+
 def test_ingest_tab_htmx_request_omits_base_chrome(tmp_path: Path) -> None:
     """An HX-Request hit returns a partial only, not the full page chrome."""
     client = _client(_config(tmp_path))
