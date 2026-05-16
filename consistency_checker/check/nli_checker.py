@@ -20,11 +20,39 @@ symmetric in expectation.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
+from pysbd import Segmenter as _PySBD
+
 NliLabel = Literal["contradiction", "entailment", "neutral"]
+
+
+def _split_score(
+    premise: str,
+    hypothesis: str,
+    *,
+    score_fn: Callable[[str, str], NliResult],
+    max_tokens: int,
+    tokenize_fn: Callable[[str], Any],
+) -> NliResult:
+    """Split premise by sentences and return max contradiction score.
+
+    If premise + hypothesis fit within max_tokens, scores them directly.
+    Otherwise, segments the premise by sentence and scores each sentence
+    against the hypothesis, returning the result with highest p_contradiction.
+    This prevents real contradictions in truncated tails from disappearing.
+    """
+    if len(tokenize_fn(premise)) + len(tokenize_fn(hypothesis)) + 3 <= max_tokens:
+        return score_fn(premise, hypothesis)
+    sentences = _PySBD(language="en", clean=False).segment(premise)
+    if len(sentences) <= 1:
+        return score_fn(premise, hypothesis)
+    return max(
+        (score_fn(sent, hypothesis) for sent in sentences),
+        key=lambda r: r.p_contradiction,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +122,8 @@ class TransformerNliChecker:
             truncation=True,
         )
 
-    def score(self, premise: str, hypothesis: str) -> NliResult:
+    def _score_single(self, premise: str, hypothesis: str) -> NliResult:
+        """Score a single premise/hypothesis pair without length guard."""
         outputs = self._pipe([{"text": premise, "text_pair": hypothesis}])
         # With top_k=None, outputs is a list (per input) of lists of {label, score} dicts.
         scores_list = outputs[0]
@@ -103,6 +132,15 @@ class TransformerNliChecker:
             p_contradiction=by_label.get("contradiction", 0.0),
             p_entailment=by_label.get("entailment", 0.0),
             p_neutral=by_label.get("neutral", 0.0),
+        )
+
+    def score(self, premise: str, hypothesis: str) -> NliResult:
+        return _split_score(
+            premise,
+            hypothesis,
+            score_fn=self._score_single,
+            max_tokens=self._pipe.tokenizer.model_max_length,
+            tokenize_fn=self._pipe.tokenizer.encode,
         )
 
 

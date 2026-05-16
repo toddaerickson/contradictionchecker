@@ -11,6 +11,7 @@ from consistency_checker.check.nli_checker import (
     FixtureNliChecker,
     NliResult,
     TransformerNliChecker,
+    _split_score,
     passes_threshold,
     score_bidirectional,
 )
@@ -94,6 +95,43 @@ def test_nli_pairs_fixture_loads() -> None:
         row = json.loads(raw)
         assert {"premise", "hypothesis", "expected"} <= row.keys()
         assert row["expected"] in {"contradiction", "entailment", "neutral"}
+
+
+# --- live model test --------------------------------------------------------
+
+
+# --- _split_score -------------------------------------------------------
+
+
+def _mock_score(premise: str, hypothesis: str) -> NliResult:
+    # Returns high contradiction only for a specific short sentence
+    if "bad" in premise:
+        return NliResult.from_scores(p_contradiction=0.9, p_entailment=0.05, p_neutral=0.05)
+    return NliResult.from_scores(p_contradiction=0.1, p_entailment=0.1, p_neutral=0.8)
+
+
+def test_split_score_detects_contradiction_in_split_premise() -> None:
+    long_premise = "This is fine. This is bad. This is also fine."
+    result = _split_score(
+        long_premise,
+        "something",
+        score_fn=_mock_score,
+        max_tokens=4,  # force split (any real sentence exceeds 4 tokens)
+        tokenize_fn=str.split,  # word-count proxy for tokens
+    )
+    assert result.p_contradiction >= 0.9
+
+
+def test_split_score_passthrough_when_short() -> None:
+    result = _split_score(
+        "Short.",
+        "Also short.",
+        score_fn=_mock_score,
+        max_tokens=1000,
+        tokenize_fn=str.split,
+    )
+    # Should call score_fn once with full premise, not split
+    assert result.label == "neutral"  # "Short." doesn't contain "bad"
 
 
 # --- live model test --------------------------------------------------------
