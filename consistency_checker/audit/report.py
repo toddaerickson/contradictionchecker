@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from consistency_checker.audit.logger import AuditLogger, Finding, MultiPartyFinding
+from consistency_checker.audit.reviewer import DetectorType
 from consistency_checker.extract.schema import Assertion, Document
 from consistency_checker.index.assertion_store import AssertionStore
 
@@ -67,7 +68,7 @@ def render_report(
         if (f.judge_confidence or 0.0) >= min_confidence
     ]
 
-    contradiction_keys = [
+    contradiction_keys: list[tuple[str, DetectorType]] = [
         (":".join(sorted([f.assertion_a_id, f.assertion_b_id])), "contradiction")
         for f in contradictions
     ]
@@ -253,7 +254,9 @@ def _append_multi_party_section(
         if (f.judge_confidence or 0.0) >= min_confidence
     ]
 
-    multi_keys = [(":".join(sorted(f.assertion_ids)), "multi_party") for f in multi]
+    multi_keys: list[tuple[str, DetectorType]] = [
+        (":".join(sorted(f.assertion_ids)), "multi_party") for f in multi
+    ]
     multi_verdicts = audit_logger.get_reviewer_verdicts_bulk(multi_keys)
     multi = [
         f
@@ -323,7 +326,7 @@ def _append_definition_section(
         if (f.judge_confidence or 0.0) >= min_confidence
     ]
 
-    def_keys = [
+    def_keys: list[tuple[str, DetectorType]] = [
         (":".join(sorted([f.assertion_a_id, f.assertion_b_id])), "definition_inconsistency")
         for f in findings
     ]

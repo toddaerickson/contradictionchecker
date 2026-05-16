@@ -448,7 +448,7 @@ class AuditLogger:
         """Counts per verdict label. Used for 'X of N reviewed' progress."""
         if detector_type is None:
             sql = "SELECT verdict, COUNT(*) AS c FROM reviewer_verdicts GROUP BY verdict"
-            params: tuple = ()
+            params: tuple[str, ...] = ()
         else:
             sql = (
                 "SELECT verdict, COUNT(*) AS c FROM reviewer_verdicts "
