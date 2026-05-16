@@ -33,6 +33,7 @@ from consistency_checker.pipeline import (
     ingest as run_ingest,
 )
 from consistency_checker.pipeline import (
+    make_definition_checker,
     make_embedder,
     make_extractor,
     make_judge,
@@ -117,6 +118,11 @@ def check(
         "--deep",
         help="Enable the multi-document conditional contradiction pass (ADR-0006).",
     ),
+    no_definitions: bool = typer.Option(
+        False,
+        "--no-definitions",
+        help="Skip the definition-inconsistency stage (ADR-0009). Default: enabled.",
+    ),
 ) -> None:
     cfg = _load_config(config)
     if deep:
@@ -134,6 +140,7 @@ def check(
     nli = TransformerNliChecker(model_name=cfg.nli_model)
     judge = make_judge(cfg)
     multi_party = make_multi_party_judge(cfg) if cfg.enable_multi_party else None
+    definition_checker = None if no_definitions else make_definition_checker(cfg)
 
     run_id = audit_logger.begin_run(
         config={
@@ -146,6 +153,7 @@ def check(
             "gate_similarity_threshold": cfg.gate_similarity_threshold,
             "enable_multi_party": cfg.enable_multi_party,
             "max_triangles_per_run": cfg.max_triangles_per_run,
+            "definitions_enabled": not no_definitions,
         }
     )
     result = run_check(
@@ -156,6 +164,7 @@ def check(
         judge=judge,
         audit_logger=audit_logger,
         multi_party_judge=multi_party,
+        definition_checker=definition_checker,
         run_id=run_id,
     )
     store.close()
@@ -164,10 +173,16 @@ def check(
         if cfg.enable_multi_party
         else ""
     )
+    def_suffix = (
+        f" / {result.n_definition_pairs_judged} def-pairs / "
+        f"{result.n_definition_findings} def-findings"
+        if not no_definitions
+        else ""
+    )
     typer.echo(
         f"Run {result.run_id} — "
         f"{result.n_pairs_gated} gated / {result.n_pairs_judged} judged / "
-        f"{result.n_findings} contradictions{deep_suffix}"
+        f"{result.n_findings} contradictions{deep_suffix}{def_suffix}"
     )
 
 

@@ -9,7 +9,7 @@ terms (false positive).
 
 from __future__ import annotations
 
-_QUOTE_CHARS = ('"', "'", "“", "”", "‘", "’", "`")
+_QUOTE_CHARS = ('"', "'", "“", "”", "‘", "’", "`")  # noqa: RUF001
 
 
 def canonicalize_term(raw: str) -> str:

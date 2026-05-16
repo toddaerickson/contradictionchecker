@@ -18,6 +18,10 @@ from consistency_checker.audit.logger import AuditLogger
 from consistency_checker.check.definition_checker import (
     DefinitionChecker,
 )
+from consistency_checker.check.definition_judge import (
+    DefinitionJudge,
+    LLMDefinitionJudge,
+)
 from consistency_checker.check.gate import AnnGate, CandidateGate, CandidatePair
 from consistency_checker.check.llm_judge import Judge, JudgeVerdict, LLMJudge
 from consistency_checker.check.multi_party_judge import (
@@ -26,6 +30,7 @@ from consistency_checker.check.multi_party_judge import (
 )
 from consistency_checker.check.nli_checker import NliChecker, score_bidirectional
 from consistency_checker.check.providers.anthropic import (
+    AnthropicDefinitionProvider,
     AnthropicMultiPartyProvider,
     AnthropicProvider,
 )
@@ -34,6 +39,7 @@ from consistency_checker.check.providers.definition_base import (
     DEFINITION_INCONSISTENCY_VERDICTS,
 )
 from consistency_checker.check.providers.openai import (
+    OpenAIDefinitionProvider,
     OpenAIMultiPartyProvider,
     OpenAIProvider,
 )
@@ -121,6 +127,22 @@ def make_multi_party_judge(config: Config) -> MultiPartyJudge:
         f"make_multi_party_judge(): provider {config.judge_provider!r} has no factory; "
         "construct a FixtureMultiPartyJudge directly in tests."
     )
+
+
+def make_definition_judge(config: Config) -> DefinitionJudge:
+    """Build the definition judge from config; ``fixture`` provider has no factory."""
+    if config.judge_provider == "anthropic":
+        return LLMDefinitionJudge(AnthropicDefinitionProvider(model=config.judge_model))
+    if config.judge_provider == "openai":
+        return LLMDefinitionJudge(OpenAIDefinitionProvider(model=config.judge_model))
+    raise ValueError(
+        f"make_definition_judge(): provider {config.judge_provider!r} has no factory; "
+        "construct a FixtureDefinitionJudge directly in tests."
+    )
+
+
+def make_definition_checker(config: Config) -> DefinitionChecker:
+    return DefinitionChecker(judge=make_definition_judge(config))
 
 
 # --- ingest -----------------------------------------------------------------

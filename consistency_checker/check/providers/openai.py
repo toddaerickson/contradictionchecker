@@ -17,6 +17,7 @@ from consistency_checker.check.providers.base import (
     JudgePayload,
     MultiPartyJudgePayload,
 )
+from consistency_checker.check.providers.definition_base import DefinitionJudgePayload
 
 if TYPE_CHECKING:
     import openai
@@ -82,3 +83,37 @@ class OpenAIMultiPartyProvider:
         if isinstance(parsed, MultiPartyJudgePayload):
             return parsed
         return MultiPartyJudgePayload.model_validate(parsed)
+
+
+class OpenAIDefinitionProvider:
+    """OpenAI provider for the definition-inconsistency judge."""
+
+    def __init__(
+        self,
+        *,
+        client: openai.OpenAI | None = None,
+        model: str = "gpt-4o-2024-08-06",
+    ) -> None:
+        if client is None:
+            import openai
+
+            self._client: Any = openai.OpenAI()
+        else:
+            self._client = client
+        self._model = model
+
+    def request_payload(self, system: str, user: str) -> DefinitionJudgePayload:
+        response: Any = self._client.beta.chat.completions.parse(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            response_format=DefinitionJudgePayload,
+        )
+        parsed = response.choices[0].message.parsed
+        if parsed is None:
+            raise ValueError("OpenAI structured-output parse returned no validated payload")
+        if isinstance(parsed, DefinitionJudgePayload):
+            return parsed
+        return DefinitionJudgePayload.model_validate(parsed)
