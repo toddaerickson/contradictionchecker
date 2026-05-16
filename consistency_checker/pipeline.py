@@ -39,6 +39,10 @@ from consistency_checker.check.providers.base import CONTRADICTION_VERDICTS
 from consistency_checker.check.providers.definition_base import (
     DEFINITION_INCONSISTENCY_VERDICTS,
 )
+from consistency_checker.check.providers.moonshot import (
+    MoonshotJudgeProvider,
+    MoonshotMultiPartyJudgeProvider,
+)
 from consistency_checker.check.providers.openai import (
     OpenAIDefinitionProvider,
     OpenAIMultiPartyProvider,
@@ -129,6 +133,8 @@ def make_judge(config: Config) -> Judge:
         return LLMJudge(AnthropicProvider(model=config.judge_model))
     if config.judge_provider == "openai":
         return LLMJudge(OpenAIProvider(model=config.judge_model))
+    if config.judge_provider == "moonshot":
+        return LLMJudge(MoonshotJudgeProvider(model="kimi-k2.6"))
     raise ValueError(
         f"make_judge(): provider {config.judge_provider!r} has no factory; "
         "construct a FixtureJudge directly in tests."
@@ -141,6 +147,8 @@ def make_multi_party_judge(config: Config) -> MultiPartyJudge:
         return LLMMultiPartyJudge(AnthropicMultiPartyProvider(model=config.judge_model))
     if config.judge_provider == "openai":
         return LLMMultiPartyJudge(OpenAIMultiPartyProvider(model=config.judge_model))
+    if config.judge_provider == "moonshot":
+        return LLMMultiPartyJudge(MoonshotMultiPartyJudgeProvider(model="kimi-k2.6"))
     raise ValueError(
         f"make_multi_party_judge(): provider {config.judge_provider!r} has no factory; "
         "construct a FixtureMultiPartyJudge directly in tests."
