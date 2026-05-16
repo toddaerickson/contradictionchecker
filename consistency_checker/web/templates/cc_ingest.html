@@ -25,6 +25,8 @@
     hx-encoding="multipart/form-data"
     hx-target="#cc-upload-result"
     hx-swap="innerHTML"
+    hx-indicator="#cc-upload-indicator"
+    hx-disabled-elt="find button"
   >
     <label class="cc-file-label" for="cc-files">
       <span>Select files</span>
@@ -32,6 +34,14 @@
     </label>
     <button type="submit" class="cc-button">Upload</button>
   </form>
+
+  <div id="cc-upload-indicator" class="cc-upload-indicator htmx-indicator" role="status" aria-live="polite">
+    <span class="cc-spinner" aria-hidden="true"></span>
+    <span class="cc-upload-indicator__text">
+      <strong>Uploading & extracting&hellip;</strong>
+      Each PDF takes about <strong>1&ndash;3 min</strong> to process. The page won't visibly change until all files finish. Don't close this tab or click Upload again.
+    </span>
+  </div>
 
   <div id="cc-upload-result" aria-live="polite"></div>
 
