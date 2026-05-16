@@ -782,6 +782,42 @@ def create_app(
         )
         return HTMLResponse(content=toast + progress)
 
+    @app.post("/verdicts/undo", response_class=HTMLResponse)
+    def post_verdict_undo(
+        request: Request,
+        pair_key: str = Form(...),
+        detector_type: str = Form(...),
+        prior_verdict: str = Form(""),
+    ) -> HTMLResponse:
+        if detector_type not in {"contradiction", "definition_inconsistency", "multi_party"}:
+            raise HTTPException(status_code=400, detail=f"unknown detector_type {detector_type!r}")
+        store, audit = _open_audit()
+        try:
+            if prior_verdict == "":
+                audit.delete_reviewer_verdict(
+                    pair_key=pair_key,
+                    detector_type=detector_type,  # type: ignore[arg-type]
+                )
+            else:
+                if prior_verdict not in {"confirmed", "false_positive", "dismissed"}:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"unknown prior_verdict {prior_verdict!r}",
+                    )
+                audit.set_reviewer_verdict(
+                    pair_key=pair_key,
+                    detector_type=detector_type,  # type: ignore[arg-type]
+                    verdict=prior_verdict,  # type: ignore[arg-type]
+                )
+        finally:
+            store.close()
+        # Caller has hx-target="#cc-tab-content" hx-swap="innerHTML"; we tell HTMX
+        # to redirect back to the current tab so it re-fetches fresh content.
+        referer = request.headers.get("HX-Current-URL") or request.headers.get("Referer", "/")
+        response = HTMLResponse(content="")
+        response.headers["HX-Redirect"] = referer
+        return response
+
     @app.post("/uploads", response_class=HTMLResponse)
     async def post_uploads(
         request: Request,

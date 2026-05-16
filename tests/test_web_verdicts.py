@@ -115,3 +115,83 @@ def test_post_verdicts_rejects_bogus_detector_type(
         headers={"HX-Request": "true"},
     )
     assert resp.status_code == 400
+
+
+def test_post_verdicts_undo_first_click_case_deletes(
+    app_client: tuple[TestClient, Config],
+) -> None:
+    """Undo with empty prior_verdict deletes the row (first-click case)."""
+    client, cfg = app_client
+    client.post(
+        "/verdicts",
+        data={
+            "pair_key": "a:b", "detector_type": "contradiction",
+            "verdict": "confirmed", "prior_verdict": "",
+        },
+        headers={"HX-Request": "true"},
+    )
+    resp = client.post(
+        "/verdicts/undo",
+        data={
+            "pair_key": "a:b", "detector_type": "contradiction", "prior_verdict": "",
+        },
+        headers={"HX-Request": "true"},
+    )
+    assert resp.status_code == 200
+    store = AssertionStore(cfg.db_path)
+    rows = store._conn.execute("SELECT COUNT(*) FROM reviewer_verdicts").fetchone()
+    assert rows[0] == 0
+    store.close()
+
+
+def test_post_verdicts_undo_rejudge_case_restores_prior(
+    app_client: tuple[TestClient, Config],
+) -> None:
+    """Undo with non-empty prior_verdict re-sets to the prior value."""
+    client, cfg = app_client
+    client.post(
+        "/verdicts",
+        data={
+            "pair_key": "a:b", "detector_type": "contradiction",
+            "verdict": "confirmed", "prior_verdict": "",
+        },
+        headers={"HX-Request": "true"},
+    )
+    client.post(
+        "/verdicts",
+        data={
+            "pair_key": "a:b", "detector_type": "contradiction",
+            "verdict": "false_positive", "prior_verdict": "confirmed",
+        },
+        headers={"HX-Request": "true"},
+    )
+    resp = client.post(
+        "/verdicts/undo",
+        data={
+            "pair_key": "a:b", "detector_type": "contradiction",
+            "prior_verdict": "confirmed",
+        },
+        headers={"HX-Request": "true"},
+    )
+    assert resp.status_code == 200
+    store = AssertionStore(cfg.db_path)
+    row = store._conn.execute(
+        "SELECT verdict FROM reviewer_verdicts WHERE pair_key = ?", ("a:b",)
+    ).fetchone()
+    assert row["verdict"] == "confirmed"
+    store.close()
+
+
+def test_post_verdicts_undo_rejects_bogus_prior_verdict(
+    app_client: tuple[TestClient, Config],
+) -> None:
+    client, _cfg = app_client
+    resp = client.post(
+        "/verdicts/undo",
+        data={
+            "pair_key": "a:b", "detector_type": "contradiction",
+            "prior_verdict": "banana",
+        },
+        headers={"HX-Request": "true"},
+    )
+    assert resp.status_code == 400
