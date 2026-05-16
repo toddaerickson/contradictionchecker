@@ -1,0 +1,1 @@
+List every internal contradiction you can find in the attached corpus. Maximum 50 findings. Return the JSON only — no preamble, no closing remarks, no markdown code fences.
