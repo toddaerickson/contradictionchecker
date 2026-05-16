@@ -45,6 +45,18 @@
         const nextRow = tbody.querySelector('tr.cc-finding-row');
         if (nextRow) nextRow.focus();
       });
+
+      // Tab-nav active state: HTMX swaps only #cc-tab-content, so the .cc-tab--active
+      // class on the header anchors doesn't auto-update. Move it on every tab click.
+      const ccTabsNav = document.querySelector('.cc-tabs');
+      if (ccTabsNav) {
+        ccTabsNav.addEventListener('click', (e) => {
+          const tab = e.target.closest('.cc-tab');
+          if (!tab) return;
+          document.querySelectorAll('.cc-tab').forEach(t => t.classList.remove('cc-tab--active'));
+          tab.classList.add('cc-tab--active');
+        });
+      }
     </script>
   </body>
 </html>
