@@ -16,6 +16,17 @@ from pathlib import Path
 
 import typer
 
+from consistency_checker.audit.eval import (
+    DEFAULT_CALIBRATION_BINS,
+    compute_calibration,
+    compute_detector_precision,
+    eval_filename,
+    format_calibration_table,
+    format_precision_table,
+    iter_eval_rows,
+    write_calibration_csv,
+    write_precision_csv,
+)
 from consistency_checker.audit.logger import AuditLogger
 from consistency_checker.audit.naming import (
     export_csv_filename,
@@ -323,6 +334,67 @@ def export(
 
 
 # --- store maintenance ------------------------------------------------------
+
+
+@app.command(
+    help=(
+        "Mine reviewer_verdicts for per-detector precision + judge-confidence "
+        "calibration. Reads the audit DB only; no LLM calls."
+    )
+)
+def eval(
+    config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
+    detector: str = typer.Option(
+        "contradiction",
+        "--detector",
+        help=(
+            "Which detector_type to render the calibration table for. "
+            "Precision table always covers all detectors."
+        ),
+    ),
+    out: Path | None = typer.Option(
+        None,
+        "--out",
+        "-o",
+        help=(
+            "Optional output directory. When set, writes "
+            "cc_eval_precision_<ts>.csv + cc_eval_calibration_<ts>.csv "
+            "alongside the printed tables."
+        ),
+    ),
+) -> None:
+    valid_detectors = {"contradiction", "definition_inconsistency", "multi_party"}
+    if detector not in valid_detectors:
+        raise typer.BadParameter(
+            f"--detector must be one of {sorted(valid_detectors)}; got {detector!r}"
+        )
+    cfg = _load_config(config)
+    store = _open_store(cfg)
+    try:
+        rows = list(iter_eval_rows(store))
+    finally:
+        store.close()
+    precisions = compute_detector_precision(rows)
+    calibration = compute_calibration(rows, detector_type=detector, bins=DEFAULT_CALIBRATION_BINS)
+    typer.echo("Per-detector precision (excludes 'dismissed' from denominator)")
+    typer.echo(format_precision_table(precisions))
+    typer.echo("")
+    typer.echo(format_calibration_table(calibration, detector_type=detector))
+    if out is not None:
+        out.mkdir(parents=True, exist_ok=True)
+        precision_path = out / eval_filename("precision")
+        calibration_path = out / eval_filename("calibration")
+        write_precision_csv(precisions, precision_path)
+        bins_by_detector = {
+            p.detector_type: compute_calibration(
+                rows, detector_type=p.detector_type, bins=DEFAULT_CALIBRATION_BINS
+            )
+            for p in precisions
+        }
+        write_calibration_csv(bins_by_detector, calibration_path)
+        typer.echo("")
+        typer.echo(f"Wrote {precision_path}")
+        typer.echo(f"Wrote {calibration_path}")
 
 
 @store_app.command("stats", help="Print store statistics.")
