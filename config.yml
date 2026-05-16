@@ -1,0 +1,20 @@
+# consistency-checker configuration -- generated 2026-05-16 for web UI workflow.
+# corpus_dir is required by the schema but ignored by the web /uploads route
+# (files go to data_dir/uploads/<id>/ instead). Leave at default unless using CLI ingest.
+corpus_dir: ./corpus
+
+judge_provider: anthropic
+judge_model: claude-haiku-4-5
+
+data_dir: ./data/store
+log_dir: ./data/logs
+
+embedder_model: sentence-transformers/all-mpnet-base-v2
+nli_model: MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli
+nli_contradiction_threshold: 0.5
+
+gate_top_k: 20
+gate_similarity_threshold: 0.7
+
+chunk_max_chars: 4000
+chunk_overlap_chars: 0

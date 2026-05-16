@@ -37,7 +37,7 @@ class MoonshotJudgeProvider:
         api_key = api_key or os.getenv("MOONSHOT_API_KEY")
         if not api_key:
             raise ValueError(
-                "MOONSHOT_API_KEY not set. Set via environment variable, .env file, or pass to __init__"
+                "MOONSHOT_API_KEY not set. Set via env var, .env file, or pass to __init__"
             )
 
         self.client: openai.OpenAI = openai.OpenAI(
@@ -90,7 +90,7 @@ class MoonshotMultiPartyJudgeProvider:
         api_key = api_key or os.getenv("MOONSHOT_API_KEY")
         if not api_key:
             raise ValueError(
-                "MOONSHOT_API_KEY not set. Set via environment variable, .env file, or pass to __init__"
+                "MOONSHOT_API_KEY not set. Set via env var, .env file, or pass to __init__"
             )
 
         self.client: openai.OpenAI = openai.OpenAI(

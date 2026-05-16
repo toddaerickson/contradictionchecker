@@ -1,0 +1,1127 @@
+{
+  "n_pairs": 120,
+  "overall_accuracy": 0.9583333333333334,
+  "overall_false_positive_rate": 0.047619047619047616,
+  "overall_false_negative_rate": 0.0,
+  "overall_abstain_rate": 0.0,
+  "per_bucket": [
+    {
+      "bucket": "modal_divergence",
+      "n_pairs": 40,
+      "n_correct": 40,
+      "n_false_positive": 0,
+      "n_false_negative": 0,
+      "n_abstain": 0,
+      "accuracy": 1.0,
+      "false_positive_rate": 0.0,
+      "false_negative_rate": 0.0,
+      "abstain_rate": 0.0
+    },
+    {
+      "bucket": "rule_exception",
+      "n_pairs": 40,
+      "n_correct": 35,
+      "n_false_positive": 5,
+      "n_false_negative": 0,
+      "n_abstain": 0,
+      "accuracy": 0.875,
+      "false_positive_rate": 0.125,
+      "false_negative_rate": 0.0,
+      "abstain_rate": 0.0
+    },
+    {
+      "bucket": "temporal_scope",
+      "n_pairs": 40,
+      "n_correct": 40,
+      "n_false_positive": 0,
+      "n_false_negative": 0,
+      "n_abstain": 0,
+      "accuracy": 1.0,
+      "false_positive_rate": 0.0,
+      "false_negative_rate": 0.0,
+      "abstain_rate": 0.0
+    }
+  ],
+  "predictions": [
+    {
+      "pair_id": "rule_exc_001",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion B is an explicit carve-out (\"Notwithstanding the foregoing\") to the general restriction in A, defining a permitted exception rather than negating the rule. Rule-plus-exception structures are complementary, not contradictory."
+    },
+    {
+      "pair_id": "rule_exc_002",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "Assertion B is a typical carve-out/exception to the general prohibition in A. In legal/credit agreement drafting, a general restriction paired with a specific permitted basket is a rule-exception structure, not a contradiction. The document IDs (\"rule_exc_002_a\" and \"rule_exc_002_b\") further indicate these are designed as a rule and its exception."
+    },
+    {
+      "pair_id": "rule_exc_003",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion B is a carve-out/exception defining what does not count as a Disposition (ordinary-course inventory sales), while A prohibits disposing of Material Assets. These operate at different scopes\u2014inventory in ordinary course is not a Material Asset disposition\u2014so both can be true simultaneously."
+    },
+    {
+      "pair_id": "rule_exc_004",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "contradiction",
+      "judge_confidence": 0.88,
+      "judge_rationale": "A states an absolute prohibition (\"No Subsidiary shall guarantee any Indebtedness of the Borrower\"), while B permits a Subsidiary to guarantee Borrower Indebtedness in the case of Permitted Subordinated Indebtedness. The two cannot both be true at the same scope; B carves out an exception that A's universal \"no...any\" forbids."
+    },
+    {
+      "pair_id": "rule_exc_005",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion B is a carve-out/exception to the general prohibition in A. This is a standard rule-plus-exception pattern in loan agreements, not a contradiction\u2014both can coexist as the exception narrows the general rule."
+    },
+    {
+      "pair_id": "rule_exc_006",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "Assertion A states a general prohibition on acquisitions, while Assertion B carves out a specific exception (Permitted Acquisition with a cap). This is a typical rule/exception structure in credit agreements where the exception qualifies the general rule rather than contradicting it. The document IDs themselves (_a and _b with \"exc\") suggest they are meant to be read together."
+    },
+    {
+      "pair_id": "rule_exc_007",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "These are a standard covenant-and-exception pair: A states a general prohibition on dividends, while B carves out a permitted exception for stock dividends (payable solely in additional Equity Interests). The document IDs (\"rule\" vs \"exc\") confirm this is an exception structure, not a contradiction."
+    },
+    {
+      "pair_id": "rule_exc_008",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "Assertion B describes a permitted exception (\"not adverse to the interests of the Lenders\") to the general prohibition in A. This is a typical covenant-plus-exception structure where B carves out a narrow case from A's general rule, rather than contradicting it."
+    },
+    {
+      "pair_id": "rule_exc_009",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "Assertion B is a carve-out/exception to the general restriction in A, not a contradiction. Together they form a standard rule-plus-exception structure where Permitted Liens are excluded from the prohibition."
+    },
+    {
+      "pair_id": "rule_exc_010",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "Assertion B reads as a carve-out/exception to the general prohibition in A, permitting businesses \"reasonably related or incidental to\" the Specified Business. Together they form a standard rule-plus-exception pair rather than a contradiction, as evidenced by the document IDs (_a and _b of rule_exc_010)."
+    },
+    {
+      "pair_id": "rule_exc_011",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.92,
+      "judge_rationale": "Assertion B is an exception/carve-out for a specific subset of employees (those on approved leave) to the general rule in A. Exceptions to a general rule are not contradictions; they refine the scope under different conditions."
+    },
+    {
+      "pair_id": "rule_exc_012",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion A states a general PTO policy for employees, while Assertion B carves out a specific exception for probationary employees in their first 90 days. These apply to different scopes (general vs. probationary), so B is a specialization/exception rather than a contradiction."
+    },
+    {
+      "pair_id": "rule_exc_013",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion A states all employees are eligible from day one, with no exceptions. Assertion B carves out part-time employees under 20 hours/week as ineligible. Since part-time sub-20-hour employees are a subset of \"all employees,\" both cannot simultaneously be true at the same scope."
+    },
+    {
+      "pair_id": "rule_exc_014",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "Assertion A states a general rule for employees, while Assertion B carves out a specific exception for field sales employees with a different timeline. These are complementary (general rule + exception) rather than contradictory, as they apply to different scopes of employees."
+    },
+    {
+      "pair_id": "rule_exc_015",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.8,
+      "judge_rationale": "Assertion B carves out an explicit exception for a specific subgroup (Remote Engineers) from the general rule in A. An exception to a general policy is not a logical contradiction; it is a scoped carve-out, which is a common policy pattern."
+    },
+    {
+      "pair_id": "rule_exc_016",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "Assertion B explicitly carves out an exception to the general rule in A for approved company-organized client appreciation events. An exception that modifies the scope of a general rule is not a contradiction; the two are designed to operate together."
+    },
+    {
+      "pair_id": "rule_exc_017",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.78,
+      "judge_rationale": "Assertion B carves out a specific exception (probationary employees) to the general rule in A. While there is surface tension, this is a typical general-rule/exception pairing rather than a true contradiction, especially given the document IDs suggest a rule and its exception."
+    },
+    {
+      "pair_id": "rule_exc_018",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion B describes a special case for newly hired employees (an initial six-month review) but then aligns with annual reviews thereafter, which is consistent with A's general annual rule. B is a refinement/exception, not a contradiction."
+    },
+    {
+      "pair_id": "rule_exc_019",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "Assertion A states the general rule that bonuses are awarded based on performance evaluations, while Assertion B carves out a specific exception for employees on a Performance Improvement Plan. This is a rule-exception relationship, not a contradiction."
+    },
+    {
+      "pair_id": "rule_exc_020",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion A applies to employees, while Assertion B applies to contractors and temporary workers \u2014 different entity scopes. B functions as a carve-out for a distinct group, not a contradiction of A's rule for employees."
+    },
+    {
+      "pair_id": "rule_exc_021",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.92,
+      "judge_rationale": "Assertion A prohibits access without explicit authorization, while Assertion B grants explicit authorization to Compliance employees for regulatory audits. B functions as a specific authorization that satisfies A's condition, not a contradiction of it."
+    },
+    {
+      "pair_id": "rule_exc_022",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "Assertion A states a universal rule (\"All sales contracts\") requiring VP-or-higher signature, while Assertion B permits a Sales Manager (below VP) to sign contracts under $10,000. These cannot both be true simultaneously for the same set of low-value contracts, though B may be intended as a documented exception to A."
+    },
+    {
+      "pair_id": "rule_exc_023",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion A establishes a general rule for hiring decisions, while Assertion B carves out a specific exception for internal transfers within the same department. These are different scopes (new hires vs. internal transfers), so both can be true simultaneously as a rule and its exception."
+    },
+    {
+      "pair_id": "rule_exc_024",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.92,
+      "judge_rationale": "Assertion B clarifies/defines the scope of \"public spaces\" used in A by excluding secured premises with authorized personnel. This is a definitional refinement, not a conflicting rule \u2014 both can hold simultaneously."
+    },
+    {
+      "pair_id": "rule_exc_025",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "Assertion B describes a specific exception (company-sponsored conferences pre-approved by department head) to the general rule in A. This is a general rule plus exception pattern, not a contradiction\u2014both can be true simultaneously since B carves out a defined subset where the general manager pre-approval is replaced by department head pre-approval."
+    },
+    {
+      "pair_id": "rule_exc_026",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "contradiction",
+      "judge_confidence": 0.78,
+      "judge_rationale": "A states a universal requirement that all software installations need IT review, while B carves out an exception allowing catalog-approved software to be installed without IT review. At face value these cannot both be true for catalog-approved software, though B may be intended as a formal exception to A (common rule/exception pattern)."
+    },
+    {
+      "pair_id": "rule_exc_027",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.92,
+      "judge_rationale": "Assertion A requires prior authorization for representation; Assertion B specifies a mechanism (the spokesperson roster) by which such authorization is granted. B is an instantiation of A's authorization requirement, not a contradiction."
+    },
+    {
+      "pair_id": "rule_exc_028",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.92,
+      "judge_rationale": "Assertion B defines a scope exception (clarifying what counts as a complaint), it does not negate the 24-hour escalation rule in A. The two statements operate together: A sets the rule, B narrows its applicability."
+    },
+    {
+      "pair_id": "rule_exc_029",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "contradiction",
+      "judge_confidence": 0.78,
+      "judge_rationale": "Assertion A states a universal requirement (\"All new vendor relationships\") for a signed master services agreement, while B carves out an exception allowing single-purchase engagements under $5,000 to proceed under standard PO terms instead. Both cannot simultaneously be true for that low-dollar vendor segment."
+    },
+    {
+      "pair_id": "rule_exc_030",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "Assertion B is consistent with and clarifies Assertion A by specifying that travel-related charges qualify as approved business expenses. B falls within the scope permitted by A, making it entailment/clarification rather than contradiction."
+    },
+    {
+      "pair_id": "rule_exc_031",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "Assertion A states the general rule prohibiting prepayment of Subordinated Indebtedness, while Assertion B carves out a specific exception for mandatory prepayments required by the terms of the Subordinated Indebtedness itself. This is a typical rule-and-exception structure (as indicated by the document IDs _a and _b), not a contradiction."
+    },
+    {
+      "pair_id": "rule_exc_032",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.8,
+      "judge_rationale": "Assertion A states a general prohibition on early redemption, while B carves out a specific exception for a Change of Control event. The document IDs (_a and _b) suggest these are a rule/exception pair designed to operate together, not contradict."
+    },
+    {
+      "pair_id": "rule_exc_033",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.92,
+      "judge_rationale": "Assertion A states a general prohibition on Investments, while Assertion B carves out a specific exception for cash and Cash Equivalents. This is a standard rule-plus-exception structure, not a contradiction\u2014B narrows the scope of A rather than negating it at the same scope."
+    },
+    {
+      "pair_id": "rule_exc_034",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion B explicitly carves out an exception (administrative, non-economic amendments) from the general restriction in A. This is a rule-plus-exception pattern, not a contradiction \u2014 the documents are labeled 'a' and 'b' suggesting they form a single rule with its exception."
+    },
+    {
+      "pair_id": "rule_exc_035",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion B is an explicit exception/adjustment to the general covenant in A, applying only during a Limited Condition Transaction Test Period. The two operate at different scopes (general rule vs. conditional exception), so they coexist without contradiction."
+    },
+    {
+      "pair_id": "rule_exc_036",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "Assertion A states a general prohibition on changing fiscal year, while Assertion B carves out a specific exception for alignment with a newly acquired Material Subsidiary. This is a typical rule-and-exception pairing (as indicated by the document IDs rule_exc_036_a and _b), where the exception qualifies rather than contradicts the general rule."
+    },
+    {
+      "pair_id": "rule_exc_037",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "B is a carve-out/exception to the general rule in A. Standard contract drafting structure where A states the general prohibition and B lists permitted exceptions; they are designed to operate together rather than contradict."
+    },
+    {
+      "pair_id": "rule_exc_038",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion B is a carve-out/exception to the general prohibition in A. These are typical rule-and-exception pairs (as suggested by the document IDs \"rule_exc_038_a\" and \"rule_exc_038_b\"), which together form a coherent covenant rather than a contradiction."
+    },
+    {
+      "pair_id": "rule_exc_039",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "Assertion A prohibits Hedging Agreements except those in the ordinary course of business and non-speculative. Assertion B clarifies/defines that interest-rate and FX risk management hedges qualify as ordinary course. B is a permitted carve-out/definition consistent with A, not a contradiction."
+    },
+    {
+      "pair_id": "rule_exc_040",
+      "bucket": "rule_exception",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion B is a carve-out/exception to A: A states a general prohibition on voluntary termination, while B permits termination only in the specific case of counterparty material breach. These are complementary rule-and-exception clauses that can coexist, not a contradiction."
+    },
+    {
+      "pair_id": "modal_001",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "A mandates reporting to a manager within 24 hours, while B permits an additional optional channel (anonymous hotline) at any time. These are complementary reporting options, not mutually exclusive obligations \u2014 an employee can satisfy A and also use B."
+    },
+    {
+      "pair_id": "modal_002",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "A mandates timely delivery of financial statements, while B permits discretionary delivery of supplemental schedules. These concern different document types and different obligation levels (shall vs. may), so both can be true simultaneously."
+    },
+    {
+      "pair_id": "modal_003",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "Assertion A concerns the timing/notice obligation for a waiver decision, while Assertion B concerns the substantive condition (additional collateral) the Lender may impose. These address different aspects of the waiver process and can both be true simultaneously."
+    },
+    {
+      "pair_id": "modal_004",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "A imposes a mandatory minimum insurance floor ($10 million), while B grants optional discretion to purchase additional coverage above that. These are complementary\u2014a minimum requirement and an optional top-up can coexist without conflict."
+    },
+    {
+      "pair_id": "modal_005",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "A states a general rule about employees using the official system, while B describes a conditional exception for managers during documented system downtime. The exception operates under different conditions (system unavailability), so both can coexist as general rule plus narrow exception."
+    },
+    {
+      "pair_id": "modal_006",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "A requires each Loan Party to execute the Joinder Agreement; B allows execution via a designated Authorized Representative acting on the Loan Party's behalf. These are compatible\u2014delegating execution to a representative still satisfies the obligation that the Loan Party execute."
+    },
+    {
+      "pair_id": "modal_007",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion A sets the minimum liquidity threshold ($5,000,000), while Assertion B specifies what components count toward the calculation of Minimum Liquidity. These are complementary provisions, not contradictory \u2014 both can be true simultaneously."
+    },
+    {
+      "pair_id": "modal_008",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "A specifies the destination account for deposits, while B specifies the methods by which deposits can be made. These address different dimensions (where vs. how) and can both be true simultaneously."
+    },
+    {
+      "pair_id": "modal_009",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "A mandates returning equipment upon termination, while B allows requesting to purchase it. These can coexist: the default is return, with an optional purchase request as an alternative path. No direct conflict in scope or qualifier."
+    },
+    {
+      "pair_id": "modal_010",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "A specifies the timing requirement for the redemption notice (at least 30 days prior), while B specifies the permitted delivery methods. These address different aspects and can both be true simultaneously."
+    },
+    {
+      "pair_id": "modal_011",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.98,
+      "judge_rationale": "The two assertions reference the same entity (the Company) and the same obligation (maintaining coverage under the Master Insurance Policy), but one mandates the action while the other prohibits it. They cannot both be true simultaneously."
+    },
+    {
+      "pair_id": "modal_012",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "Both assertions concern the same entity (employees) and same activity (remote access to internal systems), but mandate opposite behaviors regarding the company-approved VPN: A requires its use, B prohibits it in favor of ZTNA."
+    },
+    {
+      "pair_id": "modal_013",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "A requires quarterly interest payments (four times per year), while B prohibits payments more frequently than annually (at most once per year). Both obligations cannot simultaneously hold for the same Borrower."
+    },
+    {
+      "pair_id": "modal_014",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "A requires release upon full repayment of principal, while B prohibits release until 90 days after final repayment. At the moment of full repayment, A mandates release and B forbids it, so both cannot be simultaneously true."
+    },
+    {
+      "pair_id": "modal_015",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "A requires filing within 40 days, which necessarily means filing occurs within 45 days as well. B prohibits filing within 45 days, which makes compliance with A impossible. The two obligations cannot simultaneously be satisfied for the same Issuer and same Form 10-Q."
+    },
+    {
+      "pair_id": "modal_016",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.97,
+      "judge_rationale": "Both assertions concern the tenant's obligation regarding renters insurance under the lease. A mandates maintaining it throughout the term, while B explicitly removes that requirement \u2014 these cannot both be true at the same scope."
+    },
+    {
+      "pair_id": "modal_017",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "Both assertions concern the same entity (the Company) and the modality of stockholder meetings. A mandates convening the annual stockholders' meeting in person, while B prohibits convening any stockholder meeting in person\u2014these obligations cannot both hold simultaneously."
+    },
+    {
+      "pair_id": "modal_018",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "Both assertions address the same entity (vendor invoices) and same process (routing through the centralized AP system) with directly opposing mandates: A requires all invoices to be processed through it, while B prohibits this and replaces the system with a Procurement Hub effective immediately."
+    },
+    {
+      "pair_id": "modal_019",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "A mandates the Trustee distribute remaining principal to Beneficiaries upon termination, while B explicitly forbids any principal distribution to Beneficiaries and directs assets back to the Settlor. These directives cannot both hold for the same Trust."
+    },
+    {
+      "pair_id": "modal_020",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "A mandates annual (every year) CPR recertification for all clinical staff, while B explicitly forbids requiring it more frequently than every two years. Annual recertification is more frequent than biennial, so both cannot simultaneously hold."
+    },
+    {
+      "pair_id": "modal_021",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "A requires individual manager approval for travel over $2,000, while B explicitly prohibits seeking individual manager approval and routes all travel through a committee. These approval processes cannot both be the governing policy simultaneously."
+    },
+    {
+      "pair_id": "modal_022",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "A requires delivery within 45 days (i.e., 0-45 days post-quarter-end), while B prohibits delivery outside a 45-60 day window, meaning delivery before day 45 is forbidden. These obligations cannot both be satisfied simultaneously\u2014any compliant delivery under A (before day 45) would violate B, and vice versa."
+    },
+    {
+      "pair_id": "modal_023",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.97,
+      "judge_rationale": "A mandates background checks be completed before the start date, while B forbids initiating them until after the start date. Both cannot simultaneously hold for the same new hires."
+    },
+    {
+      "pair_id": "modal_024",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "A mandates at least two engineer reviewers for all software contributions, while B prohibits more than one reviewer. These requirements cannot simultaneously hold for the same contributions."
+    },
+    {
+      "pair_id": "modal_025",
+      "bucket": "modal_divergence",
+      "ground_truth": "contradiction",
+      "relation": "contradiction",
+      "predicted": "contradiction",
+      "judge_confidence": 0.94,
+      "judge_rationale": "A mandates that all confidential documents must be shredded before disposal, while B prohibits shredding them and requires using a secure disposal bin instead. These directives cannot both be followed for the same confidential documents."
+    },
+    {
+      "pair_id": "modal_026",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "A mandates MFA for accessing internal systems, while B restricts one specific second-factor method (SMS). Both can be true simultaneously: employees use MFA via non-SMS methods (e.g., authenticator apps, hardware tokens)."
+    },
+    {
+      "pair_id": "modal_027",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "A requires debris removal at end of each business day; B restricts the method/route (no main elevators). Both can be satisfied simultaneously by removing debris via an alternate route."
+    },
+    {
+      "pair_id": "modal_028",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "A sets a vacate deadline of 6:00pm, while B restricts reservations past 5:30pm absent special authorization. These rules are compatible: a room could be reserved until 5:30pm (or later with authorization) and still must be vacated by 6:00pm."
+    },
+    {
+      "pair_id": "modal_029",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.92,
+      "judge_rationale": "A applies to transactions exceeding $10,000, while B applies to transactions below $10,000 from established customers. The two assertions cover disjoint transaction ranges and are fully compatible."
+    },
+    {
+      "pair_id": "modal_030",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "Assertion A specifies the timing/frequency of inventory counts (by end of each fiscal quarter), while Assertion B specifies a segregation-of-duties constraint on who may perform them. Both rules can be satisfied simultaneously."
+    },
+    {
+      "pair_id": "modal_031",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "A states the company will provide a laptop to each employee, while B allows employees to optionally decline that provided laptop in favor of a personal device. Providing the option to decline does not contradict providing the laptop in the first place; both can be true simultaneously."
+    },
+    {
+      "pair_id": "modal_032",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.92,
+      "judge_rationale": "Assertion A establishes the default delivery obligation tied to the Purchase Order date, while Assertion B describes an optional buyer-initiated expedited delivery for an extra fee. These provisions address different scenarios and can coexist without conflict."
+    },
+    {
+      "pair_id": "modal_033",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "A sets a default 30-day funding window, while B describes a conditional extension mechanism that allows the Company to push that deadline by up to 60 days with written notice. These can coexist: the 30-day rule applies absent an extension, and B simply provides a procedure to modify it."
+    },
+    {
+      "pair_id": "modal_034",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions describe different maintenance scenarios with different actors: routine maintenance scheduled by the Service Provider during off-peak hours versus emergency maintenance requested by the Customer during business hours at an on-call rate. They can both be true simultaneously."
+    },
+    {
+      "pair_id": "modal_035",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion A describes the issuer's obligation to redeem at maturity (default redemption), while B describes an optional early redemption right held by the holder. These provisions commonly coexist in note terms; one does not preclude the other."
+    },
+    {
+      "pair_id": "modal_036",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "A describes the mandatory scheduled quarterly principal payments, while B grants an optional right to prepay without penalty. These provisions coexist routinely in loan agreements\u2014scheduled amortization and optional prepayment address different scopes (required schedule vs. borrower's option)."
+    },
+    {
+      "pair_id": "modal_037",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "override",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.8,
+      "judge_rationale": "A establishes a default annual distribution schedule, while B provides an optional mechanism for beneficiaries to request a different (quarterly) frequency. These provisions can coexist: the annual default applies unless a beneficiary invokes the request option."
+    },
+    {
+      "pair_id": "modal_038",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.92,
+      "judge_rationale": "Assertion A describes the standard condition for policy issuance (receipt of first premium), while Assertion B describes an optional expedited issuance process for an additional fee. These are complementary provisions, not mutually exclusive claims."
+    },
+    {
+      "pair_id": "modal_039",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "A states the default installation date from the Order Form, while B describes a conditional exception allowing the Customer to delay via written notice. These can coexist: B is a permitted modification to the default in A, not a conflicting rule."
+    },
+    {
+      "pair_id": "modal_040",
+      "bucket": "modal_divergence",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "A specifies a deadline for the final Audit Report, while B addresses an optional request for preliminary findings before the final report. These provisions concern different deliverables and can coexist."
+    },
+    {
+      "pair_id": "temporal_001",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.8,
+      "judge_rationale": "Assertion B specifies a policy change effective January 1, 2026, implying A describes the policy before that date. The two statements apply to different time windows, so they can both be true within their respective scopes."
+    },
+    {
+      "pair_id": "temporal_002",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.92,
+      "judge_rationale": "The two assertions describe license terms with different effective dates (2023-01-01 vs 2025-01-01), representing different time windows. The user limit can legitimately have been updated from 100 to 500 between agreements, so both can simultaneously be true within their respective scopes."
+    },
+    {
+      "pair_id": "temporal_003",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions describe the Service Fee in different, non-overlapping time windows: A applies prior to January 1, 2025 ($1,500/month) and B applies beginning January 1, 2025 ($2,000/month). They describe a fee change over time, not a conflict."
+    },
+    {
+      "pair_id": "temporal_004",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions cover different, non-overlapping time periods: the original lease term (2020-2024) and the renewal term (2025-2029). Different monthly rent amounts for different periods are consistent, not contradictory."
+    },
+    {
+      "pair_id": "temporal_005",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions describe different versions of the Employee Handbook with different effective dates (2024-01-01 vs 2025-01-01). PTO policies can change between handbook versions, so both can be true within their respective time windows."
+    },
+    {
+      "pair_id": "temporal_006",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "A sets a closing deadline of March 1, 2025, and B specifies a consequence (termination fee) if that deadline is missed. These are complementary contractual provisions, not contradictory statements."
+    },
+    {
+      "pair_id": "temporal_007",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "A defines an initial one-year term starting on the Effective Date. B addresses termination rights after the first anniversary, which is consistent with a renewal/continuation period following the initial term. The two can coexist (initial fixed term + post-anniversary termination on notice)."
+    },
+    {
+      "pair_id": "temporal_008",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.8,
+      "judge_rationale": "Assertion B explicitly establishes a new effective date (June 30, 2025), indicating a policy change that supersedes A. Since A appears to describe the prior policy and B the updated one, they apply to different time windows rather than the same scope."
+    },
+    {
+      "pair_id": "temporal_009",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.98,
+      "judge_rationale": "The assertions refer to different tax years (2023 vs 2024), so they describe distinct time scopes and can both be true simultaneously."
+    },
+    {
+      "pair_id": "temporal_010",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.92,
+      "judge_rationale": "The two assertions describe different agreements executed at different times: the original Founders' Agreement from March 2020 and an Amended and Restated version from September 2023. The amendment superseding the original equity terms is a temporal succession, not a contradiction at the same scope."
+    },
+    {
+      "pair_id": "temporal_011",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.98,
+      "judge_rationale": "The two assertions refer to different fiscal years (FY2024 vs FY2025), so different revenue figures can both be true simultaneously."
+    },
+    {
+      "pair_id": "temporal_012",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.97,
+      "judge_rationale": "The assertions cover different fiscal years (2024 vs 2025), so both can be true simultaneously. A swing from net loss to net income across consecutive years is a normal business outcome, not a contradiction."
+    },
+    {
+      "pair_id": "temporal_013",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions cover different time periods (fiscal year ended Dec 31, 2024 vs. trailing twelve months ended Sept 30, 2025), so both can be simultaneously true."
+    },
+    {
+      "pair_id": "temporal_014",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.97,
+      "judge_rationale": "The two assertions refer to different fiscal years (FY2024 vs FY2025), so different bonus pool percentages can both be true simultaneously within their respective scopes."
+    },
+    {
+      "pair_id": "temporal_015",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.97,
+      "judge_rationale": "The two assertions refer to different fiscal years: A reports actual capex for FY2024 ($3.8M), while B states the budgeted capex for FY2025 ($5.0M). Different time scopes and different measures (actual vs. budget) allow both to be true."
+    },
+    {
+      "pair_id": "temporal_016",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "independent",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "Assertion A describes an actual leverage ratio in FY2024, while Assertion B sets a covenant limit applicable to fiscal years ending on or after December 31, 2025. Different time windows, so both can be true simultaneously."
+    },
+    {
+      "pair_id": "temporal_017",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.97,
+      "judge_rationale": "The two assertions refer to different time periods (fiscal year-end 2024 vs. fiscal year-end 2025), so both can be simultaneously true. This represents headcount growth over time, not a contradiction."
+    },
+    {
+      "pair_id": "temporal_018",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions cover different fiscal years (2024 vs 2025), so they describe different audit reports and can both be true simultaneously."
+    },
+    {
+      "pair_id": "temporal_019",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions describe sales region breakdowns for different fiscal years (FY2024 vs FY2025), so different percentages reflect change over time rather than a contradiction."
+    },
+    {
+      "pair_id": "temporal_020",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "The two assertions describe different fiscal years (2024 vs 2025) with different date ranges. They can both be true simultaneously, especially since B mentions a \"calendar-year alignment\" suggesting a deliberate change in fiscal year definition."
+    },
+    {
+      "pair_id": "temporal_021",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions cover different time windows: A applies during the initial 12-month term (no refund), while B applies after the initial term (pro-rata refund allowed). Different temporal scopes make these complementary, not contradictory."
+    },
+    {
+      "pair_id": "temporal_022",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions describe PTO accrual rates for different time periods: A covers the first year of employment, while B covers the period after the first year. They are complementary rather than contradictory."
+    },
+    {
+      "pair_id": "temporal_023",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions apply to different time windows: A governs entry during the tenant's occupancy, while B governs entry after the tenant has vacated. Both can be true simultaneously."
+    },
+    {
+      "pair_id": "temporal_024",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "A describes funds retained during the Holdback Period; B describes release after expiration of that period. These are sequential, complementary provisions covering different time windows."
+    },
+    {
+      "pair_id": "temporal_025",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions describe different time windows: A covers the 90-day Trial Period (no penalty), while B covers the period after the Trial Period (notice and fees required). These are complementary rather than contradictory."
+    },
+    {
+      "pair_id": "temporal_026",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.97,
+      "judge_rationale": "The two assertions describe complementary policies covering disjoint time windows: A specifies live-agent coverage during business hours (9-5), while B specifies voicemail routing outside business hours. They are consistent and together form a complete policy."
+    },
+    {
+      "pair_id": "temporal_027",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions describe different time periods\u2014during vs. after the Probationary Period\u2014so they apply to non-overlapping scopes and can both be true simultaneously."
+    },
+    {
+      "pair_id": "temporal_028",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.9,
+      "judge_rationale": "Assertion A states extended weekend hours during tax season (Jan 1 - Apr 15), while B states no weekend hours outside tax season. These describe complementary time periods and are consistent."
+    },
+    {
+      "pair_id": "temporal_029",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions describe complementary, non-overlapping conditions: A applies when leverage exceeds 4.5x (margin steps up), while B applies when leverage is at or below 4.5x (base margin). They are consistent pieces of a pricing grid."
+    },
+    {
+      "pair_id": "temporal_030",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions refer to different time windows: A restricts bidders during the Standstill Period, while B permits offers after its expiration. These are complementary, not contradictory."
+    },
+    {
+      "pair_id": "temporal_031",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions describe different time periods: A states the company went public in 2021, while B states it was taken private in 2024. A company can be publicly traded and later taken private, so both can be true simultaneously across different time windows."
+    },
+    {
+      "pair_id": "temporal_032",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The assertions describe different, non-overlapping time periods: Maria Chen held the CFO role from 2018-2022, and David Park is the current CFO having joined in 2023. Both can be simultaneously true."
+    },
+    {
+      "pair_id": "temporal_033",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "The two assertions describe sequential events at different times: purchase in 2015 and sale in 2023. Both can be simultaneously true\u2014the Company bought the Property and later sold it."
+    },
+    {
+      "pair_id": "temporal_034",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "A describes the launch of Project Aurora in March 2022, while B describes its discontinuation in December 2024. These events occur at different times and are fully compatible \u2014 a project can be launched and later discontinued."
+    },
+    {
+      "pair_id": "temporal_035",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "The assertions refer to different time windows: A describes the principal place of business during fiscal year 2022 (Boston, MA), while B describes it \"as of the date hereof\" (San Francisco, CA), which likely refers to a later date. A company can relocate its principal place of business over time, so both can be true simultaneously within their respective scopes."
+    },
+    {
+      "pair_id": "temporal_036",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "Assertion A describes ownership \"through 2023\" (past), while Assertion B describes \"currently\" (present). The two statements can both be true if the Company divested 49% to Strategic Partner B after 2023."
+    },
+    {
+      "pair_id": "temporal_037",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "Assertion A refers to the period prior to the early 2024 take-private transaction, while Assertion B refers to a price after relisting in mid-2025. These are different time windows, so both can be true simultaneously."
+    },
+    {
+      "pair_id": "temporal_038",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.95,
+      "judge_rationale": "A states when the original Loan Agreement was executed (March 1, 2020), while B states that an Amended and Restated version effective April 1, 2024 replaces it. These statements are consistent \u2014 the original existed and was later replaced."
+    },
+    {
+      "pair_id": "temporal_039",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.97,
+      "judge_rationale": "The two assertions refer to different reporting dates (December 31, 2023 vs September 30, 2024). Total assets can change over time, so different values at different dates are consistent."
+    },
+    {
+      "pair_id": "temporal_040",
+      "bucket": "temporal_scope",
+      "ground_truth": "not_contradiction",
+      "relation": "scope_mismatch",
+      "predicted": "not_contradiction",
+      "judge_confidence": 0.85,
+      "judge_rationale": "The two assertions concern different time periods and different disputes. A describes the original dispute being resolved in 2022, while B describes a new dispute arising in 2024 over post-settlement obligations\u2014these can both be true simultaneously."
+    }
+  ]
+}
