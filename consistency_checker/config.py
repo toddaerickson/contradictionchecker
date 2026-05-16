@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from consistency_checker.paths import default_data_dir, default_log_dir
 
-JudgeProvider = Literal["anthropic", "openai", "fixture"]
+JudgeProvider = Literal["anthropic", "openai", "moonshot", "fixture"]
 
 
 class Config(BaseModel):
@@ -26,7 +26,16 @@ class Config(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     corpus_dir: Path = Field(description="Directory to ingest documents from.")
-    judge_provider: JudgeProvider = Field(default="anthropic")
+    judge_provider: JudgeProvider = Field(
+        default="anthropic",
+        description=(
+            "Choice of judge provider. "
+            '"anthropic": Claude (Anthropic), tool-use structured output. '
+            '"openai": GPT-4 (OpenAI), JSON schema structured output. '
+            '"moonshot": Kimi (Moonshot AI), experimental, JSON schema via OpenAI SDK. '
+            '"fixture": Test fixture, deterministic verdicts.'
+        ),
+    )
     judge_model: str = Field(default="claude-sonnet-4-6")
 
     data_dir: Path = Field(default_factory=default_data_dir)
