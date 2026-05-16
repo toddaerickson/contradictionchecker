@@ -14,11 +14,12 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
+from consistency_checker.audit.reviewer import DetectorType, ReviewerVerdict, ReviewerVerdictLabel
 from consistency_checker.check.gate import CandidatePair
 from consistency_checker.check.llm_judge import JudgeVerdict
 from consistency_checker.check.nli_checker import NliResult
@@ -157,6 +158,16 @@ def _row_to_multi_party_finding(row: sqlite3.Row) -> MultiPartyFinding:
         judge_rationale=row["judge_rationale"],
         evidence_spans=spans,
         created_at=_parse_ts(row["created_at"]),
+    )
+
+
+def _row_to_reviewer_verdict(row: sqlite3.Row) -> ReviewerVerdict:
+    return ReviewerVerdict(
+        pair_key=row["pair_key"],
+        detector_type=row["detector_type"],
+        verdict=row["verdict"],
+        set_at=_parse_ts(row["set_at"]),
+        note=row["note"],
     )
 
 
@@ -379,6 +390,72 @@ class AuditLogger:
                 [(finding_id, aid, idx) for idx, aid in enumerate(sorted_ids)],
             )
         return finding_id
+
+    def set_reviewer_verdict(
+        self,
+        *,
+        pair_key: str,
+        detector_type: DetectorType,
+        verdict: ReviewerVerdictLabel,
+        note: str | None = None,
+    ) -> None:
+        """UPSERT a reviewer verdict. Refreshes set_at on every call."""
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO reviewer_verdicts (pair_key, detector_type, verdict, note) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (pair_key, detector_type) "
+                "DO UPDATE SET verdict = excluded.verdict, "
+                "              note = excluded.note, "
+                "              set_at = CURRENT_TIMESTAMP",
+                (pair_key, detector_type, verdict, note),
+            )
+
+    def delete_reviewer_verdict(self, *, pair_key: str, detector_type: DetectorType) -> None:
+        """Remove a verdict (backs the undo toast for first-click cases)."""
+        with self._conn:
+            self._conn.execute(
+                "DELETE FROM reviewer_verdicts WHERE pair_key = ? AND detector_type = ?",
+                (pair_key, detector_type),
+            )
+
+    def get_reviewer_verdicts_bulk(
+        self,
+        keys: Sequence[tuple[str, DetectorType]],
+    ) -> dict[tuple[str, str], ReviewerVerdict]:
+        """Fetch verdicts for the given (pair_key, detector_type) tuples.
+
+        Uses SQLite IN (VALUES (?, ?), ...) for batch lookup in one query.
+        Missing keys are absent from the returned dict.
+        """
+        if not keys:
+            return {}
+        values_placeholders = ", ".join("(?, ?)" for _ in keys)
+        flat: list[str] = []
+        for pk, dt in keys:
+            flat.extend([pk, dt])
+        rows = self._conn.execute(
+            f"SELECT pair_key, detector_type, verdict, set_at, note "
+            f"FROM reviewer_verdicts "
+            f"WHERE (pair_key, detector_type) IN (VALUES {values_placeholders})",
+            flat,
+        ).fetchall()
+        return {(r["pair_key"], r["detector_type"]): _row_to_reviewer_verdict(r) for r in rows}
+
+    def count_reviewer_verdicts(
+        self, *, detector_type: DetectorType | None = None
+    ) -> dict[str, int]:
+        """Counts per verdict label. Used for 'X of N reviewed' progress."""
+        if detector_type is None:
+            sql = "SELECT verdict, COUNT(*) AS c FROM reviewer_verdicts GROUP BY verdict"
+            params: tuple[str, ...] = ()
+        else:
+            sql = (
+                "SELECT verdict, COUNT(*) AS c FROM reviewer_verdicts "
+                "WHERE detector_type = ? GROUP BY verdict"
+            )
+            params = (detector_type,)
+        return {r["verdict"]: int(r["c"]) for r in self._conn.execute(sql, params).fetchall()}
 
     # --- reads --------------------------------------------------------------
 

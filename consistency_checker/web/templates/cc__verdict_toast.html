@@ -1,0 +1,14 @@
+<div id="cc-toast" class="cc-toast" role="status" hx-swap-oob="outerHTML">
+  Marked as <strong>{{ verdict_label }}</strong>.
+  <button class="cc-toast-undo"
+          hx-post="/verdicts/undo"
+          hx-vals='{"pair_key": "{{ pair_key }}",
+                    "detector_type": "{{ detector_type }}",
+                    "prior_verdict": "{{ prior_verdict|default('') }}"}'
+          hx-target="#cc-tab-content"
+          hx-swap="innerHTML">Undo</button>
+  <button class="cc-toast-close"
+          type="button"
+          aria-label="Dismiss notification"
+          onclick="this.parentElement.remove()">×</button>
+</div>

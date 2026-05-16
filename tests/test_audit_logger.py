@@ -491,3 +491,144 @@ def test_record_definition_finding_idempotent(tmp_path: Path) -> None:
     ).fetchone()
     assert rows[0] == 1
     store.close()
+
+
+def test_set_reviewer_verdict_inserts_row(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    logger = AuditLogger(store)
+    logger.set_reviewer_verdict(
+        pair_key="a:b",
+        detector_type="contradiction",
+        verdict="confirmed",
+    )
+    rows = store._conn.execute(
+        "SELECT pair_key, detector_type, verdict, note FROM reviewer_verdicts"
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["pair_key"] == "a:b"
+    assert rows[0]["detector_type"] == "contradiction"
+    assert rows[0]["verdict"] == "confirmed"
+    assert rows[0]["note"] is None
+    store.close()
+
+
+def test_set_reviewer_verdict_upserts_on_conflict(tmp_path: Path) -> None:
+    """Second set with different verdict overwrites; set_at refreshes."""
+    import time
+
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    logger = AuditLogger(store)
+    logger.set_reviewer_verdict(
+        pair_key="a:b", detector_type="contradiction", verdict="confirmed", note="initial"
+    )
+    first = store._conn.execute("SELECT verdict, note, set_at FROM reviewer_verdicts").fetchone()
+    time.sleep(1.1)
+    logger.set_reviewer_verdict(
+        pair_key="a:b", detector_type="contradiction", verdict="false_positive", note="changed"
+    )
+    second = store._conn.execute("SELECT verdict, note, set_at FROM reviewer_verdicts").fetchone()
+    assert second["verdict"] == "false_positive"
+    assert second["note"] == "changed"
+    assert second["set_at"] > first["set_at"]
+    store.close()
+
+
+def test_set_reviewer_verdict_same_pair_different_detector_coexist(tmp_path: Path) -> None:
+    """Composite PK lets a single content pair carry independent verdicts per detector."""
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    logger = AuditLogger(store)
+    logger.set_reviewer_verdict(pair_key="a:b", detector_type="contradiction", verdict="confirmed")
+    logger.set_reviewer_verdict(
+        pair_key="a:b", detector_type="definition_inconsistency", verdict="false_positive"
+    )
+    rows = store._conn.execute(
+        "SELECT detector_type, verdict FROM reviewer_verdicts ORDER BY detector_type"
+    ).fetchall()
+    assert len(rows) == 2
+    assert rows[0]["detector_type"] == "contradiction"
+    assert rows[0]["verdict"] == "confirmed"
+    assert rows[1]["detector_type"] == "definition_inconsistency"
+    assert rows[1]["verdict"] == "false_positive"
+    store.close()
+
+
+def test_delete_reviewer_verdict_removes_row(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    logger = AuditLogger(store)
+    logger.set_reviewer_verdict(pair_key="a:b", detector_type="contradiction", verdict="confirmed")
+    logger.delete_reviewer_verdict(pair_key="a:b", detector_type="contradiction")
+    rows = store._conn.execute("SELECT COUNT(*) FROM reviewer_verdicts").fetchone()
+    assert rows[0] == 0
+    store.close()
+
+
+def test_delete_reviewer_verdict_targets_only_matching_detector(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    logger = AuditLogger(store)
+    logger.set_reviewer_verdict(pair_key="a:b", detector_type="contradiction", verdict="confirmed")
+    logger.set_reviewer_verdict(
+        pair_key="a:b", detector_type="definition_inconsistency", verdict="false_positive"
+    )
+    logger.delete_reviewer_verdict(pair_key="a:b", detector_type="contradiction")
+    rows = store._conn.execute("SELECT detector_type FROM reviewer_verdicts").fetchall()
+    assert len(rows) == 1
+    assert rows[0]["detector_type"] == "definition_inconsistency"
+    store.close()
+
+
+def test_get_reviewer_verdicts_bulk_returns_present_only(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    logger = AuditLogger(store)
+    logger.set_reviewer_verdict(pair_key="a:b", detector_type="contradiction", verdict="confirmed")
+    logger.set_reviewer_verdict(
+        pair_key="c:d", detector_type="definition_inconsistency", verdict="dismissed"
+    )
+    out = logger.get_reviewer_verdicts_bulk(
+        [
+            ("a:b", "contradiction"),
+            ("c:d", "definition_inconsistency"),
+            ("ghost:ghost", "contradiction"),
+        ]
+    )
+    assert set(out.keys()) == {("a:b", "contradiction"), ("c:d", "definition_inconsistency")}
+    assert out[("a:b", "contradiction")].verdict == "confirmed"
+    store.close()
+
+
+def test_get_reviewer_verdicts_bulk_empty_input_no_query(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    logger = AuditLogger(store)
+    assert logger.get_reviewer_verdicts_bulk([]) == {}
+    store.close()
+
+
+def test_count_reviewer_verdicts_groups_by_verdict(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    logger = AuditLogger(store)
+    logger.set_reviewer_verdict(pair_key="a:b", detector_type="contradiction", verdict="confirmed")
+    logger.set_reviewer_verdict(pair_key="c:d", detector_type="contradiction", verdict="confirmed")
+    logger.set_reviewer_verdict(pair_key="e:f", detector_type="contradiction", verdict="dismissed")
+    counts = logger.count_reviewer_verdicts()
+    assert counts == {"confirmed": 2, "dismissed": 1}
+    store.close()
+
+
+def test_count_reviewer_verdicts_filtered_by_detector(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    logger = AuditLogger(store)
+    logger.set_reviewer_verdict(pair_key="a:b", detector_type="contradiction", verdict="confirmed")
+    logger.set_reviewer_verdict(
+        pair_key="c:d", detector_type="definition_inconsistency", verdict="confirmed"
+    )
+    counts = logger.count_reviewer_verdicts(detector_type="contradiction")
+    assert counts == {"confirmed": 1}
+    store.close()

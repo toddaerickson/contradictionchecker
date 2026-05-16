@@ -16,8 +16,15 @@ from __future__ import annotations
 from collections import defaultdict
 
 from consistency_checker.audit.logger import AuditLogger, Finding, MultiPartyFinding
+from consistency_checker.audit.reviewer import DetectorType
 from consistency_checker.extract.schema import Assertion, Document
 from consistency_checker.index.assertion_store import AssertionStore
+
+VERDICT_LABELS: dict[str, str] = {
+    "confirmed": "Real issue",
+    "false_positive": "Not an issue",
+    "dismissed": "Dismissed",
+}
 
 
 def _format_score(value: float | None) -> str:
@@ -59,6 +66,26 @@ def render_report(
             *audit_logger.iter_findings(run_id=run_id, verdict="numeric_short_circuit"),
         )
         if (f.judge_confidence or 0.0) >= min_confidence
+    ]
+
+    contradiction_keys: list[tuple[str, DetectorType]] = [
+        (":".join(sorted([f.assertion_a_id, f.assertion_b_id])), "contradiction")
+        for f in contradictions
+    ]
+    contradiction_verdicts = audit_logger.get_reviewer_verdicts_bulk(contradiction_keys)
+    contradictions = [
+        f
+        for f in contradictions
+        if (
+            contradiction_verdicts.get(
+                (":".join(sorted([f.assertion_a_id, f.assertion_b_id])), "contradiction")
+            )
+            is None
+            or contradiction_verdicts[
+                (":".join(sorted([f.assertion_a_id, f.assertion_b_id])), "contradiction")
+            ].verdict
+            != "false_positive"
+        )
     ]
 
     lines: list[str] = []
@@ -177,6 +204,11 @@ def render_report(
             lines.append("")
             lines.append(f"> **B** ({b_label}): {b.assertion_text}")
             lines.append("")
+            pk = ":".join(sorted([finding.assertion_a_id, finding.assertion_b_id]))
+            rv = contradiction_verdicts.get((pk, "contradiction"))
+            reviewer_label = VERDICT_LABELS[rv.verdict] if rv else "Pending review"
+            lines.append(f"**Reviewer:** {reviewer_label}")
+            lines.append("")
             if finding.judge_rationale:
                 lines.append(f"**Rationale.** {finding.judge_rationale}")
                 lines.append("")
@@ -221,6 +253,21 @@ def _append_multi_party_section(
         )
         if (f.judge_confidence or 0.0) >= min_confidence
     ]
+
+    multi_keys: list[tuple[str, DetectorType]] = [
+        (":".join(sorted(f.assertion_ids)), "multi_party") for f in multi
+    ]
+    multi_verdicts = audit_logger.get_reviewer_verdicts_bulk(multi_keys)
+    multi = [
+        f
+        for f in multi
+        if (
+            multi_verdicts.get((":".join(sorted(f.assertion_ids)), "multi_party")) is None
+            or multi_verdicts[(":".join(sorted(f.assertion_ids)), "multi_party")].verdict
+            != "false_positive"
+        )
+    ]
+
     if not multi:
         return
 
@@ -246,6 +293,11 @@ def _append_multi_party_section(
             doc_label = doc.title or doc.source_path if doc else assertion.doc_id
             lines.append(f"> **{label}** ({doc_label}): {assertion.assertion_text}")
             lines.append("")
+        mp_pk = ":".join(sorted(finding.assertion_ids))
+        mp_rv = multi_verdicts.get((mp_pk, "multi_party"))
+        mp_reviewer_label = VERDICT_LABELS[mp_rv.verdict] if mp_rv else "Pending review"
+        lines.append(f"**Reviewer:** {mp_reviewer_label}")
+        lines.append("")
         if finding.judge_rationale:
             lines.append(f"**Rationale.** {finding.judge_rationale}")
             lines.append("")
@@ -273,6 +325,27 @@ def _append_definition_section(
         )
         if (f.judge_confidence or 0.0) >= min_confidence
     ]
+
+    def_keys: list[tuple[str, DetectorType]] = [
+        (":".join(sorted([f.assertion_a_id, f.assertion_b_id])), "definition_inconsistency")
+        for f in findings
+    ]
+    def_verdicts = audit_logger.get_reviewer_verdicts_bulk(def_keys)
+    findings = [
+        f
+        for f in findings
+        if (
+            def_verdicts.get(
+                (":".join(sorted([f.assertion_a_id, f.assertion_b_id])), "definition_inconsistency")
+            )
+            is None
+            or def_verdicts[
+                (":".join(sorted([f.assertion_a_id, f.assertion_b_id])), "definition_inconsistency")
+            ].verdict
+            != "false_positive"
+        )
+    ]
+
     if not findings:
         return
 
@@ -317,6 +390,11 @@ def _append_definition_section(
             b_label = doc_b.title or doc_b.source_path if doc_b else b.doc_id
             lines.append(f"- **{a_label}**: {a.assertion_text}")
             lines.append(f"- **{b_label}**: {b.assertion_text}")
+            lines.append("")
+            def_pk = ":".join(sorted([finding.assertion_a_id, finding.assertion_b_id]))
+            def_rv = def_verdicts.get((def_pk, "definition_inconsistency"))
+            def_reviewer_label = VERDICT_LABELS[def_rv.verdict] if def_rv else "Pending review"
+            lines.append(f"**Reviewer:** {def_reviewer_label}")
             lines.append("")
             lines.append(f"**Verdict:** {finding.judge_verdict} — {finding.judge_rationale or ''}")
             lines.append("")

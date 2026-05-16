@@ -26,5 +26,25 @@
       <div id="cc-diff-content"></div>
       <button type="button" class="cc-button" onclick="document.getElementById('cc-diff-dialog').close()">Close</button>
     </dialog>
+    <div id="cc-toast-region" class="cc-toast-region" role="status" aria-live="polite"></div>
+    <script>
+      document.addEventListener('keydown', (e) => {
+        const row = document.activeElement.closest('tr.cc-finding-row');
+        if (!row) return;
+        const verdictMap = { 'c': 'confirmed', 'f': 'false_positive', 'd': 'dismissed' };
+        const verdict = verdictMap[e.key.toLowerCase()];
+        if (!verdict) return;
+        const btn = row.querySelector('[data-verdict="' + verdict + '"]');
+        if (btn) { e.preventDefault(); btn.click(); }
+      });
+
+      document.body.addEventListener('htmx:afterSwap', (e) => {
+        if (!e.detail.target || !e.detail.target.classList) return;
+        const tbody = e.detail.target.closest('tbody');
+        if (!tbody) return;
+        const nextRow = tbody.querySelector('tr.cc-finding-row');
+        if (nextRow) nextRow.focus();
+      });
+    </script>
   </body>
 </html>

@@ -26,6 +26,22 @@
     </header>
 
     <h3>Statement contradictions</h3>
+    <div class="cc-section-state">
+      <span id="cc-progress-count-contradiction" class="cc-progress-count">
+        {{ pair_reviewed }} of {{ pair_total }} reviewed
+      </span>
+      <label class="cc-toggle">
+        <input type="checkbox"
+               name="show_reviewed_contradiction"
+               value="true"
+               {% if show_reviewed_contradiction %}checked{% endif %}
+               hx-get="/"
+               hx-include="this"
+               hx-target="#cc-tab-content"
+               hx-push-url="true">
+        Show reviewed
+      </label>
+    </div>
     {% if pair_findings %}
       <table class="cc-findings-table">
         <thead>
@@ -35,35 +51,59 @@
             <th>Doc A</th>
             <th>Doc B</th>
             <th>Rationale</th>
-            <th></th>
+            <th>Diff</th>
+            <th>Mark</th>
           </tr>
         </thead>
         <tbody>
           {% for f in pair_findings %}
-            <tr>
+            <tr class="cc-finding-row" tabindex="0">
               <td>{{ "%.2f"|format(f.confidence or 0.0) }}</td>
               <td><code>{{ f.verdict }}</code></td>
               <td>{{ f.doc_a_label }}</td>
               <td>{{ f.doc_b_label }}</td>
               <td>{{ f.rationale_first_line | join(' ') }}</td>
               <td>
-                <button
-                  type="button"
-                  class="cc-button"
-                  hx-get="/findings/{{ f.finding_id }}/diff"
-                  hx-target="#cc-diff-content"
-                  hx-on::after-request="document.getElementById('cc-diff-dialog').showModal()"
-                >Diff</button>
+                <button type="button" class="cc-button"
+                        hx-get="/findings/{{ f.finding_id }}/diff"
+                        hx-target="#cc-diff-content"
+                        hx-on::after-request="document.getElementById('cc-diff-dialog').showModal()">Diff</button>
+              </td>
+              <td>
+                {% if f.reviewer_verdict %}
+                  <span class="cc-verdict-badge cc-verdict-badge--{{ f.reviewer_verdict }}">{{ f.reviewer_label }}</span>
+                {% else %}
+                  {% set pair_key = f.pair_key %}
+                  {% set detector_type = "contradiction" %}
+                  {% set prior_verdict = "" %}
+                  {% include "cc__verdict_buttons.html" %}
+                {% endif %}
               </td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
     {% else %}
-      <p class="cc-muted">No pair contradictions in this run.</p>
+      <p class="cc-muted">All findings reviewed.</p>
     {% endif %}
 
     <h3>Cross-document contradictions</h3>
+    <div class="cc-section-state">
+      <span id="cc-progress-count-multi_party" class="cc-progress-count">
+        {{ mp_reviewed }} of {{ mp_total }} reviewed
+      </span>
+      <label class="cc-toggle">
+        <input type="checkbox"
+               name="show_reviewed_multi_party"
+               value="true"
+               {% if show_reviewed_multi_party %}checked{% endif %}
+               hx-get="/"
+               hx-include="this"
+               hx-target="#cc-tab-content"
+               hx-push-url="true">
+        Show reviewed
+      </label>
+    </div>
     {% if multi_party_findings %}
       <table class="cc-findings-table">
         <thead>
@@ -71,23 +111,31 @@
             <th>Confidence</th>
             <th>Documents</th>
             <th>Rationale</th>
-            <th></th>
+            <th>Diff</th>
+            <th>Mark</th>
           </tr>
         </thead>
         <tbody>
           {% for f in multi_party_findings %}
-            <tr>
+            <tr class="cc-finding-row" tabindex="0">
               <td>{{ "%.2f"|format(f.confidence or 0.0) }}</td>
               <td>{{ f.n_docs }} distinct</td>
               <td>{{ f.rationale_first_line | join(' ') }}</td>
               <td>
-                <button
-                  type="button"
-                  class="cc-button"
-                  hx-get="/multi_party_findings/{{ f.finding_id }}/diff"
-                  hx-target="#cc-diff-content"
-                  hx-on::after-request="document.getElementById('cc-diff-dialog').showModal()"
-                >Diff</button>
+                <button type="button" class="cc-button"
+                        hx-get="/multi_party_findings/{{ f.finding_id }}/diff"
+                        hx-target="#cc-diff-content"
+                        hx-on::after-request="document.getElementById('cc-diff-dialog').showModal()">Diff</button>
+              </td>
+              <td>
+                {% if f.reviewer_verdict %}
+                  <span class="cc-verdict-badge cc-verdict-badge--{{ f.reviewer_verdict }}">{{ f.reviewer_label }}</span>
+                {% else %}
+                  {% set pair_key = f.pair_key %}
+                  {% set detector_type = "multi_party" %}
+                  {% set prior_verdict = "" %}
+                  {% include "cc__verdict_buttons.html" %}
+                {% endif %}
               </td>
             </tr>
           {% endfor %}
