@@ -18,7 +18,7 @@ from consistency_checker.pipeline import make_judge
 
 
 @pytest.mark.e2e_fixture
-def test_pipeline_with_moonshot_provider(tmp_path: Path, monkeypatch) -> None:
+def test_pipeline_with_moonshot_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that pipeline factories work with moonshot provider configured.
 
     Verifies that:
@@ -50,7 +50,7 @@ def test_pipeline_with_moonshot_provider(tmp_path: Path, monkeypatch) -> None:
 
 
 @pytest.mark.e2e_fixture
-def test_pipeline_with_anthropic_provider(tmp_path: Path, monkeypatch) -> None:
+def test_pipeline_with_anthropic_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify that the anthropic provider still works with the factory."""
     # Mock API key (not needed for this test but good practice)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-for-testing")
@@ -70,7 +70,7 @@ def test_pipeline_with_anthropic_provider(tmp_path: Path, monkeypatch) -> None:
 
 
 @pytest.mark.e2e_fixture
-def test_pipeline_with_openai_provider(tmp_path: Path, monkeypatch) -> None:
+def test_pipeline_with_openai_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify that the openai provider still works with the factory."""
     # Mock API key for OpenAI provider initialization
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-for-testing")
