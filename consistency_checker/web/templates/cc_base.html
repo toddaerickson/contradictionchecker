@@ -12,6 +12,7 @@
       <h1>consistency-checker</h1>
       <nav class="cc-tabs">
         <a class="cc-tab {% if active_tab == 'contradictions' %}cc-tab--active{% endif %}" hx-get="/" hx-target="#cc-tab-content" hx-push-url="true">Contradictions</a>
+        <a class="cc-tab {% if active_tab == 'definitions' %}cc-tab--active{% endif %}" hx-get="/tabs/definitions" hx-target="#cc-tab-content" hx-push-url="true">Definitions</a>
         <a class="cc-tab {% if active_tab == 'documents' %}cc-tab--active{% endif %}" hx-get="/tabs/documents" hx-target="#cc-tab-content" hx-push-url="true">Documents</a>
         <a class="cc-tab {% if active_tab == 'assertions' %}cc-tab--active{% endif %}" hx-get="/tabs/assertions" hx-target="#cc-tab-content" hx-push-url="true">Statements</a>
         <a class="cc-tab {% if active_tab == 'stats' %}cc-tab--active{% endif %}" hx-get="/tabs/stats" hx-target="#cc-tab-content" hx-push-url="true">Stats</a>

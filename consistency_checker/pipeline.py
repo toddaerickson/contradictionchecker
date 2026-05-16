@@ -130,14 +130,22 @@ def make_multi_party_judge(config: Config) -> MultiPartyJudge:
 
 
 def make_definition_judge(config: Config) -> DefinitionJudge:
-    """Build the definition judge from config; ``fixture`` provider has no factory."""
+    """Build the definition judge from config.
+
+    The ``fixture`` provider returns an empty :class:`FixtureDefinitionJudge`,
+    mirroring how ``make_extractor`` handles fixture-mode for the web app's
+    hermetic tests.
+    """
+    if config.judge_provider == "fixture":
+        from consistency_checker.check.definition_judge import FixtureDefinitionJudge
+
+        return FixtureDefinitionJudge({})
     if config.judge_provider == "anthropic":
         return LLMDefinitionJudge(AnthropicDefinitionProvider(model=config.judge_model))
     if config.judge_provider == "openai":
         return LLMDefinitionJudge(OpenAIDefinitionProvider(model=config.judge_model))
     raise ValueError(
-        f"make_definition_judge(): provider {config.judge_provider!r} has no factory; "
-        "construct a FixtureDefinitionJudge directly in tests."
+        f"make_definition_judge(): provider {config.judge_provider!r} has no factory."
     )
 
 
