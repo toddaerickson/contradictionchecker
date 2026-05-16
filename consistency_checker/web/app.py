@@ -42,6 +42,13 @@ TEMPLATES_DIR = WEB_DIR / "templates"
 STATIC_DIR = WEB_DIR / "static"
 
 
+VERDICT_LABELS: dict[str, str] = {
+    "confirmed": "Real issue",
+    "false_positive": "Not an issue",
+    "dismissed": "Dismissed",
+}
+
+
 def _generate_upload_id() -> str:
     """Per-upload directory name: timestamp + short random suffix.
 
@@ -71,6 +78,25 @@ def _truncate(text: str, n: int) -> str:
 def _infer_run_status(run: Any) -> str:
     """``"none"`` when no run exists; otherwise the row's ``run_status``."""
     return "none" if run is None else str(run.run_status)
+
+
+def _count_total_findings(store: AssertionStore, detector_type: str) -> int:
+    """Total findings of the given detector type (across all runs).
+
+    Used by the reviewer-workflow progress count to compute the denominator
+    of "X of N reviewed". multi_party_findings lives in its own table.
+    """
+    if detector_type == "multi_party":
+        row = store._conn.execute(
+            "SELECT COUNT(*) FROM multi_party_findings "
+            "WHERE judge_verdict = 'multi_party_contradiction'"
+        ).fetchone()
+        return int(row[0])
+    row = store._conn.execute(
+        "SELECT COUNT(*) FROM findings WHERE detector_type = ?",
+        (detector_type,),
+    ).fetchone()
+    return int(row[0])
 
 
 def _progress_estimate(run: Any) -> str | None:
@@ -716,6 +742,45 @@ def create_app(
                 ],
             },
         )
+
+    @app.post("/verdicts", response_class=HTMLResponse)
+    def post_verdict(
+        request: Request,
+        pair_key: str = Form(...),
+        detector_type: str = Form(...),
+        verdict: str = Form(...),
+        prior_verdict: str = Form(""),
+    ) -> HTMLResponse:
+        if detector_type not in {"contradiction", "definition_inconsistency", "multi_party"}:
+            raise HTTPException(status_code=400, detail=f"unknown detector_type {detector_type!r}")
+        if verdict not in {"confirmed", "false_positive", "dismissed"}:
+            raise HTTPException(status_code=400, detail=f"unknown verdict {verdict!r}")
+
+        store, audit = _open_audit()
+        try:
+            audit.set_reviewer_verdict(
+                pair_key=pair_key,
+                detector_type=detector_type,  # type: ignore[arg-type]
+                verdict=verdict,  # type: ignore[arg-type]
+            )
+            counts = audit.count_reviewer_verdicts(detector_type=detector_type)  # type: ignore[arg-type]
+            reviewed_count = sum(counts.values())
+            total_count = _count_total_findings(store, detector_type)
+        finally:
+            store.close()
+
+        toast = templates.get_template("cc__verdict_toast.html").render(
+            verdict_label=VERDICT_LABELS[verdict],
+            pair_key=pair_key,
+            detector_type=detector_type,
+            prior_verdict=prior_verdict,
+        )
+        progress = templates.get_template("cc__progress_count.html").render(
+            detector_type=detector_type,
+            reviewed_count=reviewed_count,
+            total_count=total_count,
+        )
+        return HTMLResponse(content=toast + progress)
 
     @app.post("/uploads", response_class=HTMLResponse)
     async def post_uploads(
