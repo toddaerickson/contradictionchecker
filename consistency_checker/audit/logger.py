@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
+from consistency_checker.audit.reviewer import DetectorType, ReviewerVerdictLabel
 from consistency_checker.check.gate import CandidatePair
 from consistency_checker.check.llm_judge import JudgeVerdict
 from consistency_checker.check.nli_checker import NliResult
@@ -379,6 +380,37 @@ class AuditLogger:
                 [(finding_id, aid, idx) for idx, aid in enumerate(sorted_ids)],
             )
         return finding_id
+
+    def set_reviewer_verdict(
+        self,
+        *,
+        pair_key: str,
+        detector_type: DetectorType,
+        verdict: ReviewerVerdictLabel,
+        note: str | None = None,
+    ) -> None:
+        """UPSERT a reviewer verdict. Refreshes set_at on every call."""
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO reviewer_verdicts (pair_key, detector_type, verdict, note) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (pair_key, detector_type) "
+                "DO UPDATE SET verdict = excluded.verdict, "
+                "              note = excluded.note, "
+                "              set_at = CURRENT_TIMESTAMP",
+                (pair_key, detector_type, verdict, note),
+            )
+
+    def delete_reviewer_verdict(
+        self, *, pair_key: str, detector_type: DetectorType
+    ) -> None:
+        """Remove a verdict (backs the undo toast for first-click cases)."""
+        with self._conn:
+            self._conn.execute(
+                "DELETE FROM reviewer_verdicts "
+                "WHERE pair_key = ? AND detector_type = ?",
+                (pair_key, detector_type),
+            )
 
     # --- reads --------------------------------------------------------------
 
