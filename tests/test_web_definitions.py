@@ -106,7 +106,7 @@ def test_definitions_tab_renders_empty_state_without_findings(
     store.close()
     resp = client.get("/tabs/definitions")
     assert resp.status_code == 200
-    assert "No definition inconsistencies" in resp.text
+    assert "All findings reviewed." in resp.text
 
 
 def test_base_nav_has_definitions_link(

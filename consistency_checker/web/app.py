@@ -551,7 +551,10 @@ def create_app(
         )
 
     @app.get("/tabs/definitions", response_class=HTMLResponse)
-    def tab_definitions(request: Request) -> HTMLResponse:
+    def tab_definitions(
+        request: Request,
+        show_reviewed_definition_inconsistency: bool = False,
+    ) -> HTMLResponse:
         """Definition-inconsistencies tab (ADR-0009)."""
         store, audit = _open_audit()
         try:
@@ -569,11 +572,24 @@ def create_app(
                 assertions = store.get_assertions_bulk(assertion_ids)
                 doc_ids = list({a.doc_id for a in assertions.values()})
                 documents = store.get_documents_bulk(doc_ids)
+
+                all_pair_keys = [
+                    ":".join(sorted([r.assertion_a_id, r.assertion_b_id])) for r in raw
+                ]
+                reviewer_verdicts = audit.get_reviewer_verdicts_bulk(
+                    [(pk, "definition_inconsistency") for pk in all_pair_keys]
+                )
+
                 for r in raw:
                     a = assertions.get(r.assertion_a_id)
                     b = assertions.get(r.assertion_b_id)
                     if a is None or b is None:
                         continue
+                    pair_key = ":".join(sorted([r.assertion_a_id, r.assertion_b_id]))
+                    rv = reviewer_verdicts.get((pair_key, "definition_inconsistency"))
+                    if rv is not None and not show_reviewed_definition_inconsistency:
+                        continue
+                    reviewer_verdict = rv.verdict if rv is not None else None
                     findings.append(
                         {
                             "finding_id": r.finding_id,
@@ -584,9 +600,21 @@ def create_app(
                             "def_a_text": a.assertion_text,
                             "def_b_text": b.assertion_text,
                             "rationale": r.judge_rationale or "",
+                            "pair_key": pair_key,
+                            "reviewer_verdict": reviewer_verdict,
+                            "reviewer_label": VERDICT_LABELS.get(reviewer_verdict)
+                            if reviewer_verdict is not None
+                            else None,
                         }
                     )
                 findings.sort(key=lambda f: (f["term"].lower(), -(f["confidence"] or 0.0)))
+
+            reviewed_count = sum(
+                audit.count_reviewer_verdicts(
+                    detector_type="definition_inconsistency"
+                ).values()
+            )
+            total_count = _count_total_findings(store, "definition_inconsistency")
         finally:
             store.close()
 
@@ -598,6 +626,9 @@ def create_app(
                 "active_tab": "definitions",
                 "run": {"run_id": run.run_id} if run is not None else None,
                 "findings": findings,
+                "show_reviewed": show_reviewed_definition_inconsistency,
+                "reviewed_count": reviewed_count,
+                "total_count": total_count,
             },
         )
 

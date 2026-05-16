@@ -18,6 +18,23 @@
       </p>
     </header>
 
+    <div class="cc-section-state">
+      <span id="cc-progress-count-definition_inconsistency" class="cc-progress-count">
+        {{ reviewed_count }} of {{ total_count }} reviewed
+      </span>
+      <label class="cc-toggle">
+        <input type="checkbox"
+               name="show_reviewed_definition_inconsistency"
+               value="true"
+               {% if show_reviewed %}checked{% endif %}
+               hx-get="/tabs/definitions"
+               hx-include="this"
+               hx-target="#cc-tab-content"
+               hx-push-url="true">
+        Show reviewed
+      </label>
+    </div>
+
     {% if findings %}
       <table class="cc-findings-table">
         <thead>
@@ -27,19 +44,30 @@
             <th>Doc A</th>
             <th>Doc B</th>
             <th>Rationale</th>
+            <th>Mark</th>
           </tr>
         </thead>
         <tbody>
           {% for f in findings %}
-            <tr>
+            <tr class="cc-finding-row" tabindex="0">
               <td><strong>{{ f.term }}</strong></td>
               <td>{{ "%.2f"|format(f.confidence or 0.0) }}</td>
               <td>{{ f.doc_a_label }}</td>
               <td>{{ f.doc_b_label }}</td>
               <td>{{ f.rationale }}</td>
+              <td>
+                {% if f.reviewer_verdict %}
+                  <span class="cc-verdict-badge cc-verdict-badge--{{ f.reviewer_verdict }}">{{ f.reviewer_label }}</span>
+                {% else %}
+                  {% set pair_key = f.pair_key %}
+                  {% set detector_type = "definition_inconsistency" %}
+                  {% set prior_verdict = "" %}
+                  {% include "cc__verdict_buttons.html" %}
+                {% endif %}
+              </td>
             </tr>
             <tr class="cc-findings-row-detail">
-              <td colspan="5">
+              <td colspan="6">
                 <div class="cc-muted"><strong>Def A:</strong> {{ f.def_a_text }}</div>
                 <div class="cc-muted"><strong>Def B:</strong> {{ f.def_b_text }}</div>
               </td>
@@ -48,7 +76,7 @@
         </tbody>
       </table>
     {% else %}
-      <p class="cc-muted">No definition inconsistencies in this run.</p>
+      <p class="cc-muted">All findings reviewed.</p>
     {% endif %}
   {% endif %}
 </section>
