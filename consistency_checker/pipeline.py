@@ -293,9 +293,25 @@ def _try_numeric_short_circuit(a: Assertion, b: Assertion) -> JudgeVerdict | Non
     return None
 
 
+def _strong_edge_count(t: Triangle, strong_keys: set[tuple[str, str]]) -> int:
+    """Count how many of the triangle's three edges came from the strong gate.
+
+    ``find_triangles`` constructs ``Triangle`` with ``a.assertion_id <
+    b.assertion_id < c.assertion_id``, so the edge keys here are already in
+    canonical (sorted) form — they match ``strong_keys`` directly.
+    """
+    edges = [
+        (t.a.assertion_id, t.b.assertion_id),
+        (t.b.assertion_id, t.c.assertion_id),
+        (t.a.assertion_id, t.c.assertion_id),
+    ]
+    return sum(1 for e in edges if e in strong_keys)
+
+
 def _run_multi_party_pass(
     pairs: list[CandidatePair],
     *,
+    strong_keys: set[tuple[str, str]],
     multi_party_judge: MultiPartyJudge,
     audit_logger: AuditLogger,
     run_id: str,
@@ -304,10 +320,22 @@ def _run_multi_party_pass(
     """Enumerate triangles in the gate graph, judge each, log findings.
 
     Returns ``(n_triangles_judged, n_multi_party_findings)``. See ADR-0006.
+
+    ``pairs`` may include weak-edge pairs (below the strong gate threshold) so
+    that triangles where two strong edges + one weak edge would otherwise be
+    missed can still be enumerated. After enumeration, triangles are filtered
+    to those with ≥2 strong edges so the LLM judge isn't called on triangles
+    held together by only weak similarity signals.
     """
     n_triangles_judged = 0
     n_multi_party_findings = 0
-    triangles: list[Triangle] = list(find_triangles(pairs, max_per_run=max_per_run))
+    raw_triangles: list[Triangle] = list(find_triangles(pairs, max_per_run=max_per_run))
+    triangles = [t for t in raw_triangles if _strong_edge_count(t, strong_keys) >= 2]
+    _log.info(
+        "_run_multi_party_pass: %d raw triangles → %d kept (≥2 strong edges)",
+        len(raw_triangles),
+        len(triangles),
+    )
     for triangle in triangles:
         verdict = multi_party_judge.judge(triangle)
         audit_logger.record_multi_party_finding(
@@ -390,12 +418,29 @@ def check(
         if verdict.verdict in CONTRADICTION_VERDICTS:
             n_findings += 1
 
-    # ADR-0006 F4: optional triangle pass over the same gate output.
+    # ADR-0006 F4: optional triangle pass over the gate output.
+    # Dual-gate: feed the triangle finder a union of strong pairs (used by the
+    # pairwise judge above) plus weak pairs (triangle construction only).
+    # After enumeration we filter to triangles with ≥2 strong edges so the LLM
+    # judge isn't called on weak-only triangles. See v0.4.1 plan, Task 2.
     n_triangles_judged = 0
     n_multi_party_findings = 0
     if multi_party_judge is not None:
+        strong_keys: set[tuple[str, str]] = {(p.a.assertion_id, p.b.assertion_id) for p in pairs}
+        weak_gate = AnnGate(
+            faiss_store,
+            top_k=config.triangle_weak_top_k,
+            similarity_threshold=config.triangle_weak_threshold,
+        )
+        weak_pairs = [
+            p
+            for p in weak_gate.candidates(store)
+            if (p.a.assertion_id, p.b.assertion_id) not in strong_keys
+        ]
+        all_triangle_pairs = pairs + weak_pairs
         n_triangles_judged, n_multi_party_findings = _run_multi_party_pass(
-            pairs,
+            all_triangle_pairs,
+            strong_keys=strong_keys,
             multi_party_judge=multi_party_judge,
             audit_logger=audit_logger,
             run_id=run_id,
