@@ -225,3 +225,39 @@ def test_context_manager(tmp_path: Path) -> None:
     # After exit the connection is closed; opening a new store should still work.
     with AssertionStore(db_path) as reopened:
         assert reopened.get_document(doc.doc_id) is not None
+
+
+def test_definition_assertion_round_trips(tmp_path: Path) -> None:
+    s = AssertionStore(tmp_path / "test.db")
+    s.migrate()
+    doc = make_doc()
+    s.add_document(doc)
+    a = Assertion.build(
+        doc.doc_id,
+        '"Borrower" means ABC Corp and its Subsidiaries.',
+        kind="definition",
+        term="Borrower",
+        definition_text="ABC Corp and its Subsidiaries",
+    )
+    s.add_assertion(a)
+    fetched = s.get_assertion(a.assertion_id)
+    assert fetched is not None
+    assert fetched.kind == "definition"
+    assert fetched.term == "Borrower"
+    assert fetched.definition_text == "ABC Corp and its Subsidiaries"
+    s.close()
+
+
+def test_claim_assertion_unaffected_by_kind_columns(tmp_path: Path) -> None:
+    s = AssertionStore(tmp_path / "test.db")
+    s.migrate()
+    doc = make_doc()
+    s.add_document(doc)
+    a = Assertion.build(doc.doc_id, "Revenue grew 12 percent.")
+    s.add_assertion(a)
+    fetched = s.get_assertion(a.assertion_id)
+    assert fetched is not None
+    assert fetched.kind == "claim"
+    assert fetched.term is None
+    assert fetched.definition_text is None
+    s.close()
