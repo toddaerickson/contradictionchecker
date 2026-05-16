@@ -261,3 +261,35 @@ def test_claim_assertion_unaffected_by_kind_columns(tmp_path: Path) -> None:
     assert fetched.term is None
     assert fetched.definition_text is None
     s.close()
+
+
+def test_iter_definitions_filters_to_kind_definition(tmp_path: Path) -> None:
+    s = AssertionStore(tmp_path / "test.db")
+    s.migrate()
+    doc_a = Document.from_content("A.", source_path="A.txt")
+    doc_b = Document.from_content("B.", source_path="B.txt")
+    s.add_document(doc_a)
+    s.add_document(doc_b)
+    s.add_assertion(Assertion.build(doc_a.doc_id, "Revenue grew 12%."))
+    s.add_assertion(
+        Assertion.build(
+            doc_a.doc_id,
+            '"Borrower" means ABC Corp.',
+            kind="definition",
+            term="Borrower",
+            definition_text="ABC Corp",
+        )
+    )
+    s.add_assertion(
+        Assertion.build(
+            doc_b.doc_id,
+            "Borrower means ABC Corp and its Subsidiaries.",
+            kind="definition",
+            term="Borrower",
+            definition_text="ABC Corp and its Subsidiaries",
+        )
+    )
+    defs = list(s.iter_definitions())
+    assert len(defs) == 2
+    assert all(d.kind == "definition" for d in defs)
+    s.close()

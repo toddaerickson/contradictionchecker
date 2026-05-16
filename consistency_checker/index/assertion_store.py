@@ -250,6 +250,15 @@ class AssertionStore:
         ).fetchone()
         return _row_to_assertion(row) if row else None
 
+    def iter_definitions(self) -> Iterator[Assertion]:
+        """Iterate every assertion with ``kind='definition'`` ordered by created_at."""
+        cursor = self._conn.execute(
+            "SELECT * FROM assertions WHERE kind = 'definition' "
+            "ORDER BY created_at, assertion_id"
+        )
+        for row in cursor:
+            yield _row_to_assertion(row)
+
     def iter_assertions(
         self,
         doc_id: str | None = None,
