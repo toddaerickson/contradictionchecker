@@ -962,6 +962,11 @@ def create_app(
             },
         )
 
+    # Register API routes
+    from consistency_checker.web.api.corpora import router as corpora_router
+
+    app.include_router(corpora_router)
+
     return app
 
 
