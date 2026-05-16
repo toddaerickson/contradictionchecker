@@ -66,6 +66,16 @@ Pick A or B based on the target audience: A for technical users who already have
 Phased plan targeting analysts, paralegals, and other "normal tech users" who are
 not comfortable with the CLI. Each phase is independently shippable.
 
+### Phase 0 UI — surface the three Phase 0 eval signals in the web UI
+
+See [`docs/plans/phase0-ui-plan.md`](docs/plans/phase0-ui-plan.md). Brings the
+CLI-only outputs of PRs #51 (in-flight precision + calibration mining), #52
+(targeted-eval on 120 pairs), and #53 (Claude-Projects baseline) into the
+existing FastAPI + HTMX web UI so a non-programmer analyst never opens a
+terminal to operate Phase 0. Four PRs (Blocks A, B, C1, C2). Sequenced before
+the existing Phase 1–3 accessibility work because there is no point in
+polishing terminology before the actual data signals are reachable.
+
 ### Phase 1 — Zero-effort wins (no architecture changes, ~1 session)
 
 All five items touch only templates, CSS, and the stats route. No migration, no CLI
