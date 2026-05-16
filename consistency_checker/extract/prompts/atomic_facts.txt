@@ -24,4 +24,4 @@ Text chunk:
 {chunk_text}
 ---
 
-Call the ``record_assertions`` tool with the list of atomic assertions you extracted.
+Call the ``record_extraction`` tool with the atomic assertions and any definitions you extracted.

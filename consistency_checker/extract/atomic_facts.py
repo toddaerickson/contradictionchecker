@@ -30,10 +30,10 @@ if TYPE_CHECKING:
 
 PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "atomic_facts.txt"
 
-TOOL_NAME = "record_assertions"
+TOOL_NAME = "record_extraction"
 TOOL_SCHEMA: dict[str, Any] = {
     "name": TOOL_NAME,
-    "description": "Record the atomic assertions extracted from a chunk of text.",
+    "description": "Record both atomic assertions and any definitions extracted from a chunk.",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -44,19 +44,56 @@ TOOL_SCHEMA: dict[str, Any] = {
                     "List of atomic, decontextualised assertions extracted from the text. "
                     "May be empty if the chunk contains no verifiable claims."
                 ),
-            }
+            },
+            "definitions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "term": {
+                            "type": "string",
+                            "description": "The term being defined, as written.",
+                        },
+                        "definition_text": {
+                            "type": "string",
+                            "description": "What the term is said to mean (the right-hand side).",
+                        },
+                        "containing_sentence": {
+                            "type": "string",
+                            "description": (
+                                "The full sentence (or clause) in which the definition appears, "
+                                "copied verbatim from the source."
+                            ),
+                        },
+                    },
+                    "required": ["term", "definition_text", "containing_sentence"],
+                },
+                "description": (
+                    "Definitions found in the text, whether formally ('X means …') or "
+                    "informally ('by X we mean …', 'an eligible Y is …'). May be empty."
+                ),
+            },
         },
-        "required": ["assertions"],
+        "required": ["assertions", "definitions"],
     },
 }
 
 _log = get_logger(__name__)
 
 
-class _AssertionList(BaseModel):
-    """Pydantic guard on the tool-use payload."""
+class _DefinitionItem(BaseModel):
+    """One definition extracted from a chunk."""
+
+    term: str = Field(min_length=1)
+    definition_text: str = Field(min_length=1)
+    containing_sentence: str = Field(min_length=1)
+
+
+class _ExtractionPayload(BaseModel):
+    """Pydantic guard on the combined tool-use payload."""
 
     assertions: list[str] = Field(default_factory=list)
+    definitions: list[_DefinitionItem] = Field(default_factory=list)
 
 
 def render_prompt(chunk_text: str) -> str:
@@ -65,20 +102,15 @@ def render_prompt(chunk_text: str) -> str:
     return template.replace("{chunk_text}", chunk_text)
 
 
-def parse_tool_response(response: Any) -> list[str]:
-    """Extract the assertion list from an Anthropic Messages response.
-
-    Looks for the first ``tool_use`` block whose name matches :data:`TOOL_NAME`.
-    Raises ``ValueError`` if no such block is present or the payload fails schema
-    validation — Stage A precision depends on never accepting malformed output.
-    """
+def parse_tool_response(response: Any) -> _ExtractionPayload:
+    """Extract the combined assertion + definition payload from an Anthropic response."""
     blocks = getattr(response, "content", None) or []
     for block in blocks:
         block_type = getattr(block, "type", None)
         block_name = getattr(block, "name", None)
         if block_type == "tool_use" and block_name == TOOL_NAME:
             payload = getattr(block, "input", None) or {}
-            return _AssertionList.model_validate(payload).assertions
+            return _ExtractionPayload.model_validate(payload)
     raise ValueError(f"No tool_use block named {TOOL_NAME!r} found in response")
 
 
@@ -94,6 +126,40 @@ def _assertions_from_texts(chunk: Chunk, texts: list[str]) -> list[Assertion]:
         for text in texts
         if text.strip()
     ]
+
+
+def _assertions_from_payload(
+    chunk: Chunk, payload: _ExtractionPayload
+) -> list[Assertion]:
+    out: list[Assertion] = []
+    for text in payload.assertions:
+        if not text.strip():
+            continue
+        out.append(
+            Assertion.build(
+                chunk.doc_id,
+                text,
+                chunk_id=chunk.chunk_id,
+                char_start=chunk.char_start,
+                char_end=chunk.char_end,
+            )
+        )
+    for d in payload.definitions:
+        if not d.containing_sentence.strip():
+            continue
+        out.append(
+            Assertion.build(
+                chunk.doc_id,
+                d.containing_sentence,
+                chunk_id=chunk.chunk_id,
+                char_start=chunk.char_start,
+                char_end=chunk.char_end,
+                kind="definition",
+                term=d.term,
+                definition_text=d.definition_text,
+            )
+        )
+    return out
 
 
 class Extractor(Protocol):
@@ -114,7 +180,8 @@ class FixtureExtractor:
 
     def extract(self, chunk: Chunk) -> list[Assertion]:
         texts = self._fixtures.get(chunk.chunk_id, [])
-        return _assertions_from_texts(chunk, texts)
+        payload = _ExtractionPayload(assertions=texts, definitions=[])
+        return _assertions_from_payload(chunk, payload)
 
 
 class AnthropicExtractor:
@@ -127,9 +194,12 @@ class AnthropicExtractor:
         model: str = "claude-sonnet-4-6",
         max_tokens: int = 1024,
     ) -> None:
-        import anthropic  # imported lazily so the test suite need not have a real API key
+        if client is None:
+            import anthropic  # imported lazily so the test suite need not have a real API key
 
-        self._client = client or anthropic.Anthropic()
+            self._client: Any = anthropic.Anthropic()
+        else:
+            self._client = client
         self._model = model
         self._max_tokens = max_tokens
 
@@ -145,8 +215,8 @@ class AnthropicExtractor:
             tool_choice={"type": "tool", "name": TOOL_NAME},
         )
         try:
-            texts = parse_tool_response(response)
+            payload = parse_tool_response(response)
         except ValueError as exc:
             _log.warning("Atomic-fact extraction returned no usable payload: %s", exc)
             return []
-        return _assertions_from_texts(chunk, texts)
+        return _assertions_from_payload(chunk, payload)
