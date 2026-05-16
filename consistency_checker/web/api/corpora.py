@@ -367,3 +367,127 @@ def list_documents(request: Request, corpus_id: str) -> dict[str, Any]:
     except Exception as e:
         _log.error("Failed to list documents for corpus %s: %s", corpus_id, e)
         raise HTTPException(status_code=500, detail=f"Failed to list documents: {e}") from e
+
+
+# Route prefix for findings (not /api/corpora since it's per-finding, not per-corpus)
+findings_router = APIRouter(prefix="/api/findings", tags=["findings"])
+
+
+@findings_router.post("/{finding_id}/verdict", status_code=200)
+def set_finding_verdict(
+    request: Request,
+    finding_id: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Set user verdict for a finding.
+
+    Request body:
+        {
+            "user_verdict": "confirmed" | "false_positive" | "dismissed" | "pending" | null
+        }
+
+    Returns:
+        {
+            "finding_id": "...",
+            "user_verdict": "...",
+            "is_multi_party": bool,
+            "updated_at": "ISO8601"
+        }
+
+    Behavior:
+        - Look up finding_id in either findings or multi_party_findings table
+        - Validate user_verdict is one of: confirmed, false_positive, dismissed, pending, or null
+        - Update the user_verdict column in the appropriate table
+        - Return the updated Verdict object with current timestamp
+        - Return 400 Bad Request if user_verdict is not a valid value
+        - Return 404 Not Found if finding_id doesn't exist
+        - Return 500 Internal Server Error if database update fails
+
+    Raises:
+        400: Invalid user_verdict value.
+        404: finding_id doesn't exist in either table.
+        500: Database update failed.
+    """
+    config = request.app.state.config
+
+    # Extract and validate user_verdict from payload
+    user_verdict = payload.get("user_verdict")
+
+    # Validate: must be one of the allowed values or None
+    valid_verdicts = ("confirmed", "false_positive", "dismissed", "pending")
+    if user_verdict is not None and user_verdict not in valid_verdicts:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid user_verdict '{user_verdict}'. Must be one of: {', '.join(valid_verdicts)}, or null.",
+        )
+
+    try:
+        from consistency_checker.index.assertion_store import AssertionStore
+
+        store = AssertionStore(config.db_path)
+        store.migrate()
+        try:
+            conn = store._conn
+
+            # Try to find in findings table first
+            row = conn.execute(
+                """
+                SELECT finding_id, user_verdict FROM findings WHERE finding_id = ? LIMIT 1
+                """,
+                (finding_id,),
+            ).fetchone()
+
+            is_multi_party = False
+
+            if row is None:
+                # Try multi_party_findings table
+                row = conn.execute(
+                    """
+                    SELECT finding_id, user_verdict FROM multi_party_findings WHERE finding_id = ? LIMIT 1
+                    """,
+                    (finding_id,),
+                ).fetchone()
+                is_multi_party = True
+
+            # If not found in either table, return 404
+            if row is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"finding_id '{finding_id}' not found",
+                )
+
+            # Update the verdict in the appropriate table
+            now = datetime.now().isoformat(timespec="microseconds")
+            if is_multi_party:
+                conn.execute(
+                    """
+                    UPDATE multi_party_findings SET user_verdict = ? WHERE finding_id = ?
+                    """,
+                    (user_verdict, finding_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE findings SET user_verdict = ? WHERE finding_id = ?
+                    """,
+                    (user_verdict, finding_id),
+                )
+            conn.commit()
+
+            # Return the updated verdict
+            return {
+                "finding_id": finding_id,
+                "user_verdict": user_verdict,
+                "is_multi_party": is_multi_party,
+                "updated_at": now,
+            }
+        finally:
+            store.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        _log.error("Failed to set verdict for finding %s: %s", finding_id, e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to set verdict: {e}",
+        ) from e
