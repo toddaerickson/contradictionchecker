@@ -400,3 +400,85 @@ def test_findings_are_replayable_from_logged_inputs(store: AssertionStore) -> No
     assert reloaded_b is not None
     assert reloaded_a.assertion_text == a.assertion_text
     assert reloaded_b.assertion_text == b.assertion_text
+
+
+def test_record_definition_finding_writes_detector_type(tmp_path: Path) -> None:
+    from consistency_checker.check.definition_checker import (
+        DefinitionFinding,
+        DefinitionPair,
+    )
+    from consistency_checker.check.definition_judge import DefinitionJudgeVerdict
+    from consistency_checker.extract.schema import Document
+
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    store.add_document(Document(doc_id="docA", source_path="/A.txt"))
+    store.add_document(Document(doc_id="docB", source_path="/B.txt"))
+    a = Assertion.build("docA", '"X" means foo.', kind="definition", term="X", definition_text="foo")
+    b = Assertion.build("docB", '"X" means bar.', kind="definition", term="X", definition_text="bar")
+    store.add_assertions([a, b])
+    logger = AuditLogger(store)
+    run_id = logger.begin_run()
+    finding = DefinitionFinding(
+        pair=DefinitionPair(a=a, b=b, canonical_term="x"),
+        verdict=DefinitionJudgeVerdict(
+            assertion_a_id=min(a.assertion_id, b.assertion_id),
+            assertion_b_id=max(a.assertion_id, b.assertion_id),
+            verdict="definition_divergent",
+            confidence=0.9,
+            rationale="scope shift",
+            evidence_spans=["foo", "bar"],
+        ),
+    )
+    logger.record_definition_finding(run_id, finding=finding)
+    rows = store._conn.execute(
+        "SELECT detector_type, judge_verdict, gate_score, nli_label, evidence_spans_json "
+        "FROM findings WHERE run_id = ?",
+        (run_id,),
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["detector_type"] == "definition_inconsistency"
+    assert rows[0]["judge_verdict"] == "definition_divergent"
+    assert rows[0]["gate_score"] is None
+    assert rows[0]["nli_label"] is None
+    import json as _json
+    assert _json.loads(rows[0]["evidence_spans_json"]) == ["foo", "bar"]
+    store.close()
+
+
+def test_record_definition_finding_idempotent(tmp_path: Path) -> None:
+    from consistency_checker.check.definition_checker import (
+        DefinitionFinding,
+        DefinitionPair,
+    )
+    from consistency_checker.check.definition_judge import DefinitionJudgeVerdict
+    from consistency_checker.extract.schema import Document
+
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    store.add_document(Document(doc_id="docA", source_path="/A.txt"))
+    store.add_document(Document(doc_id="docB", source_path="/B.txt"))
+    a = Assertion.build("docA", '"X" means foo.', kind="definition", term="X", definition_text="foo")
+    b = Assertion.build("docB", '"X" means bar.', kind="definition", term="X", definition_text="bar")
+    store.add_assertions([a, b])
+    logger = AuditLogger(store)
+    run_id = logger.begin_run()
+    finding = DefinitionFinding(
+        pair=DefinitionPair(a=a, b=b, canonical_term="x"),
+        verdict=DefinitionJudgeVerdict(
+            assertion_a_id=min(a.assertion_id, b.assertion_id),
+            assertion_b_id=max(a.assertion_id, b.assertion_id),
+            verdict="definition_divergent",
+            confidence=0.9,
+            rationale="scope shift",
+            evidence_spans=[],
+        ),
+    )
+    fid1 = logger.record_definition_finding(run_id, finding=finding)
+    fid2 = logger.record_definition_finding(run_id, finding=finding)
+    assert fid1 == fid2
+    rows = store._conn.execute(
+        "SELECT COUNT(*) FROM findings WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    assert rows[0] == 1
+    store.close()
