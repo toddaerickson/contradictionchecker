@@ -533,3 +533,23 @@ def test_missing_config_errors(runner: CliRunner, tmp_path: Path) -> None:
     """Pointing --config at a non-existent file must fail clearly."""
     result = runner.invoke(app, ["store", "stats", "--config", str(tmp_path / "missing.yml")])
     assert result.exit_code != 0
+
+
+def test_estimate_cost_command_prints_ceiling(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    def fake_embedder(_cfg: Any) -> Any:
+        return HashEmbedder(dim=64)
+
+    monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
+
+    result = runner.invoke(app, ["estimate-cost", "--config", str(cfg_path)])
+    assert result.exit_code == 0, result.stdout
+    assert "Run cost estimate" in result.stdout
+    assert "Assertions in store:" in result.stdout
+    assert "Estimated API cost:" in result.stdout
+    assert "CEILING" in result.stdout

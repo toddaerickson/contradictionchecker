@@ -30,6 +30,9 @@ from consistency_checker.pipeline import (
     check as run_check,
 )
 from consistency_checker.pipeline import (
+    estimate_cost as run_estimate_cost,
+)
+from consistency_checker.pipeline import (
     ingest as run_ingest,
 )
 from consistency_checker.pipeline import (
@@ -183,6 +186,53 @@ def check(
         f"Run {result.run_id} — "
         f"{result.n_pairs_gated} gated / {result.n_pairs_judged} judged / "
         f"{result.n_findings} contradictions{deep_suffix}{def_suffix}"
+    )
+
+
+# --- estimate-cost ----------------------------------------------------------
+
+
+@app.command(
+    "estimate-cost",
+    help="Estimate API spend for a check run without making any LLM or NLI calls.",
+)
+def estimate_cost(
+    config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
+    per_call_low: float = typer.Option(
+        0.003,
+        "--per-call-low",
+        help="Low end of per-judge-call cost in USD (default ~$0.003 for Sonnet).",
+    ),
+    per_call_high: float = typer.Option(
+        0.010,
+        "--per-call-high",
+        help="High end of per-judge-call cost in USD (default ~$0.010 for Sonnet).",
+    ),
+) -> None:
+    cfg = _load_config(config)
+    embedder = make_embedder(cfg)
+    store = _open_store(cfg)
+    faiss_store = _open_faiss(cfg, dim=embedder.dim)
+    est = run_estimate_cost(
+        cfg,
+        store=store,
+        faiss_store=faiss_store,
+        per_call_low=per_call_low,
+        per_call_high=per_call_high,
+    )
+    store.close()
+    typer.echo(
+        "Run cost estimate\n"
+        f"  Assertions in store:          {est.n_assertions}\n"
+        f"  Stage A - gated pairs:        {est.n_candidate_pairs}\n"
+        f"  Definition pairs to judge:    {est.n_definition_pairs}\n"
+        f"  Total judge calls (ceiling):  {est.judge_calls_ceiling}\n"
+        "\n"
+        f"  Estimated API cost:  ${est.est_cost_low:.2f} to ${est.est_cost_high:.2f}\n"
+        f"  (assumes ${est.per_call_low:.3f} to ${est.per_call_high:.3f} per judge call;\n"
+        "   varies by model + prompt size. This is a CEILING - many gate-pass\n"
+        "   pairs are filtered by NLI before reaching the judge, so real spend\n"
+        "   is usually 30-70% lower.)"
     )
 
 
