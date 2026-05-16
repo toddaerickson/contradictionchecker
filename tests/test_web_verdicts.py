@@ -195,3 +195,99 @@ def test_post_verdicts_undo_rejects_bogus_prior_verdict(
         headers={"HX-Request": "true"},
     )
     assert resp.status_code == 400
+
+
+def _seed_pair_contradiction(cfg: Config) -> tuple[str, str]:
+    """Helper: ingest one pair-contradiction finding. Returns (a_id, b_id)."""
+    from consistency_checker.audit.logger import AuditLogger
+    from consistency_checker.check.gate import CandidatePair
+    from consistency_checker.check.llm_judge import JudgeVerdict
+    from consistency_checker.check.nli_checker import NliResult
+    from consistency_checker.extract.schema import Assertion, Document
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    doc_a = Document.from_content("A body.", source_path="a.md", title="Doc A")
+    doc_b = Document.from_content("B body.", source_path="b.md", title="Doc B")
+    store.add_document(doc_a)
+    store.add_document(doc_b)
+    a = Assertion.build(doc_a.doc_id, "Revenue grew 12%.")
+    b = Assertion.build(doc_b.doc_id, "Revenue declined 5%.")
+    store.add_assertions([a, b])
+    logger = AuditLogger(store)
+    run_id = logger.begin_run()
+    logger.record_finding(
+        run_id,
+        candidate=CandidatePair(a=a, b=b, score=0.9),
+        nli=NliResult.from_scores(p_contradiction=0.85, p_entailment=0.05, p_neutral=0.10),
+        verdict=JudgeVerdict(
+            assertion_a_id=a.assertion_id,
+            assertion_b_id=b.assertion_id,
+            verdict="contradiction",
+            confidence=0.9,
+            rationale="opposite revenue signs",
+            evidence_spans=[],
+        ),
+    )
+    logger.end_run(run_id, n_assertions=2, n_pairs_gated=1, n_pairs_judged=1)
+    store.close()
+    return a.assertion_id, b.assertion_id
+
+
+def test_contradictions_tab_hides_reviewed_by_default(
+    app_client: tuple[TestClient, Config],
+) -> None:
+    client, cfg = app_client
+    a_id, b_id = _seed_pair_contradiction(cfg)
+    pair_key = ":".join(sorted([a_id, b_id]))
+    client.post(
+        "/verdicts",
+        data={
+            "pair_key": pair_key, "detector_type": "contradiction",
+            "verdict": "confirmed", "prior_verdict": "",
+        },
+        headers={"HX-Request": "true"},
+    )
+    resp = client.get("/")
+    assert resp.status_code == 200
+    # The finding's rationale or assertion text should not appear in the default view
+    assert "opposite revenue signs" not in resp.text
+
+
+def test_contradictions_tab_shows_reviewed_when_toggle_on(
+    app_client: tuple[TestClient, Config],
+) -> None:
+    client, cfg = app_client
+    a_id, b_id = _seed_pair_contradiction(cfg)
+    pair_key = ":".join(sorted([a_id, b_id]))
+    client.post(
+        "/verdicts",
+        data={
+            "pair_key": pair_key, "detector_type": "contradiction",
+            "verdict": "confirmed", "prior_verdict": "",
+        },
+        headers={"HX-Request": "true"},
+    )
+    resp = client.get("/?show_reviewed_contradiction=true")
+    assert resp.status_code == 200
+    assert "opposite revenue signs" in resp.text
+
+
+def test_contradictions_tab_renders_progress_count(
+    app_client: tuple[TestClient, Config],
+) -> None:
+    client, cfg = app_client
+    _seed_pair_contradiction(cfg)
+    resp = client.get("/")
+    assert "0 of 1 reviewed" in resp.text
+
+
+def test_contradictions_tab_renders_verdict_buttons_for_unreviewed(
+    app_client: tuple[TestClient, Config],
+) -> None:
+    client, cfg = app_client
+    _seed_pair_contradiction(cfg)
+    resp = client.get("/")
+    # Unreviewed row should have all three verdict buttons in the partial
+    assert 'data-verdict="confirmed"' in resp.text
+    assert 'data-verdict="false_positive"' in resp.text
+    assert 'data-verdict="dismissed"' in resp.text

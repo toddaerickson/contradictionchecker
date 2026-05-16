@@ -222,7 +222,11 @@ def create_app(
         return store, AuditLogger(store)
 
     @app.get("/", response_class=HTMLResponse)
-    def index(request: Request) -> Response:
+    def index(
+        request: Request,
+        show_reviewed_contradiction: bool = False,
+        show_reviewed_multi_party: bool = False,
+    ) -> Response:
         """Contradictions tab — the main page (ADR-0007)."""
         store, audit = _open_audit()
         try:
@@ -249,11 +253,26 @@ def create_app(
                 assertions = store.get_assertions_bulk(assertion_ids)
                 doc_ids = list({a.doc_id for a in assertions.values()})
                 documents = store.get_documents_bulk(doc_ids)
+
+                # Bulk-fetch reviewer verdicts for all pair findings.
+                all_pair_keys = [
+                    ":".join(sorted([raw.assertion_a_id, raw.assertion_b_id]))
+                    for raw in raw_pair_findings
+                ]
+                pair_reviewer_verdicts = audit.get_reviewer_verdicts_bulk(
+                    [(pk, "contradiction") for pk in all_pair_keys]
+                )
+
                 for raw in raw_pair_findings:
                     a = assertions.get(raw.assertion_a_id)
                     b = assertions.get(raw.assertion_b_id)
                     if a is None or b is None:
                         continue
+                    pair_key = ":".join(sorted([raw.assertion_a_id, raw.assertion_b_id]))
+                    rv = pair_reviewer_verdicts.get((pair_key, "contradiction"))
+                    if rv is not None and not show_reviewed_contradiction:
+                        continue
+                    reviewer_verdict = rv.verdict if rv is not None else None
                     pair_findings.append(
                         {
                             "finding_id": raw.finding_id,
@@ -262,22 +281,57 @@ def create_app(
                             "doc_a_label": _document_label(documents.get(a.doc_id), a.doc_id),
                             "doc_b_label": _document_label(documents.get(b.doc_id), b.doc_id),
                             "rationale_first_line": (raw.judge_rationale or "").splitlines()[:1],
+                            "pair_key": pair_key,
+                            "reviewer_verdict": reviewer_verdict,
+                            "reviewer_label": VERDICT_LABELS.get(reviewer_verdict)
+                            if reviewer_verdict is not None
+                            else None,
                         }
                     )
                 pair_findings.sort(key=lambda f: -(f["confidence"] or 0.0))
 
-                for mp in audit.iter_multi_party_findings(
-                    run_id=run.run_id, verdict="multi_party_contradiction"
-                ):
+                # Bulk-fetch reviewer verdicts for all multi-party findings.
+                raw_mp_findings = list(
+                    audit.iter_multi_party_findings(
+                        run_id=run.run_id, verdict="multi_party_contradiction"
+                    )
+                )
+                all_mp_keys = [
+                    ":".join(sorted(mp.assertion_ids)) for mp in raw_mp_findings
+                ]
+                mp_reviewer_verdicts = audit.get_reviewer_verdicts_bulk(
+                    [(pk, "multi_party") for pk in all_mp_keys]
+                )
+
+                for mp in raw_mp_findings:
+                    mp_key = ":".join(sorted(mp.assertion_ids))
+                    rv_mp = mp_reviewer_verdicts.get((mp_key, "multi_party"))
+                    if rv_mp is not None and not show_reviewed_multi_party:
+                        continue
+                    reviewer_verdict_mp = rv_mp.verdict if rv_mp is not None else None
                     multi_party_findings.append(
                         {
                             "finding_id": mp.finding_id,
                             "confidence": mp.judge_confidence,
                             "rationale_first_line": ((mp.judge_rationale or "").splitlines()[:1]),
                             "n_docs": len({d for d in mp.doc_ids}),
+                            "pair_key": mp_key,
+                            "reviewer_verdict": reviewer_verdict_mp,
+                            "reviewer_label": VERDICT_LABELS.get(reviewer_verdict_mp)
+                            if reviewer_verdict_mp is not None
+                            else None,
                         }
                     )
                 multi_party_findings.sort(key=lambda f: -(f["confidence"] or 0.0))
+
+            pair_reviewed = sum(
+                audit.count_reviewer_verdicts(detector_type="contradiction").values()
+            )
+            pair_total = _count_total_findings(store, "contradiction")
+            mp_reviewed = sum(
+                audit.count_reviewer_verdicts(detector_type="multi_party").values()
+            )
+            mp_total = _count_total_findings(store, "multi_party")
         finally:
             store.close()
 
@@ -296,6 +350,12 @@ def create_app(
                 else None,
                 "pair_findings": pair_findings,
                 "multi_party_findings": multi_party_findings,
+                "show_reviewed_contradiction": show_reviewed_contradiction,
+                "show_reviewed_multi_party": show_reviewed_multi_party,
+                "pair_reviewed": pair_reviewed,
+                "pair_total": pair_total,
+                "mp_reviewed": mp_reviewed,
+                "mp_total": mp_total,
             },
         )
 
