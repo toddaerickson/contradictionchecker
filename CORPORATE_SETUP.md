@@ -36,7 +36,7 @@ The tool needs outbound HTTPS to:
 | Host | Why | When |
 |------|-----|------|
 | `api.anthropic.com` | LLM judge + extraction calls | Every `check` / `ingest` run |
-| `huggingface.co` and `cdn-lfs.huggingface.co` | DeBERTa NLI model download (~800 MB) | First `check` run only; cached afterwards in `~/.cache/huggingface/` |
+| `huggingface.co` and `cdn-lfs.huggingface.co` | DeBERTa NLI model download (~440 MB default, ~1.5 GB if you opt up to large) | First `check` run only; cached afterwards in `~/.cache/huggingface/` |
 | `api.openai.com` (optional) | LLM judge if `judge_provider: openai` | If using OpenAI instead of Anthropic |
 
 Validate from the corp machine before installing:
@@ -142,10 +142,13 @@ the only remaining unknowns are network egress + API credentials.
 
 | Component | Resident RSS |
 |-----------|--------------|
-| `DeBERTa-v3-large-mnli-fever-anli-ling-wanli` (NLI) | ~1.5–2.0 GB |
+| `DeBERTa-v3-base-mnli-fever-anli` (NLI, default) | ~0.6 GB |
 | `all-mpnet-base-v2` (embedder, ingest stage) | ~0.5 GB |
 | Python / sqlite / faiss baseline | ~0.3 GB |
-| **Estimated peak `check` RSS** | **~2.5–2.8 GB** |
+| **Estimated peak `check` RSS (default)** | **~1.4 GB** |
+
+If you opt up to `DeBERTa-v3-large-mnli-fever-anli-ling-wanli` for max recall,
+add ~1.5 GB to peak (≈ 2.5–2.8 GB total).
 
 Recommended floors:
 
@@ -174,14 +177,15 @@ When set, `check` aborts before the NLI model loads if `MemAvailable` is below
 the threshold, with a clear message instead of an OOM crash. Leave unset to
 skip the check (you'll get a soft warning if available memory looks low).
 
-If your environment is too small for `DeBERTa-large`, swap to the base model:
+If you need maximum gate recall and have headroom, swap up to the large model:
 
 ```yaml
 # config.yml
-nli_model: MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli
+nli_model: MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli
 ```
 
-(~440 MB on disk; trades some recall for ~3× lower NLI RSS.)
+(~1.4 GB on disk; ~3× higher NLI RSS for a few percentage points of recall.
+Stage B's LLM judge catches most of what the base gate would otherwise miss.)
 
 ---
 
@@ -219,9 +223,10 @@ uv run consistency-check serve --open
 
 First-run gotchas to expect:
 
-- **~800 MB NLI model download** on the first `check` — visible as a
+- **~440 MB NLI model download** on the first `check` — visible as a
   long pause. The CLI now prints a one-line warning before the
-  download so you don't suspect a hang.
+  download so you don't suspect a hang. (Larger if you opted up to
+  `DeBERTa-v3-large`: ~1.5 GB.)
 - **Web UI binds to `127.0.0.1:8000` by default.** Corp browsers
   usually allow loopback; if not, switch ports or open the markdown
   report instead.

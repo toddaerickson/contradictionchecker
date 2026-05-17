@@ -20,7 +20,7 @@ log_dir: ./data/logs
 
 # Stage A NLI — see docs/decisions/0002-embedding-model.md for embedder choice
 embedder_model: sentence-transformers/all-mpnet-base-v2
-nli_model: MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli
+nli_model: MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli
 nli_contradiction_threshold: 0.5
 
 # Candidate-pair gate

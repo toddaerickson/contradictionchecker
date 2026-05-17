@@ -53,6 +53,16 @@ def test_fixture_checker_unknown_pair_defaults_to_neutral() -> None:
     assert out.p_neutral == 1.0
 
 
+def test_fixture_checker_release_is_noop() -> None:
+    """Fixture has no resources to drop; release() must not raise or break score()."""
+    checker = FixtureNliChecker({})
+    checker.release()
+    checker.release()  # idempotent
+    # score() still works after release(), because fixture release is a no-op.
+    out = checker.score("a", "b")
+    assert out.label == "neutral"
+
+
 # --- score_bidirectional ----------------------------------------------------
 
 

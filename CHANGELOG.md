@@ -6,7 +6,20 @@ the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Memory / OOM hardening
+### Memory / OOM hardening — round 2
+
+- **Default NLI model switched to `DeBERTa-v3-base`** (`MoritzLaurer/
+  DeBERTa-v3-base-mnli-fever-anli`). Drops NLI RSS from ~1.5–2 GB to
+  ~0.6 GB and first-run download from ~1.5 GB to ~440 MB. Stage B's LLM
+  judge catches most of what the slightly lower gate recall lets through.
+  Users who want max recall can pin large via
+  `nli_model: MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli`.
+- **`NliChecker.release()`** new Protocol method drops model weights /
+  tokenizer / pipeline. `pipeline.check` calls it after the pair loop
+  completes so the LLM-judge multi-party + definition passes don't compete
+  with NLI for RSS. Idempotent. `FixtureNliChecker.release()` is a no-op.
+
+### Memory / OOM hardening — round 1
 
 - **`pipeline.check` streams candidate pairs** instead of materialising the
   full gate output. `_iter_candidates` now returns `Iterator[CandidatePair]`;
