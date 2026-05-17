@@ -74,11 +74,6 @@
   </div>
   {% endif %}
 
-  {% if findings %}
-  <div class="cc-action-export">
-    <button class="cc-button" onclick="ccExportCsv()">Download CSV</button>
-  </div>
-  {% endif %}
 
 </div>
 
@@ -93,10 +88,6 @@ window.ccSetVerdict = function(sel) {
   }).then(function(r) {
     if (!r.ok) console.error('Verdict update failed', r.status);
   });
-};
-
-window.ccExportCsv = function() {
-  window.location.href = '/api/findings/export.csv';
 };
 </script>
 

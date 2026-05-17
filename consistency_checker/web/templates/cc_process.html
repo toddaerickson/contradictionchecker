@@ -1,7 +1,7 @@
 {% if not htmx %}{% extends "cc_base.html" %}{% endif %}
 
 {% block content %}
-<div class="cc-process-layout">
+<div class="cc-process-layout" id="cc-process-root" data-run-id="{{ run_id | e }}">
 
   <section class="cc-panel">
     <h2 class="cc-panel-title">02 — Process</h2>
@@ -34,7 +34,7 @@
 
 <script>
 (function () {
-  var RUN_ID = "{{ run_id or '' }}";
+  var RUN_ID = document.getElementById('cc-process-root').dataset.runId || '';
   var _startTime = Date.now();
   var _elapsedTimer = null;
   var _logLines = [];
