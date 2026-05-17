@@ -442,3 +442,151 @@ tr.cc-finding-row:focus {
   outline: 2px solid var(--cc-blue);
   outline-offset: -2px;
 }
+
+/* --- Ingest tab ------------------------------------------------------------- */
+
+.cc-ingest-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 600px;
+}
+
+.cc-panel {
+  background: var(--cc-surface);
+  border: 1px solid var(--cc-border);
+  border-radius: 6px;
+  padding: 1.25rem 1.5rem;
+}
+
+.cc-panel-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cc-muted);
+  margin: 0 0 1rem 0;
+}
+
+.cc-judge-group {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.cc-judge-btn {
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--cc-border);
+  border-radius: 4px;
+  background: var(--cc-bg);
+  cursor: pointer;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 0.9rem;
+  color: var(--cc-fg);
+  transition: border-color 0.1s, background 0.1s;
+}
+
+.cc-judge-btn:hover {
+  border-color: var(--cc-border-strong);
+}
+
+.cc-judge-btn.selected {
+  border-color: var(--cc-accent);
+  background: var(--cc-accent-soft);
+  color: var(--cc-accent);
+  font-weight: 600;
+}
+
+.cc-field-label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.88rem;
+  margin-bottom: 0.4rem;
+  color: var(--cc-fg);
+}
+
+.cc-select,
+.cc-input {
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--cc-border-strong);
+  border-radius: 4px;
+  background: var(--cc-bg);
+  color: var(--cc-fg);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 0.9rem;
+}
+
+.cc-select:focus,
+.cc-input:focus {
+  outline: 2px solid var(--cc-accent);
+  outline-offset: -1px;
+  border-color: var(--cc-accent);
+}
+
+.cc-ingest-help {
+  margin: 0.5rem 0 0;
+  font-size: 0.84rem;
+  color: var(--cc-muted);
+}
+
+.cc-ingest-error {
+  margin: 0.35rem 0 0;
+  font-size: 0.84rem;
+  color: var(--cc-accent);
+}
+
+.cc-new-corpus-row {
+  margin-top: 0.75rem;
+}
+
+.cc-drop-area {
+  margin: 0.4rem 0 0.25rem;
+  padding: 1rem;
+  border: 2px dashed var(--cc-border-strong);
+  border-radius: 4px;
+  background: var(--cc-bg);
+  text-align: center;
+  cursor: pointer;
+}
+
+.cc-drop-area:hover {
+  border-color: var(--cc-accent);
+}
+
+.cc-drop-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.88rem;
+  color: var(--cc-muted);
+  pointer-events: none;
+}
+
+.cc-drop-area input[type="file"] {
+  display: block;
+  margin: 0 auto;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.cc-ingest-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.cc-button--primary {
+  background: var(--cc-accent);
+  color: white;
+  border-color: var(--cc-accent);
+  font-weight: 600;
+}
+
+.cc-button--primary:hover:not(:disabled) {
+  background: #a83808;
+  border-color: #a83808;
+}
+
+.cc-button--primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

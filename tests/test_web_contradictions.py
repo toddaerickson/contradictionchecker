@@ -107,8 +107,8 @@ def test_root_shows_empty_state_banner_when_no_runs(empty_client: TestClient) ->
     response = empty_client.get("/", follow_redirects=True)
     assert response.status_code == 200
     body = response.text
-    # Landed on Ingest tab with the "Start here" three-step banner (U4).
-    assert "Get started" in body
+    # Landed on Ingest tab — verify the ingest form is rendered (U4).
+    assert "Judge Provider" in body
 
 
 def test_root_empty_state_omits_contradictions_table(empty_client: TestClient) -> None:

@@ -800,15 +800,13 @@ def create_app(
 
     @app.get("/tabs/ingest", response_class=HTMLResponse)
     def tab_ingest(request: Request) -> HTMLResponse:
-        # create_app() has already mkdir'd uploads_root, so iterdir is safe.
-        uploads_root = config.data_dir / "uploads"
-        prior_uploads = sorted(
-            (p for p in uploads_root.iterdir() if p.is_dir()),
-            reverse=True,
-        )
         store, _audit = _open_audit()
         try:
-            n_documents = store.stats()["documents"]
+            conn = store._conn
+            rows = conn.execute(
+                "SELECT corpus_id, corpus_name FROM corpora ORDER BY created_at DESC"
+            ).fetchall()
+            corpora = [{"corpus_id": r[0], "corpus_name": r[1]} for r in rows]
         finally:
             store.close()
         return templates.TemplateResponse(
@@ -817,14 +815,7 @@ def create_app(
             {
                 "htmx": _is_htmx(request),
                 "active_tab": "ingest",
-                "n_documents": n_documents,
-                "prior_uploads": [
-                    {
-                        "name": p.name,
-                        "files": sorted(child.name for child in p.iterdir() if child.is_file()),
-                    }
-                    for p in prior_uploads
-                ],
+                "corpora": corpora,
             },
         )
 

@@ -59,19 +59,20 @@ def test_ingest_tab_renders_upload_form(tmp_path: Path) -> None:
     response = client.get("/tabs/ingest")
     assert response.status_code == 200
     body = response.text
-    assert "Upload" in body
-    assert 'hx-post="/uploads"' in body
-    assert 'enctype="multipart/form-data"' in body or 'hx-encoding="multipart/form-data"' in body
+    # New design: file input is in section 03 — Documents
+    assert 'type="file"' in body
+    assert 'accept=".txt,.md,.pdf,.docx"' in body
+    # Judge Provider section is always present
+    assert "Judge Provider" in body
 
 
 def test_ingest_tab_renders_upload_indicator(tmp_path: Path) -> None:
-    """The htmx-indicator block must be present so users see progress while ingest runs."""
+    """The ingest tab must include the file input and Start Processing button."""
     client = _client(_config(tmp_path))
     body = client.get("/tabs/ingest").text
-    assert 'id="cc-upload-indicator"' in body
-    assert "htmx-indicator" in body
-    assert 'hx-indicator="#cc-upload-indicator"' in body
-    assert "hx-disabled-elt" in body
+    assert 'id="cc-files"' in body
+    assert 'id="cc-start-btn"' in body
+    assert "Start Processing" in body
 
 
 def test_ingest_tab_htmx_request_omits_base_chrome(tmp_path: Path) -> None:
@@ -80,7 +81,7 @@ def test_ingest_tab_htmx_request_omits_base_chrome(tmp_path: Path) -> None:
     response = client.get("/tabs/ingest", headers={"HX-Request": "true"})
     assert response.status_code == 200
     body = response.text
-    assert "Upload" in body
+    assert "Judge Provider" in body
     # Base chrome (the <header>) is excluded so the swap target only gets content.
     assert "<header" not in body
     assert "<nav" not in body
@@ -179,17 +180,13 @@ def test_upload_with_empty_filename_returns_error_card(tmp_path: Path) -> None:
 # --- prior uploads listing --------------------------------------------------
 
 
-def test_prior_uploads_listed_on_ingest_tab(configured_client: TestClient) -> None:
-    """After an upload, the Ingest tab shows it under Prior uploads."""
-    configured_client.post(
-        "/uploads",
-        files={"files": ("first.txt", b"Body.", "text/plain")},
-    )
+def test_ingest_tab_renders_corpus_selector(configured_client: TestClient) -> None:
+    """The Ingest tab always shows the corpus section (with HTMX load trigger)."""
     response = configured_client.get("/tabs/ingest")
     assert response.status_code == 200
     body = response.text
-    assert "first.txt" in body
-    assert "Prior uploads" in body
+    assert "cc-corpus-selector" in body
+    assert "/api/corpora" in body
 
 
 # --- static files -----------------------------------------------------------

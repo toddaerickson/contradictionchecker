@@ -1,63 +1,332 @@
 {% if not htmx %}{% extends "cc_base.html" %}{% endif %}
 
 {% block content %}
-<section class="cc-section">
-  {% if n_documents == 0 and not prior_uploads %}
-  <div class="cc-banner" style="margin-bottom: 1.25rem;">
-    <h2>Get started in three steps</h2>
-    <ol style="display:inline-block; text-align:left; margin: 0.5rem 0 1rem; padding-left: 1.5rem;">
-      <li><strong>Upload</strong> your documents below (.txt, .md, .pdf, .docx)</li>
-      <li><strong>Check</strong> — click "Check for contradictions" after uploading</li>
-      <li><strong>Review</strong> results on the Contradictions tab</li>
-    </ol>
+<div class="cc-ingest-layout">
+
+  <!-- 01 — Judge Provider -->
+  <section class="cc-panel">
+    <h2 class="cc-panel-title">01 — Judge Provider</h2>
+    <div class="cc-judge-group" role="group" aria-label="Judge Provider">
+      <button type="button"
+              class="cc-judge-btn selected"
+              id="cc-judge-moonshot"
+              data-provider="moonshot"
+              onclick="ccSelectJudge(this)">Moonshot</button>
+      <button type="button"
+              class="cc-judge-btn"
+              id="cc-judge-anthropic"
+              data-provider="anthropic"
+              onclick="ccSelectJudge(this)">Claude</button>
+    </div>
+    <p class="cc-ingest-help">Which AI model will judge contradictions?</p>
+    <input type="hidden" id="cc-judge-value" value="moonshot">
+  </section>
+
+  <!-- 02 — Corpus -->
+  <section class="cc-panel">
+    <h2 class="cc-panel-title">02 — Corpus</h2>
+
+    <!-- Populated via HTMX on load; SSR fallback included below -->
+    <div id="cc-corpus-selector"
+         hx-get="/api/corpora"
+         hx-trigger="load"
+         hx-target="#cc-corpus-selector"
+         hx-swap="innerHTML"
+         hx-on::after-request="ccAfterCorporaLoad()">
+
+      {% if corpora %}
+      <!-- SSR fallback: corpora already exist -->
+      <label class="cc-field-label" for="cc-corpus-select">Corpus</label>
+      <select id="cc-corpus-select" class="cc-select" onchange="ccOnCorpusSelect(this)">
+        <option value="">— Select a corpus —</option>
+        {% for c in corpora %}
+        <option value="{{ c.corpus_id }}">{{ c.corpus_name }}</option>
+        {% endfor %}
+        <option value="__new__">+ Create new corpus</option>
+      </select>
+      {% else %}
+      <!-- SSR fallback: no corpora yet -->
+      <label class="cc-field-label" for="cc-new-corpus-name-top">New corpus name</label>
+      <input id="cc-new-corpus-name-top"
+             type="text"
+             class="cc-input"
+             placeholder="e.g. Q1-Audit"
+             oninput="ccOnNewNameInput(this.value)">
+      <p class="cc-ingest-help">A corpus is a persistent collection of documents you can add to over time.</p>
+      {% endif %}
+
+    </div>
+
+    <!-- Revealed when user picks "+ Create new corpus" from the dropdown -->
+    <div id="cc-new-corpus-row" class="cc-new-corpus-row" style="display:none;">
+      <label class="cc-field-label" for="cc-new-corpus-name">New corpus name</label>
+      <input id="cc-new-corpus-name"
+             type="text"
+             class="cc-input"
+             placeholder="e.g. Q1-Audit"
+             oninput="ccOnNewNameInput(this.value)">
+      <p class="cc-ingest-help">A corpus is a persistent collection of documents you can add to over time.</p>
+      <p id="cc-corpus-name-error" class="cc-ingest-error" style="display:none;"></p>
+    </div>
+
+  </section>
+
+  <!-- 03 — Documents -->
+  <section class="cc-panel" id="cc-docs-section" style="display:none;">
+    <h2 class="cc-panel-title">03 — Documents</h2>
+    <div class="cc-drop-zone" id="cc-drop-zone">
+      <label class="cc-field-label" for="cc-files">Documents</label>
+      <div class="cc-drop-area" id="cc-drop-area">
+        <p class="cc-drop-hint">Drag files here, or click to select</p>
+        <input id="cc-files"
+               type="file"
+               name="files"
+               multiple
+               accept=".txt,.md,.pdf,.docx"
+               onchange="ccOnFileChange(this)">
+      </div>
+      <p id="cc-file-list" class="cc-ingest-help"></p>
+      <p class="cc-ingest-help">Upload documents to add to the selected corpus (.txt, .md, .pdf, .docx).</p>
+    </div>
+  </section>
+
+  <!-- Start button -->
+  <div class="cc-ingest-actions">
+    <button class="cc-button cc-button--primary"
+            id="cc-start-btn"
+            disabled
+            onclick="ccStartProcessing()">
+      Start Processing &rarr;
+    </button>
+    <span id="cc-start-status" class="cc-ingest-help" style="display:none;"></span>
   </div>
-  {% endif %}
 
-  <h2>Upload documents</h2>
-  <p class="cc-muted">
-    Accepted formats: <code>.txt</code> / <code>.md</code> / <code>.pdf</code> / <code>.docx</code>.
-    Each upload is stored under <code>&lt;data_dir&gt;/uploads/</code>.
-  </p>
+</div>
 
-  <form
-    class="cc-upload-form"
-    hx-post="/uploads"
-    hx-encoding="multipart/form-data"
-    hx-target="#cc-upload-result"
-    hx-swap="innerHTML"
-    hx-indicator="#cc-upload-indicator"
-    hx-disabled-elt="find button"
-  >
-    <label class="cc-file-label" for="cc-files">
-      <span>Select files</span>
-      <input id="cc-files" type="file" name="files" multiple required>
-    </label>
-    <button type="submit" class="cc-button">Upload</button>
-  </form>
+<script>
+(function () {
+  /* ---- State ---- */
+  var _judge = 'moonshot';
+  var _corpusId = '';   // existing corpus_id, or '' when creating new
+  var _newName = '';    // name for a new corpus
+  var _isNew = false;   // true when user chose "+ Create new corpus" or no corpora exist
+  var _fileCount = 0;
 
-  <div id="cc-upload-indicator" class="cc-upload-indicator htmx-indicator" role="status">
-    <span class="cc-spinner" aria-hidden="true"></span>
-    <span class="cc-upload-indicator__text">
-      <span class="cc-upload-indicator__heading">Uploading &amp; extracting&hellip;</span>
-      Each PDF takes about <strong>1&ndash;3 min</strong> to process. The page won't visibly change until all files finish. Don't close this tab or click Upload again.
-    </span>
-  </div>
+  /* Expose functions to onclick handlers */
+  window.ccSelectJudge = function (btn) {
+    document.querySelectorAll('.cc-judge-btn').forEach(function (b) {
+      b.classList.remove('selected');
+    });
+    btn.classList.add('selected');
+    _judge = btn.dataset.provider;
+    document.getElementById('cc-judge-value').value = _judge;
+  };
 
-  <div id="cc-upload-result" aria-live="polite"></div>
+  window.ccOnCorpusSelect = function (sel) {
+    var val = sel.value;
+    var newRow = document.getElementById('cc-new-corpus-row');
+    if (val === '__new__') {
+      _isNew = true;
+      _corpusId = '';
+      newRow.style.display = '';
+      document.getElementById('cc-new-corpus-name').value = '';
+      _newName = '';
+    } else {
+      _isNew = false;
+      _corpusId = val;
+      _newName = '';
+      newRow.style.display = 'none';
+    }
+    _updateDocsSection();
+    _updateStartBtn();
+  };
 
-  {% if prior_uploads %}
-  <h3>Prior uploads</h3>
-  <ul class="cc-uploads-list">
-    {% for upload in prior_uploads %}
-      <li>
-        <strong>{{ upload.name }}</strong>
-        <span class="cc-muted">— {{ upload.files | length }} file(s)</span>
-        {% if upload.files %}
-          <ul>{% for f in upload.files %}<li>{{ f }}</li>{% endfor %}</ul>
-        {% endif %}
-      </li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-</section>
+  window.ccOnNewNameInput = function (val) {
+    _newName = val.trim();
+    _isNew = true;
+    _corpusId = '';
+    var errEl = document.getElementById('cc-corpus-name-error');
+    if (errEl) {
+      var invalid = /[\/\\:"*?<>|]/.test(_newName);
+      if (invalid && _newName) {
+        errEl.textContent = 'Name contains invalid characters: / \\ : " * ? < > |';
+        errEl.style.display = '';
+      } else {
+        errEl.style.display = 'none';
+      }
+    }
+    _updateDocsSection();
+    _updateStartBtn();
+  };
+
+  window.ccOnFileChange = function (input) {
+    _fileCount = input.files ? input.files.length : 0;
+    var listEl = document.getElementById('cc-file-list');
+    if (listEl) {
+      if (_fileCount === 0) {
+        listEl.textContent = '';
+      } else if (_fileCount === 1) {
+        listEl.textContent = input.files[0].name;
+      } else {
+        listEl.textContent = _fileCount + ' files selected';
+      }
+    }
+    _updateStartBtn();
+  };
+
+  window.ccAfterCorporaLoad = function () {
+    /* Called after HTMX populates #cc-corpus-selector with the API response.
+       The response is raw JSON from /api/corpora; we need to rewrite the
+       selector contents here if the response is JSON, or do nothing if the
+       server already rendered HTML (which it won't — /api/corpora returns JSON).
+       We use a small helper that checks for the rendered select element. */
+    var sel = document.getElementById('cc-corpus-select');
+    if (!sel) {
+      /* The HTMX response replaced the interior with JSON text or nothing.
+         Rebuild the selector from the JSON already in the element. */
+      _rebuildSelectorFromApi();
+    }
+  };
+
+  function _rebuildSelectorFromApi() {
+    var container = document.getElementById('cc-corpus-selector');
+    if (!container) return;
+    var text = container.textContent.trim();
+    var data;
+    try { data = JSON.parse(text); } catch (e) { data = null; }
+
+    if (!data || !data.corpora) {
+      /* Render no-corpus state */
+      container.innerHTML =
+        '<label class="cc-field-label" for="cc-new-corpus-name-api">New corpus name</label>' +
+        '<input id="cc-new-corpus-name-api" type="text" class="cc-input" placeholder="e.g. Q1-Audit"' +
+        ' oninput="ccOnNewNameInput(this.value)">' +
+        '<p class="cc-ingest-help">A corpus is a persistent collection of documents you can add to over time.</p>';
+      _isNew = true;
+      return;
+    }
+
+    var corpora = data.corpora;
+    if (corpora.length === 0) {
+      container.innerHTML =
+        '<label class="cc-field-label" for="cc-new-corpus-name-api">New corpus name</label>' +
+        '<input id="cc-new-corpus-name-api" type="text" class="cc-input" placeholder="e.g. Q1-Audit"' +
+        ' oninput="ccOnNewNameInput(this.value)">' +
+        '<p class="cc-ingest-help">A corpus is a persistent collection of documents you can add to over time.</p>';
+      _isNew = true;
+      return;
+    }
+
+    var options = '<option value="">— Select a corpus —</option>';
+    corpora.forEach(function (c) {
+      options += '<option value="' + _esc(c.corpus_id) + '">' + _esc(c.corpus_name) + '</option>';
+    });
+    options += '<option value="__new__">+ Create new corpus</option>';
+    container.innerHTML =
+      '<label class="cc-field-label" for="cc-corpus-select">Corpus</label>' +
+      '<select id="cc-corpus-select" class="cc-select" onchange="ccOnCorpusSelect(this)">' +
+      options + '</select>';
+  }
+
+  function _esc(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function _corpusReady() {
+    if (_isNew) {
+      var invalid = /[\/\\:"*?<>|]/.test(_newName);
+      return _newName.length > 0 && !invalid;
+    }
+    return _corpusId.length > 0;
+  }
+
+  function _updateDocsSection() {
+    var section = document.getElementById('cc-docs-section');
+    if (section) section.style.display = _corpusReady() ? '' : 'none';
+  }
+
+  function _updateStartBtn() {
+    var btn = document.getElementById('cc-start-btn');
+    if (btn) btn.disabled = !(_corpusReady() && _fileCount > 0);
+  }
+
+  window.ccStartProcessing = async function () {
+    var btn = document.getElementById('cc-start-btn');
+    var status = document.getElementById('cc-start-status');
+    btn.disabled = true;
+    if (status) { status.textContent = 'Starting…'; status.style.display = ''; }
+
+    try {
+      var corpusId = _corpusId;
+
+      /* Create corpus first if needed */
+      if (_isNew) {
+        var createResp = await fetch('/api/corpora', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ corpus_name: _newName, judge_provider: _judge }),
+        });
+        if (!createResp.ok) {
+          var err = await createResp.json().catch(function () { return { detail: 'Unknown error' }; });
+          throw new Error(err.detail || 'Failed to create corpus');
+        }
+        var created = await createResp.json();
+        corpusId = created.corpus_id;
+      }
+
+      /* Upload files */
+      var filesInput = document.getElementById('cc-files');
+      if (filesInput && filesInput.files && filesInput.files.length > 0) {
+        var fd = new FormData();
+        Array.from(filesInput.files).forEach(function (f) { fd.append('files', f); });
+        if (status) status.textContent = 'Uploading files…';
+        var uploadResp = await fetch('/uploads', { method: 'POST', body: fd });
+        if (!uploadResp.ok) {
+          var upErr = await uploadResp.json().catch(function () { return { detail: 'Upload failed' }; });
+          throw new Error(upErr.detail || 'File upload failed');
+        }
+      }
+
+      /* Start run */
+      if (status) status.textContent = 'Starting run…';
+      var runResp = await fetch('/api/corpora/' + encodeURIComponent(corpusId) + '/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ judge_provider: _judge }),
+      });
+      if (!runResp.ok) {
+        var runErr = await runResp.json().catch(function () { return { detail: 'Run start failed' }; });
+        throw new Error(runErr.detail || 'Failed to start run');
+      }
+      var run = await runResp.json();
+
+      /* Navigate to Stats tab via HTMX */
+      if (status) status.textContent = 'Run started — loading stats…';
+      var target = '/tabs/stats?run_id=' + encodeURIComponent(run.run_id);
+      if (window.htmx) {
+        htmx.ajax('GET', target, { target: '#cc-tab-content', swap: 'innerHTML', pushURL: true });
+      } else {
+        window.location.href = target;
+      }
+    } catch (e) {
+      if (status) { status.textContent = 'Error: ' + e.message; status.style.display = ''; }
+      btn.disabled = false;
+    }
+  };
+
+  /* On first load, if SSR rendered a no-corpus state, activate new-corpus mode */
+  (function () {
+    var topInput = document.getElementById('cc-new-corpus-name-top');
+    if (topInput) {
+      _isNew = true;
+      _updateDocsSection();
+      _updateStartBtn();
+    }
+  }());
+}());
+</script>
 {% endblock %}
