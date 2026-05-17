@@ -83,9 +83,15 @@ class NliResult:
 
 
 class NliChecker(Protocol):
-    """Anything that scores a single premise/hypothesis direction."""
+    """Anything that scores a single premise/hypothesis direction.
+
+    ``release()`` drops large resources (model weights, tokenizer) after the
+    pair loop completes. Implementations without resources to free can no-op.
+    """
 
     def score(self, premise: str, hypothesis: str) -> NliResult: ...
+
+    def release(self) -> None: ...
 
 
 class FixtureNliChecker:
@@ -102,6 +108,9 @@ class FixtureNliChecker:
         if (premise, hypothesis) in self._fixtures:
             return self._fixtures[(premise, hypothesis)]
         return NliResult.from_scores(p_contradiction=0.0, p_entailment=0.0, p_neutral=1.0)
+
+    def release(self) -> None:
+        """No-op: fixture has no large resources to drop."""
 
 
 class TransformerNliChecker:
@@ -140,6 +149,8 @@ class TransformerNliChecker:
         )
 
     def score(self, premise: str, hypothesis: str) -> NliResult:
+        if self._pipe is None:
+            raise RuntimeError("score() called after release(); recreate the checker")
         return _split_score(
             premise,
             hypothesis,
@@ -147,6 +158,20 @@ class TransformerNliChecker:
             max_tokens=self._pipe.tokenizer.model_max_length,
             tokenize_fn=self._pipe.tokenizer.encode,
         )
+
+    def release(self) -> None:
+        """Drop the HF pipeline + tokenizer + model weights.
+
+        Called by the pipeline after the pair-scoring loop completes so the
+        ~600 MB - 2 GB of NLI RSS can be reclaimed before the LLM-judge
+        triangle / definition passes allocate their own request/response
+        buffers. Idempotent.
+        """
+        if self._pipe is None:
+            return
+        self._pipe = None
+        if hasattr(self._torch, "cuda") and self._torch.cuda.is_available():
+            self._torch.cuda.empty_cache()
 
 
 def score_bidirectional(checker: NliChecker, a: str, b: str) -> NliResult:

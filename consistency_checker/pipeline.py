@@ -437,8 +437,10 @@ def check(
         if verdict.verdict in CONTRADICTION_VERDICTS:
             n_findings += 1
 
-    # Encourage the allocator to release per-pair scratch (NLI tensors, judge
-    # SDK response objects) before the triangle / definition passes allocate.
+    # The NLI checker isn't used by the multi-party LLM-judge pass or the
+    # definition pass — release its weights now so the ~0.6-2 GB of model RSS
+    # is reclaimed before those passes allocate their own request buffers.
+    nli_checker.release()
     gc.collect()
 
     # ADR-0006 F4: optional triangle pass over the gate output.

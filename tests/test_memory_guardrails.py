@@ -16,6 +16,9 @@ import pytest
 import typer
 from pydantic import ValidationError
 
+from consistency_checker.audit.logger import AuditLogger
+from consistency_checker.check.llm_judge import FixtureJudge
+from consistency_checker.check.nli_checker import FixtureNliChecker
 from consistency_checker.cli.main import _preflight_memory
 from consistency_checker.config import Config
 from consistency_checker.extract.schema import Assertion, Document
@@ -23,6 +26,7 @@ from consistency_checker.index.assertion_store import AssertionStore
 from consistency_checker.index.embedder import embed_pending
 from consistency_checker.index.faiss_store import FaissStore
 from consistency_checker.pipeline import _iter_candidates
+from consistency_checker.pipeline import check as run_check
 from tests.conftest import HashEmbedder
 
 
@@ -126,4 +130,57 @@ def test_iter_candidates_returns_iterator_not_list(cfg: Config, tmp_path: Path) 
     second_pass = list(result)
     assert len(first_pass) >= 1
     assert second_pass == []
+    store.close()
+
+
+# --- NLI release after pair loop -------------------------------------------
+
+
+class _SpyNliChecker(FixtureNliChecker):
+    """FixtureNliChecker that records release() calls."""
+
+    def __init__(self) -> None:
+        super().__init__({})
+        self.release_count = 0
+
+    def release(self) -> None:
+        self.release_count += 1
+        super().release()
+
+
+def test_check_calls_nli_release_after_pair_loop(cfg: Config, tmp_path: Path) -> None:
+    """Pipeline must drop NLI weights before the LLM-judge passes allocate."""
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    embedder = HashEmbedder(dim=64)
+    cfg.data_dir.mkdir(parents=True, exist_ok=True)
+    faiss = FaissStore.open_or_create(
+        index_path=cfg.faiss_path,
+        id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
+        dim=embedder.dim,
+    )
+    doc_a = Document.from_content("A.", source_path="a.md")
+    doc_b = Document.from_content("B.", source_path="b.md")
+    store.add_document(doc_a)
+    store.add_document(doc_b)
+    store.add_assertions(
+        [
+            Assertion.build(doc_a.doc_id, "Revenue grew 12%."),
+            Assertion.build(doc_b.doc_id, "Revenue declined 5%."),
+        ]
+    )
+    embed_pending(store, faiss, embedder)
+    audit_logger = AuditLogger(store)
+    spy = _SpyNliChecker()
+    run_id = audit_logger.begin_run()
+    run_check(
+        cfg,
+        store=store,
+        faiss_store=faiss,
+        nli_checker=spy,
+        judge=FixtureJudge({}),
+        audit_logger=audit_logger,
+        run_id=run_id,
+    )
+    assert spy.release_count == 1
     store.close()
