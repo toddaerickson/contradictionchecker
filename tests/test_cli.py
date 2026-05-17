@@ -184,6 +184,9 @@ def test_check_runs_with_fake_nli_and_judge(
         def score(self, premise: str, hypothesis: str) -> NliResult:
             return self._inner.score(premise, hypothesis)
 
+        def release(self) -> None:
+            self._inner.release()
+
     def fake_judge(_cfg: Any) -> Any:
         return FixtureJudge(judge_fixtures)
 
@@ -279,6 +282,9 @@ def test_check_deep_flag_enables_multi_party(
         def score(self, premise: str, hypothesis: str) -> NliResult:
             return self._inner.score(premise, hypothesis)
 
+        def release(self) -> None:
+            self._inner.release()
+
     monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
     monkeypatch.setattr("consistency_checker.cli.main.make_judge", fake_judge)
     monkeypatch.setattr(
@@ -326,6 +332,9 @@ def test_check_without_deep_flag_skips_multi_party_factory(
 
         def score(self, premise: str, hypothesis: str) -> NliResult:
             return self._inner.score(premise, hypothesis)
+
+        def release(self) -> None:
+            self._inner.release()
 
     monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
     monkeypatch.setattr("consistency_checker.cli.main.make_judge", fake_judge)
