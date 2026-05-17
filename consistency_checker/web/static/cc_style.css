@@ -137,7 +137,7 @@ main {
 }
 .cc-button:hover { background: var(--cc-accent); color: white; }
 .cc-button[disabled] { opacity: 0.5; cursor: not-allowed; }
-.cc-button--primary { background: var(--cc-accent); color: white; }
+/* .cc-button--primary full definition is below with :hover/:disabled variants */
 
 .cc-card { padding: 1rem; border-radius: 4px; margin-top: 1rem; }
 .cc-card--success { background: var(--cc-success-bg); border: 1px solid var(--cc-success-border); }
@@ -621,7 +621,7 @@ tr.cc-finding-row:focus {
 .cc-log-phase--extracting { color: #3a8a3a; }
 .cc-log-phase--checking { color: #b07000; }
 .cc-log-phase--judging { color: #b07000; }
-.cc-log-phase--complete { color: #c9450a; }
+.cc-log-phase--complete { color: var(--cc-accent); }
 .cc-log-phase--failed { color: #c0392b; }
 .cc-log-msg { flex: 1; word-break: break-word; }
 
@@ -642,7 +642,7 @@ tr.cc-finding-row:focus {
 .cc-filter-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
 .cc-select--sm { padding: 0.25rem 0.5rem; font-size: 0.85rem; }
 .cc-badge { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.75rem; font-family: 'IBM Plex Mono', monospace; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
-.cc-badge--contradiction { background: #fdf0ea; color: var(--cc-accent); }
+.cc-badge--contradiction { background: var(--cc-error-bg); color: var(--cc-accent); }
 .cc-badge--definition { background: #eaf0fd; color: var(--cc-blue); }
 .cc-action-issue { max-width: 380px; }
 .cc-verdict-select { min-width: 130px; }
@@ -652,3 +652,24 @@ tr.cc-finding-row:focus {
 /* --- Stats layout ----------------------------------------------------------- */
 
 .cc-stats-layout { display: flex; flex-direction: column; gap: 1rem; }
+
+/* --- Mobile adjustments (≤700 px) ----------------------------------------- */
+
+@media (max-width: 700px) {
+  main { padding: 0.75rem; }
+
+  .cc-ingest-layout,
+  .cc-process-layout { max-width: 100%; }
+
+  .cc-action-issue { max-width: 100%; }
+
+  .cc-action-filters { gap: 0.75rem; }
+
+  .cc-log-stream { min-height: 200px; max-height: 350px; }
+
+  .cc-header { padding: 0 0.75rem; }
+
+  .cc-header__title { font-size: 0.75rem; padding-right: 0.75rem; }
+
+  .cc-tab { padding: 0 0.5rem; font-size: 0.72rem; }
+}
