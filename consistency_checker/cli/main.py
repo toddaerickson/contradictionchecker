@@ -90,7 +90,7 @@ def _warn_if_model_download_needed(model_name: str) -> None:
         result = try_to_load_from_cache(model_name, "config.json")
         if result is None:
             typer.echo(
-                f"Note: first run will download ~800 MB ({model_name}). "
+                f"Note: first run will download ~440 MB ({model_name}). "
                 "This may take a few minutes — the tool is not hung."
             )
     except Exception:

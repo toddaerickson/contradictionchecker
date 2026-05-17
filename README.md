@@ -63,7 +63,7 @@ uv run consistency-check report                      # writes data/store/reports
 uv run consistency-check export csv                  # writes data/store/reports/cc_assertions_<ts>.csv
 ```
 
-The `export` command emits `(doc_id, assertion_id, assertion_text)` rows for downstream tooling. `--out` is optional for both `report` and `export`; omit it and the file lands under `<data_dir>/reports/` with a unique descriptive name. The first `check` run downloads a ~800 MB DeBERTa NLI model from Hugging Face; subsequent runs hit the cache.
+The `export` command emits `(doc_id, assertion_id, assertion_text)` rows for downstream tooling. `--out` is optional for both `report` and `export`; omit it and the file lands under `<data_dir>/reports/` with a unique descriptive name. The first `check` run downloads a ~440 MB DeBERTa-base NLI model from Hugging Face (or ~1.5 GB if you opted up to `DeBERTa-v3-large` via `nli_model` in config); subsequent runs hit the cache.
 
 ### Vendoring HTMX
 
@@ -134,7 +134,7 @@ Carried forward into the v0.4+ roadmap in [`futureplans.md`](futureplans.md):
 
 - Chunk overlap `> 0` is unimplemented.
 - Three-document detection misses triangles whose edges fall below the FAISS gate threshold; v0.4 #6 adds an entity-NER cluster pass to catch these.
-- First `check` run downloads ~800 MB for the NLI model.
+- First `check` run downloads ~440 MB for the default NLI model (DeBERTa-v3-base). Switch to DeBERTa-v3-large via `nli_model` in config for higher recall at ~1.5 GB.
 - PDF / DOCX loaders use `strategy="fast"` by default — image-only PDFs need `strategy="hi_res"` (model download, not in CI).
 - `data_dir/uploads/<upload_id>/` grows without bound; v0.4 will add a GC pass.
 - The web UI is single-user, localhost-only, no auth — bind beyond `127.0.0.1` only after auth lands.

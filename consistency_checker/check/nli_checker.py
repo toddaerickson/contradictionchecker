@@ -10,7 +10,7 @@ Two implementations:
 - :class:`FixtureNliChecker` — looks up canned results by ``(premise,
   hypothesis)`` tuple. Required for hermetic CI (the real model is ~800 MB).
 - :class:`TransformerNliChecker` — wraps a HuggingFace text-classification
-  pipeline against ``MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli``
+  pipeline against ``MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli``
   (configurable).
 
 :func:`score_bidirectional` runs the checker in both directions and returns the
@@ -107,7 +107,7 @@ class FixtureNliChecker:
 class TransformerNliChecker:
     """HuggingFace text-classification pipeline wrapper for an MNLI model."""
 
-    DEFAULT_MODEL = "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
+    DEFAULT_MODEL = "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"
 
     def __init__(self, model_name: str = DEFAULT_MODEL) -> None:
         import torch

@@ -42,7 +42,7 @@ class Config(BaseModel):
     log_dir: Path = Field(default_factory=default_log_dir)
 
     embedder_model: str = Field(default="sentence-transformers/all-mpnet-base-v2")
-    nli_model: str = Field(default="MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli")
+    nli_model: str = Field(default="MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli")
 
     nli_contradiction_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     numeric_disagreement_threshold: float = Field(default=0.10, ge=0.0, le=1.0)
