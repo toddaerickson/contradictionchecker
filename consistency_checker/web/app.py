@@ -10,6 +10,7 @@ mixed-app deployments; partials use ``cc__<name>.html``.
 from __future__ import annotations
 
 import secrets
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -158,6 +159,10 @@ def _live_counters(run: Any, audit: Any = None) -> dict[str, Any]:
         "started_at": run.started_at.isoformat(timespec="seconds") if run.started_at else None,
         "finished_at": run.finished_at.isoformat(timespec="seconds") if run.finished_at else None,
     }
+
+
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB per file
+_ALLOWED_EXTENSIONS = frozenset({".txt", ".md", ".pdf", ".docx"})
 
 
 def create_app(
@@ -932,12 +937,27 @@ def create_app(
         upload_dir.mkdir(parents=True, exist_ok=False)
 
         saved: list[Path] = []
-        for file in files:
-            if not file.filename:
-                continue
-            target = upload_dir / Path(file.filename).name
-            target.write_bytes(await file.read())
-            saved.append(target)
+        try:
+            for file in files:
+                if not file.filename:
+                    continue
+                ext = Path(file.filename).suffix.lower()
+                if not ext:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="File has no extension; expected .txt, .md, .pdf, or .docx",
+                    )
+                if ext not in _ALLOWED_EXTENSIONS:
+                    raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext!r}")
+                content = await file.read(MAX_UPLOAD_BYTES + 1)
+                if len(content) > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="File too large (max 100 MB)")
+                target = upload_dir / Path(file.filename).name
+                target.write_bytes(content)
+                saved.append(target)
+        except HTTPException:
+            shutil.rmtree(upload_dir, ignore_errors=True)
+            raise
 
         if not saved:
             return templates.TemplateResponse(
