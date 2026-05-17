@@ -57,6 +57,16 @@ class Config(BaseModel):
     enable_multi_party: bool = Field(default=False)
     max_triangles_per_run: int = Field(default=1000, ge=0)
 
+    max_memory_mb: int | None = Field(
+        default=None,
+        ge=512,
+        description=(
+            "When set, `consistency-check check` aborts before loading the NLI "
+            "model if MemAvailable is below this threshold. Leave unset to "
+            "skip the pre-flight check entirely."
+        ),
+    )
+
     @field_validator("corpus_dir", "data_dir", "log_dir", mode="before")
     @classmethod
     def _coerce_path(cls, value: Any) -> Path:

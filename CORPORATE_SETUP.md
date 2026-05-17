@@ -136,6 +136,55 @@ the only remaining unknowns are network egress + API credentials.
 
 ---
 
+## 4.5 Memory budget
+
+`check` loads two large models into the same process:
+
+| Component | Resident RSS |
+|-----------|--------------|
+| `DeBERTa-v3-large-mnli-fever-anli-ling-wanli` (NLI) | ~1.5–2.0 GB |
+| `all-mpnet-base-v2` (embedder, ingest stage) | ~0.5 GB |
+| Python / sqlite / faiss baseline | ~0.3 GB |
+| **Estimated peak `check` RSS** | **~2.5–2.8 GB** |
+
+Recommended floors:
+
+- **Bare metal / VM:** at least **4 GB** of free RAM at the moment you start `check`.
+- **VS Code devcontainer / Docker Desktop:** the default container memory cap on
+  Mac/Windows is often 2 GB, which will OOM. Raise it to **6 GB**:
+  ```jsonc
+  // .devcontainer/devcontainer.json
+  "runArgs": ["--memory=6g", "--memory-swap=6g"]
+  ```
+  Or in Docker Desktop → Settings → Resources → Memory.
+- **WSL2:** the global cap lives in `~/.wslconfig`:
+  ```ini
+  [wsl2]
+  memory=6GB
+  ```
+
+Pre-flight guardrail:
+
+```yaml
+# config.yml
+max_memory_mb: 3000
+```
+
+When set, `check` aborts before the NLI model loads if `MemAvailable` is below
+the threshold, with a clear message instead of an OOM crash. Leave unset to
+skip the check (you'll get a soft warning if available memory looks low).
+
+If your environment is too small for `DeBERTa-large`, swap to the base model:
+
+```yaml
+# config.yml
+nli_model: MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli
+```
+
+(~440 MB on disk; trades some recall for ~3× lower NLI RSS.)
+
+---
+
 ## 5. Estimate cost before the first real run
 
 Once the smoke test passes:

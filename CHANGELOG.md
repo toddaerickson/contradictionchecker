@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Memory / OOM hardening
+
+- **`pipeline.check` streams candidate pairs** instead of materialising the
+  full gate output. `_iter_candidates` now returns `Iterator[CandidatePair]`;
+  the strong-key set used by the triangle pass is built inline during the
+  pair-loop, and the triangle pass re-iterates the strong gate + chains the
+  weak gate lazily via `itertools.chain`. Saves ~500 B per candidate × top_k
+  × N assertions at peak.
+- **`TransformerNliChecker` wraps the forward pass in `torch.inference_mode()`**
+  — drops autograd-tape allocation on every score, meaningful peak-RSS
+  reduction on the DeBERTa-large model.
+- **`gc.collect()` between phases** in `pipeline.check` encourages the
+  allocator to release per-pair scratch (NLI tensors, judge SDK response
+  objects) before the triangle / definition passes allocate.
+- **`Config.max_memory_mb`** opt-in pre-flight: when set, `consistency-check
+  check` aborts before loading the NLI model if `MemAvailable` is below the
+  threshold, with an actionable message instead of an OOM kill. A soft
+  warning fires when MemAvailable is below the ~2.5 GB peak estimate even
+  without the config field. Skips silently when `psutil` isn't installed.
+- **Runtime dep:** `psutil>=5.9` for the pre-flight check.
+- **`CORPORATE_SETUP.md` §4.5** documents the memory budget, devcontainer /
+  WSL2 caps, and the smaller `DeBERTa-v3-base` fallback for tight envs.
+
 ## [0.3.0] — 2026-05-14
 
 The FastAPI + HTMX web UI lands. `consistency-check serve --open` boots a localhost server, opens the default browser, and offers the full ingest → check → review loop without leaving the page. See [`docs/plans/v0.3-block-g.md`](docs/plans/v0.3-block-g.md) for the step-by-step build.
