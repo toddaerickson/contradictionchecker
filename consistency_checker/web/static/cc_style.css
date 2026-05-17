@@ -590,3 +590,41 @@ tr.cc-finding-row:focus {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* --- Process tab ------------------------------------------------------------ */
+
+.cc-process-layout { display: flex; flex-direction: column; gap: 1.25rem; max-width: 700px; }
+.cc-process-meta { font-size: 0.9rem; color: var(--cc-muted); margin-bottom: 0.75rem; }
+.cc-process-sep { margin: 0 0.5rem; }
+.cc-process-status { display: flex; align-items: center; gap: 0.625rem; font-size: 0.95rem; }
+.cc-process-elapsed { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: var(--cc-muted); }
+
+.cc-log-stream {
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 1rem;
+  min-height: 300px;
+  max-height: 500px;
+  overflow-y: auto;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: #c8c8c0;
+}
+
+.cc-log-line { display: flex; gap: 1rem; animation: ccFadeIn 0.2s ease; }
+.cc-log-ts { color: #555550; flex-shrink: 0; }
+.cc-log-phase { flex-shrink: 0; width: 5rem; }
+.cc-log-phase--parsing { color: #4a7fd4; }
+.cc-log-phase--extraction { color: #3a8a3a; }
+.cc-log-phase--extracting { color: #3a8a3a; }
+.cc-log-phase--checking { color: #b07000; }
+.cc-log-phase--judging { color: #b07000; }
+.cc-log-phase--complete { color: #c9450a; }
+.cc-log-phase--failed { color: #c0392b; }
+.cc-log-msg { flex: 1; word-break: break-word; }
+
+.cc-process-actions { display: flex; gap: 0.75rem; }
+
+@keyframes ccFadeIn { from { opacity: 0; } to { opacity: 1; } }

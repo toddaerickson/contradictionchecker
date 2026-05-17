@@ -819,6 +819,20 @@ def create_app(
             },
         )
 
+    @app.get("/tabs/process", response_class=HTMLResponse)
+    def tab_process(request: Request, run_id: str = "") -> HTMLResponse:
+        return templates.TemplateResponse(
+            request,
+            "cc_process.html",
+            {
+                "htmx": _is_htmx(request),
+                "active_tab": "process",
+                "run_id": run_id,
+                "corpus_name": "",
+                "judge_provider": "",
+            },
+        )
+
     @app.post("/verdicts", response_class=HTMLResponse)
     def post_verdict(
         request: Request,

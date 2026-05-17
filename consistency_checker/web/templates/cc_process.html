@@ -1,0 +1,183 @@
+{% if not htmx %}{% extends "cc_base.html" %}{% endif %}
+
+{% block content %}
+<div class="cc-process-layout">
+
+  <section class="cc-panel">
+    <h2 class="cc-panel-title">02 — Process</h2>
+    <div class="cc-process-meta">
+      <span class="cc-mono" id="cc-corpus-name">{{ corpus_name or "—" }}</span>
+      <span class="cc-process-sep">·</span>
+      <span id="cc-judge-provider">{{ (judge_provider or "moonshot") | capitalize }}</span>
+    </div>
+    <div class="cc-process-status" id="cc-status-badge">
+      <span class="cc-spinner" id="cc-status-spinner"></span>
+      <span id="cc-status-text">Running…</span>
+      <span class="cc-process-elapsed" id="cc-elapsed"></span>
+    </div>
+  </section>
+
+  <div class="cc-log-stream" id="cc-log-stream" aria-live="polite" aria-label="Processing log">
+    <div id="cc-log-lines"></div>
+  </div>
+
+  <div class="cc-process-actions" id="cc-action-btns" style="display:none;">
+    <button class="cc-button cc-button--primary" onclick="ccGoToResults()">
+      View Results &rarr;
+    </button>
+    <button class="cc-button" onclick="ccDownloadLog()">
+      Download Log
+    </button>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  var RUN_ID = "{{ run_id or '' }}";
+  var _startTime = Date.now();
+  var _elapsedTimer = null;
+  var _logLines = [];
+  var _running = true;
+
+  /* ---- Elapsed timer ---- */
+  function _startElapsed() {
+    var el = document.getElementById('cc-elapsed');
+    _elapsedTimer = setInterval(function () {
+      if (!_running) { clearInterval(_elapsedTimer); return; }
+      var secs = Math.floor((Date.now() - _startTime) / 1000);
+      var mm = Math.floor(secs / 60);
+      var ss = secs % 60;
+      el.textContent = mm + ':' + (ss < 10 ? '0' : '') + ss;
+    }, 1000);
+  }
+
+  /* ---- Escape HTML to prevent injection ---- */
+  function _esc(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  /* ---- Format ISO8601 timestamp → HH:MM:SS ---- */
+  function _fmtTs(iso) {
+    if (!iso) return '--:--:--';
+    try {
+      var d = new Date(iso);
+      var hh = d.getHours().toString().padStart(2, '0');
+      var mm = d.getMinutes().toString().padStart(2, '0');
+      var ss = d.getSeconds().toString().padStart(2, '0');
+      return hh + ':' + mm + ':' + ss;
+    } catch (e) {
+      return '--:--:--';
+    }
+  }
+
+  /* ---- Append one line to the log ---- */
+  function appendLogLine(message, phase, timestamp) {
+    _logLines.push({ message: message, phase: phase, timestamp: timestamp });
+
+    var container = document.getElementById('cc-log-lines');
+    if (!container) return;
+
+    var phaseClass = 'cc-log-phase--' + (phase || 'unknown').toLowerCase();
+    var phaseLabel = phase ? '[' + phase + ']' : '[-]';
+
+    var row = document.createElement('div');
+    row.className = 'cc-log-line';
+    row.innerHTML =
+      '<span class="cc-log-ts">' + _esc(_fmtTs(timestamp)) + '</span>' +
+      '<span class="cc-log-phase ' + _esc(phaseClass) + '">' + _esc(phaseLabel) + '</span>' +
+      '<span class="cc-log-msg">' + _esc(message) + '</span>';
+    container.appendChild(row);
+
+    /* Auto-scroll to bottom */
+    var stream = document.getElementById('cc-log-stream');
+    if (stream) stream.scrollTop = stream.scrollHeight;
+  }
+
+  /* ---- Show action buttons after stream closes ---- */
+  function showActionButtons() {
+    var btns = document.getElementById('cc-action-btns');
+    if (btns) btns.style.display = '';
+  }
+
+  /* ---- Update status badge ---- */
+  function updateStatusBadge(phase) {
+    _running = false;
+    clearInterval(_elapsedTimer);
+    var spinner = document.getElementById('cc-status-spinner');
+    var text = document.getElementById('cc-status-text');
+    if (phase === 'complete') {
+      if (spinner) spinner.style.display = 'none';
+      if (text) text.textContent = 'Complete ✓';
+    } else if (phase === 'failed') {
+      if (spinner) spinner.style.display = 'none';
+      if (text) { text.textContent = 'Failed ✗'; text.style.color = '#c0392b'; }
+    }
+  }
+
+  /* ---- Navigate to Contradictions (results) tab ---- */
+  window.ccGoToResults = function () {
+    if (window.htmx) {
+      htmx.ajax('GET', '/', { target: '#cc-tab-content', swap: 'innerHTML', pushURL: true });
+    } else {
+      window.location.href = '/';
+    }
+  };
+
+  /* ---- Download the accumulated log as plain text ---- */
+  window.ccDownloadLog = function () {
+    var lines = _logLines.map(function (l) {
+      return _fmtTs(l.timestamp) + '  [' + (l.phase || '-') + ']  ' + l.message;
+    });
+    var blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'run-' + (RUN_ID || 'log') + '.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  /* ---- Wire up SSE stream ---- */
+  function startStream(runId) {
+    if (!runId) {
+      appendLogLine('No run ID provided.', 'failed', new Date().toISOString());
+      updateStatusBadge('failed');
+      showActionButtons();
+      return;
+    }
+
+    _startElapsed();
+
+    var evtSource = new EventSource('/api/runs/' + encodeURIComponent(runId) + '/progress');
+
+    evtSource.onmessage = function (event) {
+      var data;
+      try { data = JSON.parse(event.data); } catch (e) { return; }
+      appendLogLine(data.message || '', data.phase || '', data.timestamp || '');
+      if (data.phase === 'complete' || data.phase === 'failed') {
+        evtSource.close();
+        updateStatusBadge(data.phase);
+        showActionButtons();
+      }
+    };
+
+    evtSource.onerror = function () {
+      evtSource.close();
+      appendLogLine('Connection lost.', 'failed', new Date().toISOString());
+      updateStatusBadge('failed');
+      showActionButtons();
+    };
+  }
+
+  /* ---- Boot ---- */
+  startStream(RUN_ID);
+}());
+</script>
+{% endblock %}
