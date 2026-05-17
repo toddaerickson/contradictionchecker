@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sqlite3
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime
@@ -174,7 +173,12 @@ def get_run(request: Request, run_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Failed to get run: {e}") from e
 
 
-async def _sse_event_generator(run_id: str, config: Any) -> AsyncGenerator[str, None]:
+async def _sse_event_generator(
+    run_id: str,
+    config: Any,
+    *,
+    is_disconnected: Any = None,
+) -> AsyncGenerator[str, None]:
     """Generate Server-Sent Events stream for a run's progress.
 
     Yields SSE-formatted lines: `data: <JSON>\n\n`
@@ -228,6 +232,8 @@ async def _sse_event_generator(run_id: str, config: Any) -> AsyncGenerator[str, 
         max_polls = 1800  # ~30 minutes at 1-second polling
 
         while run.status == "in_progress" and poll_count < max_polls:
+            if is_disconnected and await is_disconnected():
+                return
             await asyncio.sleep(1)
             poll_count += 1
 
@@ -313,7 +319,7 @@ async def stream_progress(request: Request, run_id: str) -> StreamingResponse:
         raise HTTPException(status_code=500, detail=f"Failed to check run: {e}") from e
 
     return StreamingResponse(
-        _sse_event_generator(run_id, config),
+        _sse_event_generator(run_id, config, is_disconnected=request.is_disconnected),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -576,9 +582,6 @@ def start_run(
             store.close()
     except HTTPException:
         raise
-    except sqlite3.IntegrityError as e:
-        _log.error("Database integrity error starting run for corpus %s: %s", corpus_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to start run: {e}") from e
     except Exception as e:
         _log.error("Failed to start run for corpus %s: %s", corpus_id, e)
         raise HTTPException(status_code=500, detail=f"Failed to start run: {e}") from e

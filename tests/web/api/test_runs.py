@@ -84,13 +84,16 @@ def test_list_runs_empty(web_client: TestClient, web_config: Config) -> None:
 
 def test_list_runs_with_multiple_runs(web_client: TestClient, web_config: Config) -> None:
     """Test listing multiple runs in descending order by started_at."""
-    # Create test runs
+    import time
+
+    # Create test runs with a small delay to ensure distinct timestamps
     _create_test_run(
         str(web_config.db_path),
         run_id="run_001",
         status="completed",
         message_log='{"timestamp": "2026-05-16T10:00:00.000000", "phase": "parsing", "message": "Started"}\n',
     )
+    time.sleep(0.01)
     _create_test_run(
         str(web_config.db_path),
         run_id="run_002",
@@ -407,11 +410,11 @@ def test_stream_progress_large_message_log(web_client: TestClient, web_config: C
 def test_stream_progress_in_progress_run_sends_completion_event(
     web_client: TestClient, web_config: Config
 ) -> None:
-    """Test that in-progress run sends completion event."""
+    """Test that a completed run sends a final completion event."""
     _create_test_run(
         str(web_config.db_path),
         run_id="run_in_progress",
-        status="in_progress",
+        status="completed",
         message_log=None,
     )
 

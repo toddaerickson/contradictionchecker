@@ -137,22 +137,31 @@ def create_corpus(
         try:
             conn = store._conn
             now = datetime.now().isoformat(timespec="microseconds")
-            conn.execute(
-                """
-                INSERT INTO corpora (corpus_id, corpus_name, corpus_path, judge_provider, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (corpus_id, corpus_name, str(corpus_path), judge_provider, now, now),
-            )
-            conn.commit()
-        except sqlite3.IntegrityError as e:
-            _log.error("Database integrity error creating corpus: %s", e)
-            if "corpus_name" in str(e):
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"corpus_name '{corpus_name}' already exists",
-                ) from e
-            raise HTTPException(status_code=409, detail="Corpus already exists") from e
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO corpora (corpus_id, corpus_name, corpus_path, judge_provider, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (corpus_id, corpus_name, str(corpus_path), judge_provider, now, now),
+                )
+                conn.commit()
+            except sqlite3.IntegrityError as e:
+                import shutil
+
+                shutil.rmtree(corpus_path, ignore_errors=True)
+                _log.error("Database integrity error creating corpus: %s", e)
+                if "corpus_name" in str(e):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"corpus_name '{corpus_name}' already exists",
+                    ) from e
+                raise HTTPException(status_code=409, detail="Corpus already exists") from e
+            except Exception:
+                import shutil
+
+                shutil.rmtree(corpus_path, ignore_errors=True)
+                raise
         finally:
             store.close()
     except HTTPException:
@@ -343,18 +352,16 @@ def list_documents(request: Request, corpus_id: str) -> dict[str, Any]:
             # List files in documents directory
             documents = []
             if documents_dir.exists():
-                for file_path in sorted(
-                    documents_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True
-                ):
-                    if file_path.is_file():
-                        stat = file_path.stat()
-                        documents.append(
-                            {
-                                "filename": file_path.name,
-                                "size_bytes": stat.st_size,
-                                "uploaded_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                            }
-                        )
+                entries = [(p, p.stat()) for p in documents_dir.iterdir() if p.is_file()]
+                entries.sort(key=lambda ps: ps[1].st_mtime, reverse=True)
+                documents = [
+                    {
+                        "filename": p.name,
+                        "size_bytes": s.st_size,
+                        "uploaded_at": datetime.fromtimestamp(s.st_mtime).isoformat(),
+                    }
+                    for p, s in entries
+                ]
 
             return {
                 "corpus_id": corpus_id,
@@ -447,7 +454,8 @@ def set_finding_verdict(
                     """,
                     (finding_id,),
                 ).fetchone()
-                is_multi_party = True
+                if row is not None:
+                    is_multi_party = True
 
             # If not found in either table, return 404
             if row is None:
