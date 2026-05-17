@@ -969,9 +969,17 @@ def create_app(
     from consistency_checker.web.api.corpora import (
         router as corpora_router,
     )
+    from consistency_checker.web.api.runs import (
+        corpora_runs_router,
+    )
+    from consistency_checker.web.api.runs import (
+        router as runs_router,
+    )
 
     app.include_router(corpora_router)
     app.include_router(findings_router)
+    app.include_router(runs_router)
+    app.include_router(corpora_runs_router)
 
     return app
 
