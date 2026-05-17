@@ -10,7 +10,6 @@ import re
 import secrets
 import sqlite3
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -283,7 +282,7 @@ def get_corpus(request: Request, corpus_id: str) -> dict[str, Any]:
             corpus = Corpus.from_row(row)
 
             # Count documents in corpus directory
-            corpus_dir = Path(corpus.corpus_path)
+            corpus_dir = config.data_dir / "corpora" / corpus.corpus_id
             documents_dir = corpus_dir / "documents"
             document_count = 0
             if documents_dir.exists():
@@ -338,7 +337,7 @@ def list_documents(request: Request, corpus_id: str) -> dict[str, Any]:
             conn = store._conn
             row = conn.execute(
                 """
-                SELECT corpus_path FROM corpora WHERE corpus_id = ?
+                SELECT corpus_id FROM corpora WHERE corpus_id = ?
                 """,
                 (corpus_id,),
             ).fetchone()
@@ -346,7 +345,8 @@ def list_documents(request: Request, corpus_id: str) -> dict[str, Any]:
             if row is None:
                 raise HTTPException(status_code=404, detail=f"corpus_id '{corpus_id}' not found")
 
-            corpus_path = Path(row[0])
+            safe_corpus_id = row[0]
+            corpus_path = config.data_dir / "corpora" / safe_corpus_id
             documents_dir = corpus_path / "documents"
 
             # List files in documents directory
