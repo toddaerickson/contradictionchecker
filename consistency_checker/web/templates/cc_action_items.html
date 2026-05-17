@@ -1,0 +1,103 @@
+{% if not htmx %}{% extends "cc_base.html" %}{% endif %}
+{% block content %}
+
+<div class="cc-action-layout">
+
+  <div class="cc-tab-header">
+    <h2 class="cc-tab-title">06 — Action Items</h2>
+    <p class="cc-tab-desc">Set your verdict on each finding. This is the single source of truth for all issues.</p>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="cc-action-filters">
+    <label class="cc-filter-label">
+      Type:
+      <select class="cc-select cc-select--sm" id="cc-filter-type">
+        <option value="">All</option>
+        <option value="contradiction">Contradiction</option>
+        <option value="definition">Definition</option>
+      </select>
+    </label>
+    <label class="cc-filter-label">
+      Status:
+      <select class="cc-select cc-select--sm" id="cc-filter-status">
+        <option value="open">Open</option>
+        <option value="">All</option>
+        <option value="resolved">Resolved</option>
+      </select>
+    </label>
+    <label class="cc-filter-label cc-filter-label--check">
+      <input type="checkbox" id="cc-show-resolved"> Show resolved
+    </label>
+  </div>
+
+  <!-- Findings table -->
+  {% if findings %}
+  <table class="cc-findings-table cc-action-table">
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Issue</th>
+        <th>Judge Verdict</th>
+        <th>Confidence</th>
+        <th>User Verdict</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in findings %}
+      <tr class="cc-finding-row cc-finding-row--{{ f.finding_type }}" tabindex="0"
+          data-finding-id="{{ f.finding_id }}"
+          data-user-verdict="{{ f.user_verdict or 'pending' }}">
+        <td>
+          <span class="cc-badge cc-badge--{{ f.finding_type }}">{{ f.finding_type | title }}</span>
+        </td>
+        <td class="cc-action-issue">{{ f.text_preview }}</td>
+        <td>{{ f.verdict }}</td>
+        <td><span class="cc-mono">{{ "%.0f%%" | format(f.confidence * 100) }}</span></td>
+        <td>
+          <select class="cc-verdict-select cc-select cc-select--sm"
+                  data-finding-id="{{ f.finding_id }}"
+                  onchange="ccSetVerdict(this)">
+            <option value="pending" {% if f.user_verdict == 'pending' or not f.user_verdict %}selected{% endif %}>Pending</option>
+            <option value="confirmed" {% if f.user_verdict == 'confirmed' %}selected{% endif %}>Confirmed</option>
+            <option value="false_positive" {% if f.user_verdict == 'false_positive' %}selected{% endif %}>False Positive</option>
+            <option value="dismissed" {% if f.user_verdict == 'dismissed' %}selected{% endif %}>Dismissed</option>
+          </select>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="cc-empty-state">
+    <p class="cc-muted">No findings yet. Run a check from the <strong>Ingest</strong> tab first.</p>
+  </div>
+  {% endif %}
+
+  {% if findings %}
+  <div class="cc-action-export">
+    <button class="cc-button" onclick="ccExportCsv()">Download CSV</button>
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+window.ccSetVerdict = function(sel) {
+  var findingId = sel.dataset.findingId;
+  var verdict = sel.value;
+  fetch('/api/findings/' + findingId + '/verdict', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({user_verdict: verdict === 'pending' ? null : verdict})
+  }).then(function(r) {
+    if (!r.ok) console.error('Verdict update failed', r.status);
+  });
+};
+
+window.ccExportCsv = function() {
+  window.location.href = '/api/findings/export.csv';
+};
+</script>
+
+{% endblock %}

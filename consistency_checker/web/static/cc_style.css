@@ -628,3 +628,27 @@ tr.cc-finding-row:focus {
 .cc-process-actions { display: flex; gap: 0.75rem; }
 
 @keyframes ccFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* --- Tab header (shared across exploration tabs) ---------------------------- */
+
+.cc-tab-header { margin-bottom: 0.5rem; }
+.cc-tab-title { font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--cc-muted); margin: 0 0 0.25rem; }
+.cc-tab-desc { color: var(--cc-muted); font-size: 0.875rem; margin: 0; }
+
+/* --- Action Items tab ------------------------------------------------------- */
+
+.cc-action-layout { display: flex; flex-direction: column; gap: 1rem; }
+.cc-action-filters { display: flex; gap: 1.25rem; align-items: center; flex-wrap: wrap; padding: 0.75rem 1rem; background: var(--cc-surface); border: 1px solid var(--cc-border); border-radius: 6px; }
+.cc-filter-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
+.cc-select--sm { padding: 0.25rem 0.5rem; font-size: 0.85rem; }
+.cc-badge { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.75rem; font-family: 'IBM Plex Mono', monospace; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.cc-badge--contradiction { background: #fdf0ea; color: var(--cc-accent); }
+.cc-badge--definition { background: #eaf0fd; color: var(--cc-blue); }
+.cc-action-issue { max-width: 380px; }
+.cc-verdict-select { min-width: 130px; }
+.cc-action-export { padding-top: 0.5rem; }
+.cc-empty-state { padding: 2rem; text-align: center; }
+
+/* --- Stats layout ----------------------------------------------------------- */
+
+.cc-stats-layout { display: flex; flex-direction: column; gap: 1rem; }

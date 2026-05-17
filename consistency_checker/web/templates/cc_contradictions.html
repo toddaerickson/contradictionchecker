@@ -1,6 +1,11 @@
 {% if not htmx %}{% extends "cc_base.html" %}{% endif %}
 
 {% block content %}
+<div class="cc-tab-header">
+  <h2 class="cc-tab-title">04 — Contradictions</h2>
+  <p class="cc-tab-desc">Read-only exploration of detected contradiction pairs. To set verdicts, go to <strong>Action Items</strong>.</p>
+</div>
+
 <section class="cc-section">
   {% if run is none %}
     <div class="cc-card cc-banner">

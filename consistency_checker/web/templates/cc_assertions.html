@@ -1,17 +1,22 @@
 {% if not htmx %}{% extends "cc_base.html" %}{% endif %}
 
 {% block content %}
+<div class="cc-tab-header">
+  <h2 class="cc-tab-title">03 — Assertions</h2>
+  <p class="cc-tab-desc">Read-only view of all extracted assertions. To review findings, go to <strong>Action Items</strong>.</p>
+</div>
+
 <section class="cc-section">
   <header class="cc-section-header">
-    <h2>Statements</h2>
-    <p class="cc-muted">{{ pagination.total }} statement(s) extracted.</p>
+    <h2>Assertions</h2>
+    <p class="cc-muted">{{ pagination.total }} assertion(s) extracted.</p>
   </header>
 
   {% if assertions %}
     <table class="cc-findings-table">
       <thead>
         <tr>
-          <th>Statement</th>
+          <th>Assertion</th>
           <th>Document</th>
           <th></th>
         </tr>
@@ -36,7 +41,7 @@
     </table>
     {% include "cc__pagination.html" %}
   {% else %}
-    <p class="cc-muted">No statements extracted yet.</p>
+    <p class="cc-muted">No assertions extracted yet.</p>
   {% endif %}
 </section>
 {% endblock %}

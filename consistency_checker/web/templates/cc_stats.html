@@ -1,6 +1,12 @@
 {% if not htmx %}{% extends "cc_base.html" %}{% endif %}
 
 {% block content %}
+<div class="cc-stats-layout">
+<div class="cc-tab-header">
+  <h2 class="cc-tab-title">07 — Stats</h2>
+  <p class="cc-tab-desc">Corpus health and run summary. Verdicts set in Action Items update these numbers.</p>
+</div>
+
 <section class="cc-section">
   <header class="cc-section-header">
     <h2>Stats</h2>
@@ -19,4 +25,5 @@
     {% include "cc__stats_live.html" %}
   {% endif %}
 </section>
+</div>
 {% endblock %}

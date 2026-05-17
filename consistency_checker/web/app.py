@@ -819,6 +819,20 @@ def create_app(
             },
         )
 
+    @app.get("/tabs/action_items", response_class=HTMLResponse)
+    def tab_action_items(request: Request) -> HTMLResponse:
+        # For now: query findings + multi_party_findings, combine, pass to template
+        # findings list: each item needs finding_id, finding_type, text_preview, verdict, confidence, user_verdict
+        return templates.TemplateResponse(
+            request,
+            "cc_action_items.html",
+            {
+                "htmx": _is_htmx(request),
+                "active_tab": "action_items",
+                "findings": [],  # TODO: wire up real query
+            },
+        )
+
     @app.get("/tabs/process", response_class=HTMLResponse)
     def tab_process(request: Request, run_id: str = "") -> HTMLResponse:
         return templates.TemplateResponse(
