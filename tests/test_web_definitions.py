@@ -115,7 +115,7 @@ def test_base_nav_has_definitions_link(
     client, _cfg, _run_id = hermetic_client_with_def
     resp = client.get("/tabs/definitions")
     assert "/tabs/definitions" in resp.text
-    assert ">Definitions<" in resp.text
+    assert "Definitions" in resp.text
 
 
 def test_stats_counters_include_definition_totals(

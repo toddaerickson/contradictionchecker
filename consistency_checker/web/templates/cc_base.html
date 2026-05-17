@@ -4,19 +4,23 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>consistency-checker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/cc_style.css">
     <script src="/static/htmx.min.js" defer></script>
   </head>
   <body>
     <header class="cc-header">
-      <h1>consistency-checker</h1>
+      <h1 class="cc-header__title">contradiction-checker</h1>
       <nav class="cc-tabs">
-        <a class="cc-tab {% if active_tab == 'contradictions' %}cc-tab--active{% endif %}" hx-get="/" hx-target="#cc-tab-content" hx-push-url="true">Contradictions</a>
-        <a class="cc-tab {% if active_tab == 'definitions' %}cc-tab--active{% endif %}" hx-get="/tabs/definitions" hx-target="#cc-tab-content" hx-push-url="true">Definitions</a>
-        <a class="cc-tab {% if active_tab == 'documents' %}cc-tab--active{% endif %}" hx-get="/tabs/documents" hx-target="#cc-tab-content" hx-push-url="true">Documents</a>
-        <a class="cc-tab {% if active_tab == 'assertions' %}cc-tab--active{% endif %}" hx-get="/tabs/assertions" hx-target="#cc-tab-content" hx-push-url="true">Statements</a>
-        <a class="cc-tab {% if active_tab == 'stats' %}cc-tab--active{% endif %}" hx-get="/tabs/stats" hx-target="#cc-tab-content" hx-push-url="true">Stats</a>
-        <a class="cc-tab {% if active_tab == 'ingest' %}cc-tab--active{% endif %}" hx-get="/tabs/ingest" hx-target="#cc-tab-content" hx-push-url="true">Ingest</a>
+        <a class="cc-tab {% if active_tab == 'ingest' %}cc-tab--active{% endif %}" hx-get="/tabs/ingest" hx-target="#cc-tab-content" hx-push-url="true"><span class="cc-tab-number">01</span> Ingest</a>
+        <a class="cc-tab {% if active_tab == 'process' %}cc-tab--active{% endif %}" hx-get="/tabs/process" hx-target="#cc-tab-content" hx-push-url="true"><span class="cc-tab-number">02</span> Process</a>
+        <a class="cc-tab {% if active_tab == 'assertions' %}cc-tab--active{% endif %}" hx-get="/tabs/assertions" hx-target="#cc-tab-content" hx-push-url="true"><span class="cc-tab-number">03</span> Assertions</a>
+        <a class="cc-tab {% if active_tab == 'contradictions' %}cc-tab--active{% endif %}" hx-get="/" hx-target="#cc-tab-content" hx-push-url="true"><span class="cc-tab-number">04</span> Contradictions</a>
+        <a class="cc-tab {% if active_tab == 'definitions' %}cc-tab--active{% endif %}" hx-get="/tabs/definitions" hx-target="#cc-tab-content" hx-push-url="true"><span class="cc-tab-number">05</span> Definitions</a>
+        <a class="cc-tab {% if active_tab == 'action_items' %}cc-tab--active{% endif %}" hx-get="/tabs/action_items" hx-target="#cc-tab-content" hx-push-url="true"><span class="cc-tab-number">06</span> Action Items</a>
+        <a class="cc-tab {% if active_tab == 'stats' %}cc-tab--active{% endif %}" hx-get="/tabs/stats" hx-target="#cc-tab-content" hx-push-url="true"><span class="cc-tab-number">07</span> Stats</a>
       </nav>
     </header>
     <main id="cc-tab-content">
