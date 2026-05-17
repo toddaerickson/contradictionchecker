@@ -12,6 +12,9 @@ is how the end-to-end smoke tests (Step 15) stay hermetic.
 
 from __future__ import annotations
 
+import gc
+import itertools
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 
 from consistency_checker.audit.logger import AuditLogger
@@ -224,16 +227,27 @@ def ingest(
 # --- check ------------------------------------------------------------------
 
 
-def _iter_candidates(
-    config: Config, store: AssertionStore, faiss_store: FaissStore, gate: CandidateGate | None
-) -> list[CandidatePair]:
+def _resolve_gate(
+    config: Config, faiss_store: FaissStore, gate: CandidateGate | None
+) -> CandidateGate:
     if gate is None:
-        gate = AnnGate(
+        return AnnGate(
             faiss_store,
             top_k=config.gate_top_k,
             similarity_threshold=config.gate_similarity_threshold,
         )
-    return list(gate.candidates(store))
+    return gate
+
+
+def _iter_candidates(
+    config: Config, store: AssertionStore, faiss_store: FaissStore, gate: CandidateGate | None
+) -> Iterator[CandidatePair]:
+    """Stream candidate pairs without materialising the full list.
+
+    The check loop and estimate_cost both consume this once. Streaming caps
+    peak memory at O(1) candidate pairs rather than O(N·top_k).
+    """
+    yield from _resolve_gate(config, faiss_store, gate).candidates(store)
 
 
 def _build_numeric_context(a: Assertion, b: Assertion, *, threshold: float) -> str | None:
@@ -309,7 +323,7 @@ def _strong_edge_count(t: Triangle, strong_keys: set[tuple[str, str]]) -> int:
 
 
 def _run_multi_party_pass(
-    pairs: list[CandidatePair],
+    pairs: Iterable[CandidatePair],
     *,
     strong_keys: set[tuple[str, str]],
     multi_party_judge: MultiPartyJudge,
@@ -393,13 +407,18 @@ def check(
     """Stage A → Stage B → optional multi-party + definition passes → audit."""
     audit_logger.update_run_status(run_id, "running")
 
-    pairs = _iter_candidates(config, store, faiss_store, gate)
-    n_pairs_gated = len(pairs)
+    strong_gate = _resolve_gate(config, faiss_store, gate)
+    n_pairs_gated = 0
     n_pairs_judged = 0
     n_findings = 0
     n_assertions = store.stats()["assertions"]
+    track_strong_keys = multi_party_judge is not None
+    strong_keys: set[tuple[str, str]] = set()
 
-    for pair in pairs:
+    for pair in strong_gate.candidates(store):
+        n_pairs_gated += 1
+        if track_strong_keys:
+            strong_keys.add((pair.a.assertion_id, pair.b.assertion_id))
         nli = score_bidirectional(nli_checker, pair.a.assertion_text, pair.b.assertion_text)
         if nli.p_contradiction < config.nli_contradiction_threshold:
             continue
@@ -418,6 +437,10 @@ def check(
         if verdict.verdict in CONTRADICTION_VERDICTS:
             n_findings += 1
 
+    # Encourage the allocator to release per-pair scratch (NLI tensors, judge
+    # SDK response objects) before the triangle / definition passes allocate.
+    gc.collect()
+
     # ADR-0006 F4: optional triangle pass over the gate output.
     # Dual-gate: feed the triangle finder a union of strong pairs (used by the
     # pairwise judge above) plus weak pairs (triangle construction only).
@@ -426,20 +449,21 @@ def check(
     n_triangles_judged = 0
     n_multi_party_findings = 0
     if multi_party_judge is not None:
-        strong_keys: set[tuple[str, str]] = {(p.a.assertion_id, p.b.assertion_id) for p in pairs}
         weak_gate = AnnGate(
             faiss_store,
             top_k=config.triangle_weak_top_k,
             similarity_threshold=config.triangle_weak_threshold,
         )
-        weak_pairs = [
+        # Re-iterate the strong gate (FAISS top-k is cheap) and chain weak
+        # pairs lazily. itertools.chain avoids materialising either stream.
+        weak_pairs_iter = (
             p
             for p in weak_gate.candidates(store)
             if (p.a.assertion_id, p.b.assertion_id) not in strong_keys
-        ]
-        all_triangle_pairs = pairs + weak_pairs
+        )
+        triangle_pairs = itertools.chain(strong_gate.candidates(store), weak_pairs_iter)
         n_triangles_judged, n_multi_party_findings = _run_multi_party_pass(
-            all_triangle_pairs,
+            triangle_pairs,
             strong_keys=strong_keys,
             multi_party_judge=multi_party_judge,
             audit_logger=audit_logger,
@@ -509,8 +533,7 @@ def estimate_cost(
     real-cost figure. Real spend is usually 30-70% lower than this
     ceiling because NLI filters most gate-pass pairs.
     """
-    candidates = _iter_candidates(config, store, faiss_store, gate=None)
-    n_candidate_pairs = len(candidates)
+    n_candidate_pairs = sum(1 for _ in _iter_candidates(config, store, faiss_store, gate=None))
 
     groups = _group_by_canonical_term(store.iter_definitions())
     n_definition_pairs = sum(len(v) * (len(v) - 1) // 2 for v in groups.values())

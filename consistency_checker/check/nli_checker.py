@@ -110,6 +110,7 @@ class TransformerNliChecker:
     DEFAULT_MODEL = "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
 
     def __init__(self, model_name: str = DEFAULT_MODEL) -> None:
+        import torch
         from transformers import pipeline
 
         # Typed as Any: transformers' pipeline return is structurally Any in
@@ -121,10 +122,14 @@ class TransformerNliChecker:
             top_k=None,
             truncation=True,
         )
+        self._torch: Any = torch
 
     def _score_single(self, premise: str, hypothesis: str) -> NliResult:
         """Score a single premise/hypothesis pair without length guard."""
-        outputs = self._pipe([{"text": premise, "text_pair": hypothesis}])
+        # inference_mode skips autograd-tape allocation entirely — meaningful
+        # peak-RSS reduction on the DeBERTa-large model.
+        with self._torch.inference_mode():
+            outputs = self._pipe([{"text": premise, "text_pair": hypothesis}])
         # With top_k=None, outputs is a list (per input) of lists of {label, score} dicts.
         scores_list = outputs[0]
         by_label = {item["label"].lower(): float(item["score"]) for item in scores_list}

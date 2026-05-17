@@ -97,6 +97,44 @@ def _warn_if_model_download_needed(model_name: str) -> None:
         pass  # huggingface_hub not available or lookup failed — skip silently
 
 
+# Estimated peak RSS for a typical check() run: mpnet embedder + DeBERTa-large
+# NLI + python/sqlite/faiss baseline. Used to warn when MemAvailable is low.
+_NLI_PEAK_ESTIMATE_MB = 2500
+
+
+def _available_memory_mb() -> int | None:
+    """Return MemAvailable in MB via psutil, or None if psutil isn't installed."""
+    try:
+        import psutil
+    except ImportError:
+        return None
+    return int(psutil.virtual_memory().available // (1024 * 1024))
+
+
+def _preflight_memory(cfg: Config) -> None:
+    """Abort or warn before the NLI model is loaded.
+
+    - When ``cfg.max_memory_mb`` is set and exceeds MemAvailable, abort.
+    - When MemAvailable is below the NLI peak estimate, print a soft warning.
+    - When psutil isn't installed, skip silently — the check is best-effort.
+    """
+    available_mb = _available_memory_mb()
+    if available_mb is None:
+        return
+    if cfg.max_memory_mb is not None and available_mb < cfg.max_memory_mb:
+        raise typer.BadParameter(
+            f"Available memory {available_mb} MB is below max_memory_mb="
+            f"{cfg.max_memory_mb}. Close other processes, lower the threshold, "
+            "or use a smaller `nli_model` (e.g. DeBERTa-v3-base)."
+        )
+    if available_mb < _NLI_PEAK_ESTIMATE_MB:
+        typer.echo(
+            f"Warning: {available_mb} MB available; the NLI + embedder stack "
+            f"typically needs ~{_NLI_PEAK_ESTIMATE_MB} MB. The check may OOM. "
+            "Consider closing other processes or using a smaller `nli_model`."
+        )
+
+
 # --- ingest -----------------------------------------------------------------
 
 
@@ -143,6 +181,7 @@ def check(
     if deep:
         cfg = cfg.model_copy(update={"enable_multi_party": True})
     configure_logging(cfg.log_dir)
+    _preflight_memory(cfg)
     embedder = make_embedder(cfg)
     store = _open_store(cfg)
     faiss_store = _open_faiss(cfg, dim=embedder.dim)

@@ -21,6 +21,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "jinja2>=3.1",
     "uvicorn>=0.30",
+    "psutil>=5.9",
 ]
 
 [project.scripts]
@@ -77,6 +78,8 @@ module = [
     "reportlab.*",
     "docx",
     "docx.*",
+    "psutil",
+    "psutil.*",
 ]
 ignore_missing_imports = true
 

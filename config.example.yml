@@ -30,3 +30,8 @@ gate_similarity_threshold: 0.7
 # Chunking — used by corpus/chunker.py
 chunk_max_chars: 1000
 chunk_overlap_chars: 0
+
+# Optional memory guardrail. When set, `consistency-check check` aborts
+# before loading the NLI model if MemAvailable is below this threshold. See
+# CORPORATE_SETUP.md §4.5. Leave unset to skip the pre-flight entirely.
+# max_memory_mb: 3000
