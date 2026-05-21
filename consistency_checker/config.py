@@ -69,6 +69,11 @@ class Config(BaseModel):
         ),
     )
     judge_model: str = Field(default="claude-sonnet-4-6")
+    junk_filter_enabled: bool = Field(
+        default=True,
+        description="Drop structural junk (TOC dot-leaders, page numbers, "
+        "cross-reference 'definitions') during ingest. See junk_filter.py.",
+    )
 
     data_dir: Path = Field(default_factory=default_data_dir)
     log_dir: Path = Field(default_factory=default_log_dir)

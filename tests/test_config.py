@@ -174,3 +174,18 @@ def test_get_logger_namespaces_under_package() -> None:
     child = get_logger("foo")
     assert child.name == f"{LOGGER_NAME}.foo"
     assert isinstance(child, logging.Logger)
+
+
+def test_junk_filter_enabled_defaults_true(tmp_path: Path) -> None:
+    yml = write_yaml(tmp_path / "c.yml", {"corpus_dir": str(tmp_path / "corpus")})
+    cfg = Config.from_yaml(yml, env={})
+    assert cfg.junk_filter_enabled is True
+
+
+def test_junk_filter_enabled_can_disable(tmp_path: Path) -> None:
+    yml = write_yaml(
+        tmp_path / "c.yml",
+        {"corpus_dir": str(tmp_path / "corpus"), "junk_filter_enabled": False},
+    )
+    cfg = Config.from_yaml(yml, env={})
+    assert cfg.junk_filter_enabled is False
