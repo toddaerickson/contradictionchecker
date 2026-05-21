@@ -1059,4 +1059,6 @@ def _ingest_uploaded_paths(
                 store.add_assertions(assertions)
                 n_assertions += len(assertions)
     embed_pending(store, faiss_store, embedder)
+    if junk_audit is not None and junk_audit.counts:
+        _log.info("Junk filter dropped (text stage): %s", junk_audit.counts)
     return n_assertions

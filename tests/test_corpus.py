@@ -347,6 +347,7 @@ def test_loader_char_span_invariant_holds_after_filtering(
     pdf.write_bytes(b"%PDF stub")
     loaded = UnstructuredLoader(drop_junk_lines=True)(pdf)
     spans = json.loads(loaded.document.metadata_json)["element_spans"]
+    assert len(spans) == 2  # both real clauses kept; junk element dropped
     for span in spans:
         assert loaded.text[span["char_start"] : span["char_end"]] == (
             "First real clause." if span["char_start"] == 0 else "Second real clause."
