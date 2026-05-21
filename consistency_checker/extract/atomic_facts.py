@@ -1,16 +1,20 @@
 """Atomic-fact extraction.
 
 Takes a :class:`Chunk` and returns a list of :class:`Assertion` records, each
-holding one decontextualised, verifiable claim. Two backends:
+holding one decontextualised, verifiable claim. Backends:
 
 - :class:`FixtureExtractor` — returns canned responses keyed by chunk id. Used
   by hermetic tests; no network.
 - :class:`AnthropicExtractor` — calls Claude with the FActScore-style prompt
   in ``prompts/atomic_facts.txt``. Uses the SDK's tool-use feature to force a
   JSON schema, with Pydantic validation on the response.
+- :class:`MoonshotExtractor` — calls Kimi (Moonshot AI) via the OpenAI-
+  compatible ``beta.chat.completions.parse`` endpoint with the same schema.
+- :class:`JunkFilteringExtractor` — decorator that drops junk assertions from
+  any extractor.
 
-OpenAI support can be added later as another implementation of
-:class:`Extractor` without touching downstream code.
+New backends implement the :class:`Extractor` Protocol without touching
+downstream code.
 """
 
 from __future__ import annotations

@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
 from consistency_checker.corpus.chunker import Chunk
+from consistency_checker.corpus.junk_filter import JunkAudit
 from consistency_checker.extract.atomic_facts import (
     PROMPT_PATH,
     TOOL_NAME,
     TOOL_SCHEMA,
     AnthropicExtractor,
     FixtureExtractor,
+    JunkFilteringExtractor,
     MoonshotExtractor,
     _DefinitionItem,
     _ExtractionPayload,
@@ -401,10 +404,6 @@ def test_moonshot_extractor_requires_key_when_no_client(monkeypatch: pytest.Monk
 # --- JunkFilteringExtractor -------------------------------------------------
 
 
-from consistency_checker.corpus.junk_filter import JunkAudit
-from consistency_checker.extract.atomic_facts import JunkFilteringExtractor
-
-
 def test_junk_filtering_extractor_drops_junk_keeps_clean() -> None:
     chunk = make_chunk("body text", doc_id="docZ")
     inner = FixtureExtractor(
@@ -422,3 +421,14 @@ def test_junk_filtering_extractor_no_audit_ok() -> None:
     inner = FixtureExtractor({chunk.chunk_id: ["1."]})  # near_empty → dropped
     ext = JunkFilteringExtractor(inner)
     assert ext.extract(chunk) == []
+
+
+def test_make_extractor_wraps_only_when_enabled(tmp_path: Path) -> None:
+    from consistency_checker.config import Config
+    from consistency_checker.pipeline import make_extractor
+
+    base = {"corpus_dir": tmp_path, "judge_provider": "anthropic", "data_dir": tmp_path}
+    wrapped = make_extractor(Config(**base, junk_filter_enabled=True))
+    assert isinstance(wrapped, JunkFilteringExtractor)
+    plain = make_extractor(Config(**base, junk_filter_enabled=False))
+    assert not isinstance(plain, JunkFilteringExtractor)
