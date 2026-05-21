@@ -23,6 +23,7 @@ from fastapi.templating import Jinja2Templates
 from consistency_checker.audit.logger import AuditLogger
 from consistency_checker.config import Config, load_local_env
 from consistency_checker.corpus.chunker import chunk_document
+from consistency_checker.corpus.junk_filter import JunkAudit
 from consistency_checker.corpus.loader import load_path
 from consistency_checker.index.assertion_store import AssertionStore
 from consistency_checker.index.embedder import Embedder, embed_pending
@@ -1039,9 +1040,14 @@ def _ingest_uploaded_paths(
     a directory — the web upload doesn't have a single corpus_dir, just a
     handful of just-saved files. Returns the number of assertions added.
     """
+    junk_audit = (
+        JunkAudit(config.data_dir / "junk_drops.jsonl") if config.junk_filter_enabled else None
+    )
     n_assertions = 0
     for path in paths:
-        loaded = load_path(path)
+        loaded = load_path(
+            path, junk_filter_enabled=config.junk_filter_enabled, junk_audit=junk_audit
+        )
         store.add_document(loaded.document)
         for chunk in chunk_document(
             loaded,

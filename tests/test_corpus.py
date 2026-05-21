@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from consistency_checker.corpus.chunker import Chunk, chunk_document
+from consistency_checker.corpus.junk_filter import JunkAudit
 from consistency_checker.corpus.loader import (
     LOADERS,
     STUB_EXTENSIONS,
@@ -291,3 +292,73 @@ def test_unstructured_loader_full_corpus_walk(
     loaded = list(load_corpus(corpus))
     suffixes = {Path(ld.document.source_path).suffix for ld in loaded}
     assert suffixes == {".txt", ".pdf", ".docx"}
+
+
+# --- junk filter in UnstructuredLoader --------------------------------------
+
+
+def _named(text: str, category: str):
+    """Build a fake unstructured element whose type name drives BODY_TYPES."""
+    element = type(category, (), {})()
+    element.text = text
+    return element
+
+
+def _patch_partition(monkeypatch: pytest.MonkeyPatch, elements: list[object]) -> None:
+    # UnstructuredLoader.__call__ does `from unstructured.partition.auto import partition`,
+    # resolving the attribute on this module at call time.
+    import unstructured.partition.auto as auto
+
+    monkeypatch.setattr(auto, "partition", lambda **kwargs: elements)
+
+
+@_skip_unstructured_on_win
+def test_loader_drops_junk_lines_and_keeps_real(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    elements = [
+        _named("The Board shall consist of three Directors.", "NarrativeText"),
+        _named("Table of Contents ........ 2", "Title"),
+        _named("15", "Text"),
+        _named("Members may vote by proxy.", "NarrativeText"),
+    ]
+    _patch_partition(monkeypatch, elements)
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4 stub")
+    audit = JunkAudit(None)
+    loaded = UnstructuredLoader(drop_junk_lines=True, audit=audit)(pdf)
+    assert "Board shall consist" in loaded.text
+    assert "vote by proxy" in loaded.text
+    assert "........" not in loaded.text
+    assert audit.counts == {"dot_leader": 1, "page_number": 1}
+
+
+@_skip_unstructured_on_win
+def test_loader_char_span_invariant_holds_after_filtering(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    elements = [
+        _named("First real clause.", "NarrativeText"),
+        _named("........ 9", "Title"),
+        _named("Second real clause.", "NarrativeText"),
+    ]
+    _patch_partition(monkeypatch, elements)
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF stub")
+    loaded = UnstructuredLoader(drop_junk_lines=True)(pdf)
+    spans = json.loads(loaded.document.metadata_json)["element_spans"]
+    for span in spans:
+        assert loaded.text[span["char_start"] : span["char_end"]] == (
+            "First real clause." if span["char_start"] == 0 else "Second real clause."
+        )
+    assert "........" not in loaded.text
+
+
+@_skip_unstructured_on_win
+def test_loader_disabled_keeps_everything(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    elements = [_named("Real clause.", "NarrativeText"), _named("15", "Text")]
+    _patch_partition(monkeypatch, elements)
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF stub")
+    loaded = UnstructuredLoader(drop_junk_lines=False)(pdf)
+    assert "15" in loaded.text

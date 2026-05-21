@@ -206,8 +206,15 @@ def ingest(
     embedder: Embedder,
 ) -> IngestResult:
     """Walk corpus_dir → chunks → assertions → embeddings."""
+    junk_audit = (
+        JunkAudit(config.data_dir / "junk_drops.jsonl") if config.junk_filter_enabled else None
+    )
     n_docs = n_chunks = n_assertions = 0
-    for loaded in load_corpus(config.corpus_dir):
+    for loaded in load_corpus(
+        config.corpus_dir,
+        junk_filter_enabled=config.junk_filter_enabled,
+        junk_audit=junk_audit,
+    ):
         store.add_document(loaded.document)
         n_docs += 1
         chunks = chunk_document(
@@ -223,6 +230,8 @@ def ingest(
                 n_assertions += len(assertions)
 
     n_embedded = embed_pending(store, faiss_store, embedder)
+    if junk_audit is not None and junk_audit.counts:
+        _log.info("Junk filter dropped (text stage): %s", junk_audit.counts)
     _log.info(
         "Ingested %d docs / %d chunks / %d assertions (%d newly embedded)",
         n_docs,
