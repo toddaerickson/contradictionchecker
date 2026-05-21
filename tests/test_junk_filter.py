@@ -102,3 +102,28 @@ def test_junk_audit_write_failure_is_swallowed(tmp_path: Path) -> None:
     audit = JunkAudit(bad / "nested" / "drops.jsonl")
     audit.record(stage="text", reason="dot_leader", doc_id=None, text="...")  # no exception
     assert audit.counts == {"dot_leader": 1}
+
+
+def test_is_junk_assertion_cross_reference_still_fires_on_bare_pointers() -> None:
+    # regression guard: the observed junk must still be caught after tightening
+    assert is_junk_assertion("as defined in this Article 11") == "cross_reference"
+    assert is_junk_assertion("as defined in the bylaws") == "cross_reference"
+    assert is_junk_assertion("See Section 4.2 below.") == "cross_reference"
+
+
+def test_is_junk_assertion_keeps_short_real_clauses_with_pointer_phrase() -> None:
+    # real governance clauses that START with a pointer phrase but carry substance
+    # must NOT be dropped (they exceed the 30-alpha guard)
+    keepers = [
+        "As used herein, Director means a board member.",
+        "As defined above, Quorum is a majority of Directors.",
+        "As provided in the Bylaws, the President shall preside.",
+        "As set forth in Section 3, the Treasurer keeps all funds.",
+    ]
+    for text in keepers:
+        assert is_junk_assertion(text) is None, f"wrongly dropped: {text!r}"
+
+
+def test_is_junk_assertion_near_empty_boundary_keeps_real_short_clause() -> None:
+    # >=10 alphabetic chars, real content → not near_empty
+    assert is_junk_assertion("Members vote.") is None

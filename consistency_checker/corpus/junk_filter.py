@@ -33,7 +33,10 @@ _REF_TARGET_RE = re.compile(
 )
 
 _MIN_ALPHA_ASSERTION = 10  # below this many alpha chars → near_empty
-_MAX_ALPHA_CROSS_REF = 60  # cross-ref pointer with fewer alpha chars carries no substance
+_MAX_ALPHA_CROSS_REF = 30  # a bare pointer ("as defined in Article 11") is short; real
+# clauses that merely cite a section ("As used herein, Director means a board member.")
+# run longer and must be kept. 30 was chosen so observed junk pointers (≤22 alpha) still
+# fire while real short governance clauses (≥37 alpha) are preserved.
 _MIN_LEN_NON_ALPHA = 8  # mostly_non_alpha only applies at/above this length
 _MIN_ALPHA_RATIO = 0.15  # below this alpha fraction → mostly non-alphabetic
 

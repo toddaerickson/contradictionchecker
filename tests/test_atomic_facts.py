@@ -432,3 +432,27 @@ def test_make_extractor_wraps_only_when_enabled(tmp_path: Path) -> None:
     assert isinstance(wrapped, JunkFilteringExtractor)
     plain = make_extractor(Config(**base, junk_filter_enabled=False))
     assert not isinstance(plain, JunkFilteringExtractor)
+
+
+def test_junk_filtering_extractor_drops_cross_reference_definition() -> None:
+    chunk = make_chunk("body", doc_id="docD")
+    inner = FixtureExtractor(
+        definitions={
+            chunk.chunk_id: [
+                {
+                    "term": "Agent",
+                    "definition_text": "see Article 11",
+                    "containing_sentence": "as defined in this Article 11",
+                },
+                {
+                    "term": "Quorum",
+                    "definition_text": "a majority",
+                    "containing_sentence": "Quorum means a majority of the Directors then in office.",
+                },
+            ]
+        }
+    )
+    out = JunkFilteringExtractor(inner).extract(chunk)
+    texts = [a.assertion_text for a in out]
+    assert "as defined in this Article 11" not in texts  # cross-reference definition dropped
+    assert any("Quorum means a majority" in t for t in texts)  # real definition kept
