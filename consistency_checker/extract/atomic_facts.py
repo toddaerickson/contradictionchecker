@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from pydantic import BaseModel, Field, ValidationError
 
 from consistency_checker.corpus.chunker import Chunk
+from consistency_checker.corpus.junk_filter import JunkAudit, is_junk_assertion
 from consistency_checker.extract.schema import Assertion
 from consistency_checker.logging_setup import get_logger
 
@@ -286,3 +287,30 @@ class MoonshotExtractor:
             _log.warning("Atomic-fact extraction (moonshot) returned no usable payload: %s", exc)
             return []
         return _assertions_from_payload(chunk, payload)
+
+
+class JunkFilteringExtractor:
+    """Wraps an :class:`Extractor`, dropping assertions flagged by ``is_junk_assertion``.
+
+    Applied in :func:`make_extractor` so every ingest path (CLI, web, headless)
+    inherits assertion-stage filtering with no per-path wiring.
+    """
+
+    def __init__(self, inner: Extractor, *, audit: JunkAudit | None = None) -> None:
+        self._inner = inner
+        self._audit = audit
+
+    def extract(self, chunk: Chunk) -> list[Assertion]:
+        kept: list[Assertion] = []
+        for assertion in self._inner.extract(chunk):
+            reason = is_junk_assertion(assertion.assertion_text)
+            if reason is None:
+                kept.append(assertion)
+            elif self._audit is not None:
+                self._audit.record(
+                    stage="assertion",
+                    reason=reason,
+                    doc_id=assertion.doc_id,
+                    text=assertion.assertion_text,
+                )
+        return kept

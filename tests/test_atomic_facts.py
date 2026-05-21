@@ -396,3 +396,29 @@ def test_moonshot_extractor_requires_key_when_no_client(monkeypatch: pytest.Monk
     monkeypatch.delenv("MOONSHOT_API_KEY", raising=False)
     with pytest.raises(ValueError, match="MOONSHOT_API_KEY"):
         MoonshotExtractor()
+
+
+# --- JunkFilteringExtractor -------------------------------------------------
+
+
+from consistency_checker.corpus.junk_filter import JunkAudit
+from consistency_checker.extract.atomic_facts import JunkFilteringExtractor
+
+
+def test_junk_filtering_extractor_drops_junk_keeps_clean() -> None:
+    chunk = make_chunk("body text", doc_id="docZ")
+    inner = FixtureExtractor(
+        {chunk.chunk_id: ["Quorum means a majority of the Directors.", "as defined in Article 11"]}
+    )
+    audit = JunkAudit(None)
+    ext = JunkFilteringExtractor(inner, audit=audit)
+    out = ext.extract(chunk)
+    assert [a.assertion_text for a in out] == ["Quorum means a majority of the Directors."]
+    assert audit.counts == {"cross_reference": 1}
+
+
+def test_junk_filtering_extractor_no_audit_ok() -> None:
+    chunk = make_chunk("body", doc_id="docZ")
+    inner = FixtureExtractor({chunk.chunk_id: ["1."]})  # near_empty → dropped
+    ext = JunkFilteringExtractor(inner)
+    assert ext.extract(chunk) == []

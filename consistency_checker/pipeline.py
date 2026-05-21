@@ -55,11 +55,13 @@ from consistency_checker.check.providers.openai import (
 from consistency_checker.check.triangle import Triangle, find_triangles
 from consistency_checker.config import Config
 from consistency_checker.corpus.chunker import chunk_document
+from consistency_checker.corpus.junk_filter import JunkAudit
 from consistency_checker.corpus.loader import load_corpus
 from consistency_checker.extract.atomic_facts import (
     AnthropicExtractor,
     Extractor,
     FixtureExtractor,
+    JunkFilteringExtractor,
     MoonshotExtractor,
 )
 from consistency_checker.extract.quantitative import (
@@ -126,9 +128,15 @@ def make_extractor(config: Config) -> Extractor:
     """Build an extractor from config; ``fixture`` provider returns an empty fixture."""
     if config.judge_provider == "fixture":
         return FixtureExtractor({})
+    inner: Extractor
     if config.judge_provider == "moonshot":
-        return MoonshotExtractor(model="kimi-k2.6")
-    return AnthropicExtractor(model=config.judge_model)
+        inner = MoonshotExtractor(model="kimi-k2.6")
+    else:
+        inner = AnthropicExtractor(model=config.judge_model)
+    if config.junk_filter_enabled:
+        audit = JunkAudit(config.data_dir / "junk_drops.jsonl")
+        return JunkFilteringExtractor(inner, audit=audit)
+    return inner
 
 
 def make_embedder(config: Config) -> Embedder:
