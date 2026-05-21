@@ -2,6 +2,18 @@
 
 Forward-looking work beyond the v0.3 release. Items are sized roughly; pick from the top when starting a new milestone. When work is finished, move the entry to the **Completed** section below rather than deleting it — provenance matters when revisiting decisions.
 
+## Eval findings & next levers (2026-05-21)
+
+Real-corpus eval (3 nonprofit-bylaws PDFs + an earlier loan/partnership corpus, Moonshot/Kimi judge) produced three decisions that should steer the next milestone pick. No ground truth — these are operating-point observations, not precision/recall.
+
+1. **Pairwise contradiction detector is low-yield on legal/contract prose — deprioritize.** Full funnel on a real partnership/loan corpus (3,416 assertions → 901 candidate pairs → 254 NLI-flagged) yielded **1** borderline, non-reproducing "contradiction" (kimi non-deterministic; 22/24 borderline pairs flipped verdict across re-runs). Adding containing-sentence context made the judge confidently find **zero**. The judge is competent; the detector just earns ~nothing on prose at high compute cost. Lean into definition-inconsistency + the obligation/date-conflict and cross-reference detectors (items #20/#20a) instead.
+
+2. **PDF junk filter shipped (PR #61) and validated — but it only fixed the extraction-noise slice.** It removed dot-leaders / page-numbers / cross-reference "definitions" (bylaws corpus: 158→84 definitions, 93→24 same-term pairs, zero junk fragments reaching the judge). Definition-divergent rate fell only **84%→75%** because the residual is NOT extraction noise.
+
+3. **The residual divergent noise is two separate, still-open problems:**
+   - **Definition-judge / canonicalizer precision (highest-leverage next item).** It flags identical text as "divergent" (e.g. *"the authorized number of directors of the Corporation"* vs itself). This is the canonicalizer + judge-precision work the 2026-05-15 expert panel scoped: alias-aware, capitalization-preserving, no plural-strip; tighter judge prompt. See [[project-expert-panel-synthesis-2026-05-15]] in memory.
+   - **Corpus composition.** Comparing 3 *unrelated organizations'* bylaws makes every shared term ("Director", "Quorum") "diverge" by construction. Meaningful detection needs a *single* entity's governing docs. Worth a UI/doc warning when a corpus spans unrelated sources, and/or entity-grouping (cf. item #7).
+
 ## v0.4 — precision and provenance
 
 Higher-effort items that require more design discussion. Some carry from the old v0.3 list because v0.3 ended up focused on the web UI (Block G) instead.
@@ -237,6 +249,9 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
 ## Completed
 
 (Move items here as they ship, keep a one-line note on which release.)
+
+- **PDF extraction junk filter (PR #61, 2026-05-21)** — deterministic, conservative, audited two-stage filter (`consistency_checker/corpus/junk_filter.py`): `is_junk_line` drops TOC dot-leaders / page-numbers / non-alpha rows in `UnstructuredLoader`; `is_junk_assertion` drops cross-reference / near-empty "definitions" via a `JunkFilteringExtractor` wrapper in `make_extractor`; gated by `config.junk_filter_enabled` (default on); drops audited to `<data_dir>/junk_drops.jsonl`. Spec + plan in `docs/superpowers/`. Measured effect: see "Eval findings & next levers (2026-05-21)" above.
+- **Moonshot (Kimi) provider end-to-end + safe `.env` loading (PR #60, 2026-05-21)** — `config.yml` defaults to `judge_provider: moonshot`, `kimi-k2.6`; `MoonshotExtractor` + `MoonshotDefinitionProvider` so extraction, judge, and definition-judge all run on one Kimi key; `load_local_env()` reads `MOONSHOT_API_KEY` from a gitignored `.env` at CLI/web startup. Extraction disables Kimi reasoning (`thinking:disabled`, ~50× faster; the `moonshot-v1-*` models can't do structured output). Bundled the API-500 info-disclosure hardening (generic detail messages across 12 endpoints).
 
 - **f4-fixups** — `AuditLogger.most_recent_run()` + CLI private-attr fix (already done on branch); `FaissStore.open_or_create` made `dim`-optional (reads from existing index header); `_run_check_in_background` no longer loads the ~800 MB embedder model for check runs; `pipeline.check` now requires a pre-created `run_id` — callers own `begin_run` (items #16, #18, and the `main.py:140` known issue).
 
