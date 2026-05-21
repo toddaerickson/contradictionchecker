@@ -57,6 +57,10 @@ def test_is_junk_assertion_dot_fragment() -> None:
     assert is_junk_assertion(".......... 15") == "dot_fragment"
 
 
+def test_is_junk_assertion_mostly_non_alpha() -> None:
+    assert is_junk_assertion("________________") == "mostly_non_alpha"
+
+
 # --- is_junk_assertion: clean cases that must NOT be dropped ----------------
 def test_is_junk_assertion_keeps_real_definition() -> None:
     text = "Quorum means a majority of the Directors then in office."

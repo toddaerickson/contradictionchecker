@@ -17,6 +17,8 @@ from pathlib import Path
 
 _log = logging.getLogger(__name__)
 
+__all__ = ["JunkAudit", "is_junk_assertion", "is_junk_line"]
+
 _DOT_LEADER_RE = re.compile(r"\.{5,}")
 _PAGE_NUMBER_RE = re.compile(r"^(?:page\s+)?\d{1,4}$", re.IGNORECASE)
 _DASH_PAGE_RE = re.compile(r"^[-–—]\s*\d{1,4}\s*[-–—]$")  # noqa: RUF001
@@ -33,7 +35,7 @@ _REF_TARGET_RE = re.compile(
 _MIN_ALPHA_ASSERTION = 10  # below this many alpha chars → near_empty
 _MAX_ALPHA_CROSS_REF = 60  # cross-ref pointer with fewer alpha chars carries no substance
 _MIN_LEN_NON_ALPHA = 8  # mostly_non_alpha only applies at/above this length
-_MAX_NON_ALPHA_RATIO = 0.15  # below this alpha fraction → mostly non-alphabetic
+_MIN_ALPHA_RATIO = 0.15  # below this alpha fraction → mostly non-alphabetic
 
 
 def _alpha_count(text: str) -> int:
@@ -55,7 +57,7 @@ def is_junk_line(text: str) -> str | None:
         return "page_number"
     if _DOT_LEADER_RE.search(stripped):
         return "dot_leader"
-    if len(stripped) >= _MIN_LEN_NON_ALPHA and _alpha_ratio(stripped) < _MAX_NON_ALPHA_RATIO:
+    if len(stripped) >= _MIN_LEN_NON_ALPHA and _alpha_ratio(stripped) < _MIN_ALPHA_RATIO:
         return "mostly_non_alpha"
     return None
 
@@ -65,10 +67,10 @@ def is_junk_assertion(text: str) -> str | None:
     if not isinstance(text, str):
         return None
     stripped = text.strip()
-    if _DOT_LEADER_RE.search(stripped) or (
-        len(stripped) >= _MIN_LEN_NON_ALPHA and _alpha_ratio(stripped) < _MAX_NON_ALPHA_RATIO
-    ):
+    if _DOT_LEADER_RE.search(stripped):
         return "dot_fragment"
+    if len(stripped) >= _MIN_LEN_NON_ALPHA and _alpha_ratio(stripped) < _MIN_ALPHA_RATIO:
+        return "mostly_non_alpha"
     if _alpha_count(stripped) < _MIN_ALPHA_ASSERTION:
         return "near_empty"
     if (
