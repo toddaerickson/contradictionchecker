@@ -43,6 +43,7 @@ from consistency_checker.check.providers.definition_base import (
     DEFINITION_INCONSISTENCY_VERDICTS,
 )
 from consistency_checker.check.providers.moonshot import (
+    MoonshotDefinitionProvider,
     MoonshotJudgeProvider,
     MoonshotMultiPartyJudgeProvider,
 )
@@ -59,6 +60,7 @@ from consistency_checker.extract.atomic_facts import (
     AnthropicExtractor,
     Extractor,
     FixtureExtractor,
+    MoonshotExtractor,
 )
 from consistency_checker.extract.quantitative import (
     extract_quantities,
@@ -124,6 +126,8 @@ def make_extractor(config: Config) -> Extractor:
     """Build an extractor from config; ``fixture`` provider returns an empty fixture."""
     if config.judge_provider == "fixture":
         return FixtureExtractor({})
+    if config.judge_provider == "moonshot":
+        return MoonshotExtractor(model="kimi-k2.6")
     return AnthropicExtractor(model=config.judge_model)
 
 
@@ -173,6 +177,8 @@ def make_definition_judge(config: Config) -> DefinitionJudge:
         return LLMDefinitionJudge(AnthropicDefinitionProvider(model=config.judge_model))
     if config.judge_provider == "openai":
         return LLMDefinitionJudge(OpenAIDefinitionProvider(model=config.judge_model))
+    if config.judge_provider == "moonshot":
+        return LLMDefinitionJudge(MoonshotDefinitionProvider(model="kimi-k2.6"))
     raise ValueError(f"make_definition_judge(): provider {config.judge_provider!r} has no factory.")
 
 

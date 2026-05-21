@@ -200,7 +200,9 @@ def test_upload_rejects_oversized_file(configured_client: TestClient, tmp_path: 
 
 def test_upload_rejects_bad_extension(configured_client: TestClient, tmp_path: Path) -> None:
     with io.BytesIO(b"MZ") as f:
-        resp = configured_client.post("/uploads", files=[("files", ("bad.exe", f, "application/octet-stream"))])
+        resp = configured_client.post(
+            "/uploads", files=[("files", ("bad.exe", f, "application/octet-stream"))]
+        )
     assert resp.status_code == 400
 
 
@@ -210,7 +212,10 @@ def test_upload_rejects_no_extension(configured_client: TestClient) -> None:
             "/uploads", files=[("files", ("noext", f, "application/octet-stream"))]
         )
     assert resp.status_code == 400
-    assert "no extension" in resp.json()["detail"].lower() or "extension" in resp.json()["detail"].lower()
+    assert (
+        "no extension" in resp.json()["detail"].lower()
+        or "extension" in resp.json()["detail"].lower()
+    )
 
 
 # --- static files -----------------------------------------------------------

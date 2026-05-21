@@ -15,6 +15,8 @@ from consistency_checker.extract.atomic_facts import (
     TOOL_SCHEMA,
     AnthropicExtractor,
     FixtureExtractor,
+    MoonshotExtractor,
+    _DefinitionItem,
     _ExtractionPayload,
     parse_tool_response,
     render_prompt,
@@ -345,3 +347,52 @@ def test_prompt_mentions_definitions() -> None:
     assert "means" in rendered
     assert "for purposes of" in rendered.lower()
     assert "record_extraction" in rendered
+
+
+# --- MoonshotExtractor (OpenAI-compatible structured output) ----------------
+
+
+def _fake_moonshot_client(payload: object) -> SimpleNamespace:
+    """Mimic openai.OpenAI's beta.chat.completions.parse(...) -> parsed payload."""
+
+    def parse(**_kwargs: object) -> SimpleNamespace:
+        message = SimpleNamespace(parsed=payload)
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    return SimpleNamespace(
+        beta=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(parse=parse)))
+    )
+
+
+def test_moonshot_extractor_parses_assertions_and_definitions() -> None:
+    chunk = make_chunk("Eligible members receive a discount. Member means a dues-paying person.")
+    payload = _ExtractionPayload(
+        assertions=["Eligible members receive a discount."],
+        definitions=[
+            _DefinitionItem(
+                term="Member",
+                definition_text="a dues-paying person",
+                containing_sentence="Member means a dues-paying person.",
+            )
+        ],
+    )
+    ext = MoonshotExtractor(client=_fake_moonshot_client(payload))
+    out = ext.extract(chunk)
+    assert {a.assertion_text for a in out} == {
+        "Eligible members receive a discount.",
+        "Member means a dues-paying person.",
+    }
+    definition = next(a for a in out if a.kind == "definition")
+    assert definition.term == "Member"
+    assert definition.char_start == chunk.char_start  # provenance carried through
+
+
+def test_moonshot_extractor_none_payload_returns_empty() -> None:
+    ext = MoonshotExtractor(client=_fake_moonshot_client(None))
+    assert ext.extract(make_chunk()) == []
+
+
+def test_moonshot_extractor_requires_key_when_no_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MOONSHOT_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="MOONSHOT_API_KEY"):
+        MoonshotExtractor()

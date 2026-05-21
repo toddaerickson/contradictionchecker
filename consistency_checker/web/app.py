@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from consistency_checker.audit.logger import AuditLogger
-from consistency_checker.config import Config
+from consistency_checker.config import Config, load_local_env
 from consistency_checker.corpus.chunker import chunk_document
 from consistency_checker.corpus.loader import load_path
 from consistency_checker.index.assertion_store import AssertionStore
@@ -182,6 +182,7 @@ def create_app(
     hermetic. In production all default to ``None`` and the app falls back
     to the same factories the CLI uses.
     """
+    load_local_env()
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
     app = FastAPI(

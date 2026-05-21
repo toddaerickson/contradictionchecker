@@ -34,7 +34,7 @@ from consistency_checker.audit.naming import (
     report_filename,
 )
 from consistency_checker.audit.report import render_report
-from consistency_checker.config import Config
+from consistency_checker.config import Config, load_local_env
 from consistency_checker.index.assertion_store import AssertionStore
 from consistency_checker.index.faiss_store import FaissStore
 from consistency_checker.logging_setup import configure as configure_logging
@@ -59,6 +59,12 @@ from consistency_checker.pipeline import (
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Consistency checker CLI.")
 store_app = typer.Typer(help="Assertion-store maintenance commands.")
 app.add_typer(store_app, name="store")
+
+
+@app.callback()
+def _bootstrap() -> None:
+    """Load secrets from a local ``.env`` before any subcommand runs."""
+    load_local_env()
 
 
 def _load_config(config_path: Path | None) -> Config:

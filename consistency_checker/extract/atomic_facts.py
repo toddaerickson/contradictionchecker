@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from consistency_checker.corpus.chunker import Chunk
 from consistency_checker.extract.schema import Assertion
@@ -212,5 +212,77 @@ class AnthropicExtractor:
             payload = parse_tool_response(response)
         except ValueError as exc:
             _log.warning("Atomic-fact extraction returned no usable payload: %s", exc)
+            return []
+        return _assertions_from_payload(chunk, payload)
+
+
+class MoonshotExtractor:
+    """Atomic-fact extraction via Moonshot (Kimi) using the OpenAI-compatible API.
+
+    Mirrors :class:`AnthropicExtractor` but uses ``beta.chat.completions.parse``
+    with the same :class:`_ExtractionPayload` schema, so the whole pipeline can
+    run on a single Moonshot key without an Anthropic credential.
+    """
+
+    def __init__(
+        self,
+        *,
+        client: Any = None,
+        model: str = "kimi-k2.6",
+        api_key: str | None = None,
+        max_tokens: int = 8192,
+        disable_thinking: bool = True,
+    ) -> None:
+        if client is None:
+            import os
+
+            import openai
+
+            key = api_key or os.getenv("MOONSHOT_API_KEY")
+            if not key:
+                raise ValueError(
+                    "MOONSHOT_API_KEY not set. Set via env var, .env file, or pass to __init__"
+                )
+            self._client: Any = openai.OpenAI(api_key=key, base_url="https://api.moonshot.ai/v1")
+        else:
+            self._client = client
+        self._model = model
+        self._max_tokens = max_tokens
+        # Extraction is mechanical — Kimi's reasoning mode adds ~50x latency
+        # (>240s vs ~5s per chunk) for no quality gain, so disable it by default.
+        self._extra_body: dict[str, Any] = (
+            {"thinking": {"type": "disabled"}} if disable_thinking else {}
+        )
+
+    def extract(self, chunk: Chunk) -> list[Assertion]:
+        import openai
+
+        prompt = render_prompt(chunk.text)
+        try:
+            response = self._client.beta.chat.completions.parse(
+                model=self._model,
+                max_tokens=self._max_tokens,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Extract atomic, decontextualised assertions and any definitions "
+                            "from the user's text. Respond only via the structured format."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                response_format=_ExtractionPayload,
+                extra_body=self._extra_body,
+            )
+            payload = response.choices[0].message.parsed
+            if payload is None:
+                raise ValueError("Moonshot extraction returned None payload")
+            if not isinstance(payload, _ExtractionPayload):
+                payload = _ExtractionPayload.model_validate(payload)
+        except (ValueError, ValidationError, openai.LengthFinishReasonError) as exc:
+            # A single oversized/garbled chunk must not abort a whole upload; skip it.
+            # Auth/network errors deliberately propagate so a bad key still surfaces.
+            _log.warning("Atomic-fact extraction (moonshot) returned no usable payload: %s", exc)
             return []
         return _assertions_from_payload(chunk, payload)
