@@ -3,7 +3,9 @@
     "allow": [
       "mcp__github__pull_request_read",
       "Bash(ruff check *)",
-      "Bash(pytest *)"
+      "Bash(pytest *)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff check *)"
     ]
   }
 }

@@ -124,7 +124,7 @@ def create_corpus(
         _log.error("Failed to create corpus directory %s: %s", corpus_path, e)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create corpus directory: {e}",
+            detail="Failed to create corpus directory",
         ) from e
 
     # Store in database
@@ -169,7 +169,7 @@ def create_corpus(
         _log.error("Failed to store corpus in database: %s", e)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to store corpus: {e}",
+            detail="Failed to store corpus",
         ) from e
 
     return {
@@ -237,7 +237,7 @@ def list_corpora(request: Request) -> dict[str, Any]:
             store.close()
     except Exception as e:
         _log.error("Failed to list corpora: %s", e)
-        raise HTTPException(status_code=500, detail=f"Failed to list corpora: {e}") from e
+        raise HTTPException(status_code=500, detail="Failed to list corpora") from e
 
 
 @router.get("/{corpus_id}", status_code=200)
@@ -303,7 +303,7 @@ def get_corpus(request: Request, corpus_id: str) -> dict[str, Any]:
         raise
     except Exception as e:
         _log.error("Failed to get corpus %s: %s", corpus_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to get corpus: {e}") from e
+        raise HTTPException(status_code=500, detail="Failed to get corpus") from e
 
 
 @router.get("/{corpus_id}/documents", status_code=200)
@@ -373,7 +373,7 @@ def list_documents(request: Request, corpus_id: str) -> dict[str, Any]:
         raise
     except Exception as e:
         _log.error("Failed to list documents for corpus %s: %s", corpus_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to list documents: {e}") from e
+        raise HTTPException(status_code=500, detail="Failed to list documents") from e
 
 
 # Route prefix for findings (not /api/corpora since it's per-finding, not per-corpus)
@@ -497,5 +497,5 @@ def set_finding_verdict(
         _log.error("Failed to set verdict for finding %s: %s", finding_id, e)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to set verdict: {e}",
+            detail="Failed to set verdict",
         ) from e

@@ -112,7 +112,7 @@ def list_runs(request: Request) -> dict[str, Any]:
             store.close()
     except Exception as e:
         _log.error("Failed to list runs: %s", e)
-        raise HTTPException(status_code=500, detail=f"Failed to list runs: {e}") from e
+        raise HTTPException(status_code=500, detail="Failed to list runs") from e
 
 
 @router.get("/{run_id}", status_code=200)
@@ -170,7 +170,7 @@ def get_run(request: Request, run_id: str) -> dict[str, Any]:
         raise
     except Exception as e:
         _log.error("Failed to get run %s: %s", run_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to get run: {e}") from e
+        raise HTTPException(status_code=500, detail="Failed to get run") from e
 
 
 async def _sse_event_generator(
@@ -316,7 +316,7 @@ async def stream_progress(request: Request, run_id: str) -> StreamingResponse:
         raise
     except Exception as e:
         _log.error("Failed to check run %s: %s", run_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to check run: {e}") from e
+        raise HTTPException(status_code=500, detail="Failed to check run") from e
 
     return StreamingResponse(
         _sse_event_generator(run_id, config, is_disconnected=request.is_disconnected),
@@ -406,7 +406,7 @@ def append_message(
         raise
     except Exception as e:
         _log.error("Failed to append message to run %s: %s", run_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to append message: {e}") from e
+        raise HTTPException(status_code=500, detail="Failed to append message") from e
 
 
 @router.patch("/{run_id}", status_code=200)
@@ -503,7 +503,7 @@ def update_run_status(
         raise
     except Exception as e:
         _log.error("Failed to update run %s: %s", run_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to update run: {e}") from e
+        raise HTTPException(status_code=500, detail="Failed to update run") from e
 
 
 @corpora_runs_router.post("/{corpus_id}/runs", status_code=201)
@@ -584,4 +584,4 @@ def start_run(
         raise
     except Exception as e:
         _log.error("Failed to start run for corpus %s: %s", corpus_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to start run: {e}") from e
+        raise HTTPException(status_code=500, detail="Failed to start run") from e
