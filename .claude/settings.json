@@ -7,5 +7,17 @@
       "Bash(uv run pytest *)",
       "Bash(uv run ruff check *)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'RESUME (contradictionchecker, as of 2026-05-21): Judge/extractor default to Moonshot/Kimi (kimi-k2.6) and need MOONSHOT_API_KEY in a gitignored .env; run from repo root. PRs #60 (Moonshot + security) and #61 (PDF junk filter) are merged to main. NEXT LEVERS are in futureplans.md under Eval findings and next levers 2026-05-21: 1) definition-judge/canonicalizer precision [highest-leverage], 2) a corpus must be a SINGLE organization for results to be meaningful, 3) the pairwise contradiction detector is deprioritized on legal/contract prose. Background in MEMORY.md.'"
+          }
+        ]
+      }
+    ]
   }
 }
