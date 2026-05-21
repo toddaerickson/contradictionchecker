@@ -20,6 +20,38 @@ from consistency_checker.paths import default_data_dir, default_log_dir
 JudgeProvider = Literal["anthropic", "openai", "moonshot", "fixture"]
 
 
+def load_local_env(
+    path: str | Path = ".env", *, environ: dict[str, str] | None = None
+) -> list[str]:
+    """Populate the environment from a local ``.env`` file (``KEY=VALUE`` lines).
+
+    Secrets (e.g. ``MOONSHOT_API_KEY``) live in the gitignored ``.env`` so they
+    never need to be typed into a shell or pasted anywhere. A key already
+    present in the environment is never overwritten, so a real shell export
+    still wins over the file. Returns the key *names* loaded (never values).
+    """
+    target = os.environ if environ is None else environ
+    env_path = Path(path)
+    if not env_path.is_file():
+        return []
+    loaded: list[str] = []
+    for raw in env_path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        if not key or key in target:
+            continue
+        target[key] = value.strip().strip('"').strip("'")
+        loaded.append(key)
+    return loaded
+
+
 class Config(BaseModel):
     """Top-level configuration for a checker run."""
 

@@ -6,6 +6,7 @@ without external network or HF model downloads.
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,7 @@ from fastapi.testclient import TestClient
 from consistency_checker.config import Config
 from consistency_checker.extract.atomic_facts import FixtureExtractor
 from consistency_checker.index.assertion_store import AssertionStore
-from consistency_checker.web.app import create_app
+from consistency_checker.web.app import MAX_UPLOAD_BYTES, create_app
 from tests.conftest import HashEmbedder
 
 
@@ -187,6 +188,34 @@ def test_ingest_tab_renders_corpus_selector(configured_client: TestClient) -> No
     body = response.text
     assert "cc-corpus-selector" in body
     assert "/api/corpora" in body
+
+
+def test_upload_rejects_oversized_file(configured_client: TestClient, tmp_path: Path) -> None:
+    big = tmp_path / "big.txt"
+    big.write_bytes(b"x" * (MAX_UPLOAD_BYTES + 1))
+    with open(big, "rb") as f:
+        resp = configured_client.post("/uploads", files=[("files", ("big.txt", f, "text/plain"))])
+    assert resp.status_code == 413
+
+
+def test_upload_rejects_bad_extension(configured_client: TestClient, tmp_path: Path) -> None:
+    with io.BytesIO(b"MZ") as f:
+        resp = configured_client.post(
+            "/uploads", files=[("files", ("bad.exe", f, "application/octet-stream"))]
+        )
+    assert resp.status_code == 400
+
+
+def test_upload_rejects_no_extension(configured_client: TestClient) -> None:
+    with io.BytesIO(b"content") as f:
+        resp = configured_client.post(
+            "/uploads", files=[("files", ("noext", f, "application/octet-stream"))]
+        )
+    assert resp.status_code == 400
+    assert (
+        "no extension" in resp.json()["detail"].lower()
+        or "extension" in resp.json()["detail"].lower()
+    )
 
 
 # --- static files -----------------------------------------------------------

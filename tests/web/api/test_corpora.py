@@ -978,3 +978,44 @@ def test_post_verdict_missing_payload_field(web_client: TestClient) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["user_verdict"] is None
+
+
+def test_get_corpus_ignores_stored_path(web_client: TestClient) -> None:
+    """Stored corpus_path column being wrong must not affect filesystem read."""
+    from consistency_checker.index.assertion_store import AssertionStore
+
+    # Create a real corpus
+    create_resp = web_client.post(
+        "/api/corpora",
+        json={"corpus_name": "Path Trust Test", "judge_provider": "moonshot"},
+    )
+    assert create_resp.status_code == 201
+    corpus = create_resp.json()
+
+    # Write a document into the real documents directory
+    real_path = Path(corpus["corpus_path"]) / "documents"
+    (real_path / "secret.txt").write_text("classified content")
+
+    # Tamper with the corpus_path column in DB to point somewhere else
+    config = web_client.app.state.config  # type: ignore[attr-defined]
+    store = AssertionStore(config.db_path)
+    store.migrate()
+    try:
+        store._conn.execute(
+            "UPDATE corpora SET corpus_path = ? WHERE corpus_id = ?",
+            ("/etc", corpus["corpus_id"]),
+        )
+        store._conn.commit()
+    finally:
+        store.close()
+
+    # GET corpus — should still work (document_count reflects real dir, not /etc)
+    resp = web_client.get(f"/api/corpora/{corpus['corpus_id']}")
+    assert resp.status_code == 200
+    assert resp.json()["document_count"] == 1  # found secret.txt
+
+    # GET documents — should still list from real dir, not /etc
+    docs_resp = web_client.get(f"/api/corpora/{corpus['corpus_id']}/documents")
+    assert docs_resp.status_code == 200
+    assert len(docs_resp.json()["documents"]) == 1
+    assert docs_resp.json()["documents"][0]["filename"] == "secret.txt"

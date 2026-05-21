@@ -10,7 +10,6 @@ import re
 import secrets
 import sqlite3
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -125,7 +124,7 @@ def create_corpus(
         _log.error("Failed to create corpus directory %s: %s", corpus_path, e)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create corpus directory: {e}",
+            detail="Failed to create corpus directory",
         ) from e
 
     # Store in database
@@ -170,7 +169,7 @@ def create_corpus(
         _log.error("Failed to store corpus in database: %s", e)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to store corpus: {e}",
+            detail="Failed to store corpus",
         ) from e
 
     return {
@@ -238,7 +237,7 @@ def list_corpora(request: Request) -> dict[str, Any]:
             store.close()
     except Exception as e:
         _log.error("Failed to list corpora: %s", e)
-        raise HTTPException(status_code=500, detail=f"Failed to list corpora: {e}") from e
+        raise HTTPException(status_code=500, detail="Failed to list corpora") from e
 
 
 @router.get("/{corpus_id}", status_code=200)
@@ -283,7 +282,7 @@ def get_corpus(request: Request, corpus_id: str) -> dict[str, Any]:
             corpus = Corpus.from_row(row)
 
             # Count documents in corpus directory
-            corpus_dir = Path(corpus.corpus_path)
+            corpus_dir = config.data_dir / "corpora" / corpus.corpus_id
             documents_dir = corpus_dir / "documents"
             document_count = 0
             if documents_dir.exists():
@@ -304,7 +303,7 @@ def get_corpus(request: Request, corpus_id: str) -> dict[str, Any]:
         raise
     except Exception as e:
         _log.error("Failed to get corpus %s: %s", corpus_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to get corpus: {e}") from e
+        raise HTTPException(status_code=500, detail="Failed to get corpus") from e
 
 
 @router.get("/{corpus_id}/documents", status_code=200)
@@ -338,7 +337,7 @@ def list_documents(request: Request, corpus_id: str) -> dict[str, Any]:
             conn = store._conn
             row = conn.execute(
                 """
-                SELECT corpus_path FROM corpora WHERE corpus_id = ?
+                SELECT corpus_id FROM corpora WHERE corpus_id = ?
                 """,
                 (corpus_id,),
             ).fetchone()
@@ -346,7 +345,8 @@ def list_documents(request: Request, corpus_id: str) -> dict[str, Any]:
             if row is None:
                 raise HTTPException(status_code=404, detail=f"corpus_id '{corpus_id}' not found")
 
-            corpus_path = Path(row[0])
+            safe_corpus_id = row[0]
+            corpus_path = config.data_dir / "corpora" / safe_corpus_id
             documents_dir = corpus_path / "documents"
 
             # List files in documents directory
@@ -373,7 +373,7 @@ def list_documents(request: Request, corpus_id: str) -> dict[str, Any]:
         raise
     except Exception as e:
         _log.error("Failed to list documents for corpus %s: %s", corpus_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to list documents: {e}") from e
+        raise HTTPException(status_code=500, detail="Failed to list documents") from e
 
 
 # Route prefix for findings (not /api/corpora since it's per-finding, not per-corpus)
@@ -497,5 +497,5 @@ def set_finding_verdict(
         _log.error("Failed to set verdict for finding %s: %s", finding_id, e)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to set verdict: {e}",
+            detail="Failed to set verdict",
         ) from e

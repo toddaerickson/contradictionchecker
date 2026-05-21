@@ -9,7 +9,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from consistency_checker.config import Config
+from consistency_checker.config import Config, load_local_env
 from consistency_checker.logging_setup import LOG_FILENAME, LOGGER_NAME, configure, get_logger
 from consistency_checker.paths import project_root
 
@@ -28,6 +28,33 @@ def test_loads_example_yaml() -> None:
     assert cfg.embedder_model == "sentence-transformers/all-mpnet-base-v2"
     assert cfg.nli_contradiction_threshold == 0.5
     assert cfg.gate_top_k == 20
+
+
+def test_load_local_env_populates_only_missing_keys(tmp_path: Path) -> None:
+    """`.env` fills unset keys but never overrides a real shell export."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "# a comment\n"
+        "\n"
+        "MOONSHOT_API_KEY=sk-from-file\n"
+        'QUOTED="with spaces"\n'
+        "export EXPORTED=value\n"
+        "ALREADY_SET=from-file\n"
+    )
+    environ = {"ALREADY_SET": "from-shell"}
+    loaded = load_local_env(env_file, environ=environ)
+
+    assert set(loaded) == {"MOONSHOT_API_KEY", "QUOTED", "EXPORTED"}
+    assert environ["MOONSHOT_API_KEY"] == "sk-from-file"
+    assert environ["QUOTED"] == "with spaces"
+    assert environ["EXPORTED"] == "value"
+    assert environ["ALREADY_SET"] == "from-shell"  # shell export wins
+
+
+def test_load_local_env_missing_file_is_noop(tmp_path: Path) -> None:
+    environ: dict[str, str] = {}
+    assert load_local_env(tmp_path / "nope.env", environ=environ) == []
+    assert environ == {}
 
 
 def test_env_overrides_yaml(tmp_path: Path) -> None:

@@ -16,6 +16,7 @@ from consistency_checker.check.providers.base import (
     JudgePayload,
     MultiPartyJudgePayload,
 )
+from consistency_checker.check.providers.definition_base import DefinitionJudgePayload
 
 if TYPE_CHECKING:
     import openai
@@ -124,3 +125,52 @@ class MoonshotMultiPartyJudgeProvider:
         if isinstance(payload, MultiPartyJudgePayload):
             return payload
         return MultiPartyJudgePayload.model_validate(payload)
+
+
+class MoonshotDefinitionProvider:
+    """Definition-inconsistency judge using Moonshot (Kimi) structured output.
+
+    Thinking is disabled by default: Kimi's reasoning mode adds ~50x latency
+    (and can hang past the SDK default timeout) for no gain on this structured
+    comparison task. A request timeout is set so a stalled call fails fast.
+    """
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str = "kimi-k2.6",
+        *,
+        disable_thinking: bool = True,
+        timeout: float = 120.0,
+    ) -> None:
+        import openai
+
+        self.model = model
+        api_key = api_key or os.getenv("MOONSHOT_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "MOONSHOT_API_KEY not set. Set via env var, .env file, or pass to __init__"
+            )
+        self.client: openai.OpenAI = openai.OpenAI(
+            api_key=api_key, base_url="https://api.moonshot.ai/v1", timeout=timeout
+        )
+        self._extra_body: dict[str, Any] = (
+            {"thinking": {"type": "disabled"}} if disable_thinking else {}
+        )
+
+    def request_payload(self, system: str, user: str) -> DefinitionJudgePayload:
+        response: Any = self.client.beta.chat.completions.parse(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            response_format=DefinitionJudgePayload,
+            extra_body=self._extra_body,
+        )
+        parsed = response.choices[0].message.parsed
+        if parsed is None:
+            raise ValueError("Moonshot API returned None payload")
+        if isinstance(parsed, DefinitionJudgePayload):
+            return parsed
+        return DefinitionJudgePayload.model_validate(parsed)
