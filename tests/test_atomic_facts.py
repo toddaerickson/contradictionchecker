@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
 from consistency_checker.corpus.chunker import Chunk
+from consistency_checker.corpus.junk_filter import JunkAudit
 from consistency_checker.extract.atomic_facts import (
     PROMPT_PATH,
     TOOL_NAME,
     TOOL_SCHEMA,
     AnthropicExtractor,
     FixtureExtractor,
+    JunkFilteringExtractor,
     MoonshotExtractor,
     _DefinitionItem,
     _ExtractionPayload,
@@ -396,3 +399,60 @@ def test_moonshot_extractor_requires_key_when_no_client(monkeypatch: pytest.Monk
     monkeypatch.delenv("MOONSHOT_API_KEY", raising=False)
     with pytest.raises(ValueError, match="MOONSHOT_API_KEY"):
         MoonshotExtractor()
+
+
+# --- JunkFilteringExtractor -------------------------------------------------
+
+
+def test_junk_filtering_extractor_drops_junk_keeps_clean() -> None:
+    chunk = make_chunk("body text", doc_id="docZ")
+    inner = FixtureExtractor(
+        {chunk.chunk_id: ["Quorum means a majority of the Directors.", "as defined in Article 11"]}
+    )
+    audit = JunkAudit(None)
+    ext = JunkFilteringExtractor(inner, audit=audit)
+    out = ext.extract(chunk)
+    assert [a.assertion_text for a in out] == ["Quorum means a majority of the Directors."]
+    assert audit.counts == {"cross_reference": 1}
+
+
+def test_junk_filtering_extractor_no_audit_ok() -> None:
+    chunk = make_chunk("body", doc_id="docZ")
+    inner = FixtureExtractor({chunk.chunk_id: ["1."]})  # near_empty → dropped
+    ext = JunkFilteringExtractor(inner)
+    assert ext.extract(chunk) == []
+
+
+def test_make_extractor_wraps_only_when_enabled(tmp_path: Path) -> None:
+    from consistency_checker.config import Config
+    from consistency_checker.pipeline import make_extractor
+
+    base = {"corpus_dir": tmp_path, "judge_provider": "anthropic", "data_dir": tmp_path}
+    wrapped = make_extractor(Config(**base, junk_filter_enabled=True))
+    assert isinstance(wrapped, JunkFilteringExtractor)
+    plain = make_extractor(Config(**base, junk_filter_enabled=False))
+    assert not isinstance(plain, JunkFilteringExtractor)
+
+
+def test_junk_filtering_extractor_drops_cross_reference_definition() -> None:
+    chunk = make_chunk("body", doc_id="docD")
+    inner = FixtureExtractor(
+        definitions={
+            chunk.chunk_id: [
+                {
+                    "term": "Agent",
+                    "definition_text": "see Article 11",
+                    "containing_sentence": "as defined in this Article 11",
+                },
+                {
+                    "term": "Quorum",
+                    "definition_text": "a majority",
+                    "containing_sentence": "Quorum means a majority of the Directors then in office.",
+                },
+            ]
+        }
+    )
+    out = JunkFilteringExtractor(inner).extract(chunk)
+    texts = [a.assertion_text for a in out]
+    assert "as defined in this Article 11" not in texts  # cross-reference definition dropped
+    assert any("Quorum means a majority" in t for t in texts)  # real definition kept

@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from consistency_checker.corpus.junk_filter import JunkAudit, is_junk_line
 from consistency_checker.extract.schema import Document
 from consistency_checker.logging_setup import get_logger
 
@@ -89,8 +90,22 @@ class UnstructuredLoader:
     )
     ELEMENT_SEPARATOR = "\n\n"
 
-    def __init__(self, *, strategy: str = "fast") -> None:
+    def __init__(
+        self,
+        *,
+        strategy: str = "fast",
+        drop_junk_lines: bool = True,
+        audit: JunkAudit | None = None,
+    ) -> None:
         self._strategy = strategy
+        self._drop_junk_lines = drop_junk_lines
+        self._audit = audit
+
+    def with_options(self, *, drop_junk_lines: bool, audit: JunkAudit | None) -> UnstructuredLoader:
+        """Return a copy with junk-filter settings overridden (strategy preserved)."""
+        return UnstructuredLoader(
+            strategy=self._strategy, drop_junk_lines=drop_junk_lines, audit=audit
+        )
 
     def __call__(self, path: Path) -> LoadedDocument:
         from unstructured.partition.auto import partition
@@ -107,6 +122,14 @@ class UnstructuredLoader:
             element_text = (getattr(element, "text", "") or "").strip()
             if not element_text:
                 continue
+            if self._drop_junk_lines:
+                reason = is_junk_line(element_text)
+                if reason is not None:
+                    if self._audit is not None:
+                        self._audit.record(
+                            stage="text", reason=reason, doc_id=str(path), text=element_text
+                        )
+                    continue
             if text_parts:
                 text_parts.append(self.ELEMENT_SEPARATOR)
                 char_offset += len(self.ELEMENT_SEPARATOR)
@@ -154,7 +177,12 @@ def _is_stub(loader: FileLoader) -> bool:
     return getattr(loader, "__name__", "") == "_stub"
 
 
-def load_path(path: Path | str) -> LoadedDocument:
+def load_path(
+    path: Path | str,
+    *,
+    junk_filter_enabled: bool = True,
+    junk_audit: JunkAudit | None = None,
+) -> LoadedDocument:
     """Load a single document by path. Dispatches via :data:`LOADERS`.
 
     Raises ``NotImplementedError`` for stubbed extensions, ``ValueError`` for
@@ -171,10 +199,17 @@ def load_path(path: Path | str) -> LoadedDocument:
             f"Unsupported extension: {ext!r}. "
             f"Registered: {sorted(LOADERS)}; stubbed: {sorted(STUB_EXTENSIONS)}."
         )
+    if isinstance(loader, UnstructuredLoader):
+        loader = loader.with_options(drop_junk_lines=junk_filter_enabled, audit=junk_audit)
     return loader(p)
 
 
-def load_corpus(corpus_dir: Path | str) -> Iterator[LoadedDocument]:
+def load_corpus(
+    corpus_dir: Path | str,
+    *,
+    junk_filter_enabled: bool = True,
+    junk_audit: JunkAudit | None = None,
+) -> Iterator[LoadedDocument]:
     """Walk ``corpus_dir`` recursively, yielding loaded documents.
 
     Files with unregistered extensions are skipped silently (DEBUG log). Stub
@@ -198,7 +233,7 @@ def load_corpus(corpus_dir: Path | str) -> Iterator[LoadedDocument]:
         if ext in STUB_EXTENSIONS and _is_stub(loader):
             _log.warning("Skipping %s — %s loader not yet implemented", path, ext)
             continue
-        yield loader(path)
+        yield load_path(path, junk_filter_enabled=junk_filter_enabled, junk_audit=junk_audit)
 
 
 def make_metadata_json(payload: dict[str, object]) -> str:

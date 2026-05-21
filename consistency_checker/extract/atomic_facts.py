@@ -1,16 +1,20 @@
 """Atomic-fact extraction.
 
 Takes a :class:`Chunk` and returns a list of :class:`Assertion` records, each
-holding one decontextualised, verifiable claim. Two backends:
+holding one decontextualised, verifiable claim. Backends:
 
 - :class:`FixtureExtractor` — returns canned responses keyed by chunk id. Used
   by hermetic tests; no network.
 - :class:`AnthropicExtractor` — calls Claude with the FActScore-style prompt
   in ``prompts/atomic_facts.txt``. Uses the SDK's tool-use feature to force a
   JSON schema, with Pydantic validation on the response.
+- :class:`MoonshotExtractor` — calls Kimi (Moonshot AI) via the OpenAI-
+  compatible ``beta.chat.completions.parse`` endpoint with the same schema.
+- :class:`JunkFilteringExtractor` — decorator that drops junk assertions from
+  any extractor.
 
-OpenAI support can be added later as another implementation of
-:class:`Extractor` without touching downstream code.
+New backends implement the :class:`Extractor` Protocol without touching
+downstream code.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from pydantic import BaseModel, Field, ValidationError
 
 from consistency_checker.corpus.chunker import Chunk
+from consistency_checker.corpus.junk_filter import JunkAudit, is_junk_assertion
 from consistency_checker.extract.schema import Assertion
 from consistency_checker.logging_setup import get_logger
 
@@ -286,3 +291,30 @@ class MoonshotExtractor:
             _log.warning("Atomic-fact extraction (moonshot) returned no usable payload: %s", exc)
             return []
         return _assertions_from_payload(chunk, payload)
+
+
+class JunkFilteringExtractor:
+    """Wraps an :class:`Extractor`, dropping assertions flagged by ``is_junk_assertion``.
+
+    Applied in :func:`make_extractor` so every ingest path (CLI, web, headless)
+    inherits assertion-stage filtering with no per-path wiring.
+    """
+
+    def __init__(self, inner: Extractor, *, audit: JunkAudit | None = None) -> None:
+        self._inner = inner
+        self._audit = audit
+
+    def extract(self, chunk: Chunk) -> list[Assertion]:
+        kept: list[Assertion] = []
+        for assertion in self._inner.extract(chunk):
+            reason = is_junk_assertion(assertion.assertion_text)
+            if reason is None:
+                kept.append(assertion)
+            elif self._audit is not None:
+                self._audit.record(
+                    stage="assertion",
+                    reason=reason,
+                    doc_id=assertion.doc_id,
+                    text=assertion.assertion_text,
+                )
+        return kept
