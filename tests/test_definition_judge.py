@@ -6,11 +6,15 @@ from consistency_checker.check.definition_judge import (
     DefinitionJudgeVerdict,
     FixtureDefinitionJudge,
     LLMDefinitionJudge,
+    definition_short_circuit_verdict,
     definition_uncertain_fallback,
     render_definition_system_prompt,
     render_definition_user_prompt,
 )
-from consistency_checker.check.providers.definition_base import DefinitionJudgePayload
+from consistency_checker.check.providers.definition_base import (
+    DEFINITION_CONSISTENT_AUTO,
+    DefinitionJudgePayload,
+)
 from consistency_checker.extract.schema import Assertion
 
 
@@ -150,3 +154,26 @@ def test_definition_uncertain_fallback_shape() -> None:
     assert out.confidence == 0.0
     assert "missing API key" in out.rationale
     assert out.evidence_spans == []
+
+
+def test_definition_short_circuit_verdict() -> None:
+    a = Assertion.build(
+        "docA",
+        '"Board" means the board of directors.',
+        kind="definition",
+        term="Board",
+        definition_text="the board of directors",
+    )
+    b = Assertion.build(
+        "docB",
+        '"Board" means the board of directors.',
+        kind="definition",
+        term="Board",
+        definition_text="the board of directors",
+    )
+    v = definition_short_circuit_verdict(a, b)
+    assert v.verdict == DEFINITION_CONSISTENT_AUTO
+    assert v.confidence == 1.0
+    assert v.assertion_a_id == a.assertion_id
+    assert v.assertion_b_id == b.assertion_id
+    assert "machine-resolved" in v.rationale
