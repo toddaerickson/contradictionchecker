@@ -10,8 +10,8 @@ Real-corpus eval (3 nonprofit-bylaws PDFs + an earlier loan/partnership corpus, 
 
 2. **PDF junk filter shipped (PR #61) and validated — but it only fixed the extraction-noise slice.** It removed dot-leaders / page-numbers / cross-reference "definitions" (bylaws corpus: 158→84 definitions, 93→24 same-term pairs, zero junk fragments reaching the judge). Definition-divergent rate fell only **84%→75%** because the residual is NOT extraction noise.
 
-3. **The residual divergent noise is two separate, still-open problems:**
-   - **Definition-judge / canonicalizer precision (highest-leverage next item).** It flags identical text as "divergent" (e.g. *"the authorized number of directors of the Corporation"* vs itself). This is the canonicalizer + judge-precision work the 2026-05-15 expert panel scoped: alias-aware, capitalization-preserving, no plural-strip; tighter judge prompt. See [[project-expert-panel-synthesis-2026-05-15]] in memory.
+3. **The residual divergent noise split into one shipped fix and one still-open corpus problem:**
+   - **Definition-judge identical-text precision shipped.** The high-confidence subcase (identical definitions flagged as divergent, e.g. *"the authorized number of directors of the Corporation"* vs itself) is now handled by the deterministic short-circuit recorded under Completed below.
    - **Corpus composition.** Comparing 3 *unrelated organizations'* bylaws makes every shared term ("Director", "Quorum") "diverge" by construction. Meaningful detection needs a *single* entity's governing docs. Worth a UI/doc warning when a corpus spans unrelated sources, and/or entity-grouping (cf. item #7).
 
 ## v0.4 — precision and provenance
@@ -250,6 +250,16 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
 
 (Move items here as they ship, keep a one-line note on which release.)
 
+- **Definition-judge identical-text short-circuit + prompt tightening (item #1, 2026-05-21)**
+  — deterministic `definitions_equivalent` short-circuit at the checker layer
+  (mirrors `_try_numeric_short_circuit`, ADR-0005) emitting a distinguishable
+  `definition_consistent_auto` verdict (no migration; free-text `judge_verdict`);
+  tightened `definition_judge_system.txt`; `n_definition_short_circuited` in
+  `CheckResult`; labeled regression set under `benchmarks/definition_eval/`.
+  Spec: `docs/superpowers/specs/2026-05-21-canonicalizer-precision-design.md`.
+  **Deferred:** the `canonicalize_term` rewrite (gated on eval showing real
+  distinct-term over-merge; use a recall-safe casefold key, NOT case-sensitive)
+  and alias-aware grouping. Item #2 (org grouping) resumes next.
 - **PDF extraction junk filter (PR #61, 2026-05-21)** — deterministic, conservative, audited two-stage filter (`consistency_checker/corpus/junk_filter.py`): `is_junk_line` drops TOC dot-leaders / page-numbers / non-alpha rows in `UnstructuredLoader`; `is_junk_assertion` drops cross-reference / near-empty "definitions" via a `JunkFilteringExtractor` wrapper in `make_extractor`; gated by `config.junk_filter_enabled` (default on); drops audited to `<data_dir>/junk_drops.jsonl`. Spec + plan in `docs/superpowers/`. Measured effect: see "Eval findings & next levers (2026-05-21)" above.
 - **Moonshot (Kimi) provider end-to-end + safe `.env` loading (PR #60, 2026-05-21)** — `config.yml` defaults to `judge_provider: moonshot`, `kimi-k2.6`; `MoonshotExtractor` + `MoonshotDefinitionProvider` so extraction, judge, and definition-judge all run on one Kimi key; `load_local_env()` reads `MOONSHOT_API_KEY` from a gitignored `.env` at CLI/web startup. Extraction disables Kimi reasoning (`thinking:disabled`, ~50× faster; the `moonshot-v1-*` models can't do structured output). Bundled the API-500 info-disclosure hardening (generic detail messages across 12 endpoints).
 

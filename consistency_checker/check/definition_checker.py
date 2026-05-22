@@ -20,8 +20,12 @@ from itertools import combinations
 from consistency_checker.check.definition_judge import (
     DefinitionJudge,
     DefinitionJudgeVerdict,
+    definition_short_circuit_verdict,
 )
-from consistency_checker.check.definition_terms import canonicalize_term
+from consistency_checker.check.definition_terms import (
+    canonicalize_term,
+    definitions_equivalent,
+)
 from consistency_checker.extract.schema import Assertion
 
 
@@ -76,5 +80,8 @@ class DefinitionChecker:
     def find_inconsistencies(self, definitions: Sequence[Assertion]) -> Iterator[DefinitionFinding]:
         groups = _group_by_canonical_term(definitions)
         for pair in _enumerate_pairs(groups):
-            verdict = self._judge.judge(pair.a, pair.b)
+            if definitions_equivalent(pair.a.assertion_text, pair.b.assertion_text):
+                verdict = definition_short_circuit_verdict(pair.a, pair.b)
+            else:
+                verdict = self._judge.judge(pair.a, pair.b)
             yield DefinitionFinding(pair=pair, verdict=verdict)

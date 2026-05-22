@@ -40,6 +40,7 @@ from consistency_checker.check.providers.anthropic import (
 )
 from consistency_checker.check.providers.base import CONTRADICTION_VERDICTS
 from consistency_checker.check.providers.definition_base import (
+    DEFINITION_CONSISTENT_AUTO,
     DEFINITION_INCONSISTENCY_VERDICTS,
 )
 from consistency_checker.check.providers.moonshot import (
@@ -119,6 +120,7 @@ class CheckResult:
     n_multi_party_findings: int = 0
     n_definition_pairs_judged: int = 0
     n_definition_findings: int = 0
+    n_definition_short_circuited: int = 0
 
 
 # --- factories --------------------------------------------------------------
@@ -397,21 +399,26 @@ def _run_definition_pass(
     checker: DefinitionChecker,
     audit_logger: AuditLogger,
     run_id: str,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     """Run the definition checker over all stored definitions and log findings.
 
-    Returns ``(n_judged, n_findings)``. The NLI gate is bypassed for this stage
-    by design — see DefinitionChecker for the rationale.
+    Returns ``(n_judged, n_findings, n_short_circuited)``. ``n_judged`` counts
+    every pair the checker emitted a verdict for (judged or short-circuited);
+    ``n_short_circuited`` is the subset resolved deterministically without an
+    LLM call. The NLI gate is bypassed for this stage by design.
     """
     definitions = list(store.iter_definitions())
     n_judged = 0
     n_findings = 0
+    n_short_circuited = 0
     for finding in checker.find_inconsistencies(definitions):
         audit_logger.record_definition_finding(run_id, finding=finding)
         n_judged += 1
+        if finding.verdict.verdict == DEFINITION_CONSISTENT_AUTO:
+            n_short_circuited += 1
         if finding.verdict.verdict in DEFINITION_INCONSISTENCY_VERDICTS:
             n_findings += 1
-    return n_judged, n_findings
+    return n_judged, n_findings, n_short_circuited
 
 
 def check(
@@ -500,8 +507,13 @@ def check(
     # NLI gate; bypasses the contradiction pipeline entirely.
     n_definition_pairs_judged = 0
     n_definition_findings = 0
+    n_definition_short_circuited = 0
     if definition_checker is not None:
-        n_definition_pairs_judged, n_definition_findings = _run_definition_pass(
+        (
+            n_definition_pairs_judged,
+            n_definition_findings,
+            n_definition_short_circuited,
+        ) = _run_definition_pass(
             store=store,
             checker=definition_checker,
             audit_logger=audit_logger,
@@ -517,7 +529,8 @@ def check(
     )
     _log.info(
         "Run %s — %d gated / %d judged / %d findings / %d triangles / "
-        "%d multi-party / %d definition pairs / %d definition findings",
+        "%d multi-party / %d definition pairs / %d definition findings / "
+        "%d short-circuited",
         run_id,
         n_pairs_gated,
         n_pairs_judged,
@@ -526,6 +539,7 @@ def check(
         n_multi_party_findings,
         n_definition_pairs_judged,
         n_definition_findings,
+        n_definition_short_circuited,
     )
     return CheckResult(
         run_id=run_id,
@@ -537,6 +551,7 @@ def check(
         n_multi_party_findings=n_multi_party_findings,
         n_definition_pairs_judged=n_definition_pairs_judged,
         n_definition_findings=n_definition_findings,
+        n_definition_short_circuited=n_definition_short_circuited,
     )
 
 

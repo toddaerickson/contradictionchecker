@@ -24,6 +24,12 @@ DefinitionVerdictLabel = Literal[
 #: detector.
 DEFINITION_INCONSISTENCY_VERDICTS: frozenset[str] = frozenset({"definition_divergent"})
 
+#: Verdict string for the deterministic identical-text short-circuit. NOT a
+#: member of ``DefinitionVerdictLabel`` — kept out of the LLM payload's accepted
+#: vocabulary on purpose, so the strict ``DefinitionJudgePayload`` schema cannot
+#: emit it. Machine-set only; persisted to ``findings.judge_verdict`` (free text).
+DEFINITION_CONSISTENT_AUTO: Literal["definition_consistent_auto"] = "definition_consistent_auto"
+
 
 class DefinitionJudgePayload(BaseModel):
     """Strict schema every definition-judge provider must satisfy."""

@@ -9,6 +9,7 @@ from consistency_checker.check.definition_judge import (
     DefinitionJudgeVerdict,
     FixtureDefinitionJudge,
 )
+from consistency_checker.check.providers.definition_base import DEFINITION_CONSISTENT_AUTO
 from consistency_checker.extract.schema import Assertion
 
 
@@ -87,3 +88,30 @@ def test_three_definitions_emit_three_pairs() -> None:
     checker = DefinitionChecker(judge=FixtureDefinitionJudge({}))
     findings = list(checker.find_inconsistencies([a, b, c]))
     assert len(findings) == 3  # combinations(3, 2) == 3
+
+
+class _RaisingJudge:
+    """A judge that must never be called (proves the short-circuit fired)."""
+
+    def judge(self, a, b):  # type: ignore[no-untyped-def]
+        raise AssertionError("judge must not be called for identical definitions")
+
+
+def test_identical_definitions_short_circuit_without_judge() -> None:
+    a = _def("docA", "Borrower", "ABC Corp")
+    b = _def("docB", "Borrower", "ABC Corp")  # identical assertion_text, different doc
+    checker = DefinitionChecker(judge=_RaisingJudge())
+    findings = list(checker.find_inconsistencies([a, b]))
+    assert len(findings) == 1
+    assert findings[0].verdict.verdict == DEFINITION_CONSISTENT_AUTO
+    assert findings[0].verdict.confidence == 1.0
+
+
+def test_divergent_text_still_calls_judge() -> None:
+    a = _def("docA", "Borrower", "ABC Corp")
+    b = _def("docB", "Borrower", "ABC Corp and its Subsidiaries")  # different text
+    judge = FixtureDefinitionJudge({})  # returns uncertain fallback when called
+    checker = DefinitionChecker(judge=judge)
+    findings = list(checker.find_inconsistencies([a, b]))
+    assert len(findings) == 1
+    assert findings[0].verdict.verdict == "uncertain"  # proves judge WAS called

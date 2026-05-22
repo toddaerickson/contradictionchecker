@@ -10,11 +10,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import ValidationError
 
 from consistency_checker.check.providers.definition_base import (
+    DEFINITION_CONSISTENT_AUTO,
     DefinitionJudgePayload,
     DefinitionJudgeProvider,
     DefinitionVerdictLabel,
@@ -53,7 +54,7 @@ class DefinitionJudgeVerdict:
 
     assertion_a_id: str
     assertion_b_id: str
-    verdict: DefinitionVerdictLabel
+    verdict: DefinitionVerdictLabel | Literal["definition_consistent_auto"]
     confidence: float
     rationale: str
     evidence_spans: list[str] = field(default_factory=list)
@@ -81,6 +82,18 @@ def definition_uncertain_fallback(
         verdict="uncertain",
         confidence=0.0,
         rationale=f"Definition judge degraded to uncertain: {reason}",
+        evidence_spans=[],
+    )
+
+
+def definition_short_circuit_verdict(a: Assertion, b: Assertion) -> DefinitionJudgeVerdict:
+    """Machine verdict for a pair whose texts are equivalent — no LLM call."""
+    return DefinitionJudgeVerdict(
+        assertion_a_id=a.assertion_id,
+        assertion_b_id=b.assertion_id,
+        verdict=DEFINITION_CONSISTENT_AUTO,
+        confidence=1.0,
+        rationale="Definitions textually identical after normalization (machine-resolved, no LLM call).",
         evidence_spans=[],
     )
 
