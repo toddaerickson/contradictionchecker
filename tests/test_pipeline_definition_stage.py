@@ -158,3 +158,54 @@ def test_check_uncertain_definition_does_not_increment_findings(
     ).fetchall()
     assert len(rows) == 1  # still persisted (audit replay)
     assert rows[0]["judge_verdict"] == "uncertain"
+
+
+def test_check_counts_definition_short_circuits(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.data_dir.mkdir(parents=True, exist_ok=True)
+    store = AssertionStore(tmp_path / "store.db")
+    store.migrate()
+    store.add_document(Document(doc_id="docA", source_path="/A.txt"))
+    store.add_document(Document(doc_id="docB", source_path="/B.txt"))
+    text = "the board of directors of the Corporation"
+    a = Assertion.build(
+        "docA", f'"Board" means {text}.', kind="definition", term="Board", definition_text=text
+    )
+    b = Assertion.build(
+        "docB", f'"Board" means {text}.', kind="definition", term="Board", definition_text=text
+    )
+    store.add_assertions([a, b])
+
+    faiss = FaissStore.open_or_create(
+        index_path=config.data_dir / "faiss.idx",
+        id_map_path=config.data_dir / "faiss.idmap.json",
+        dim=64,
+    )
+    logger = AuditLogger(store)
+    run_id = logger.begin_run()
+
+    class _RaisingJudge:
+        def judge(self, a, b):  # type: ignore[no-untyped-def]
+            raise AssertionError("identical definitions must short-circuit, not reach the judge")
+
+    result = check(
+        config,
+        store=store,
+        faiss_store=faiss,
+        nli_checker=FixtureNliChecker({}),
+        judge=FixtureJudge({}),
+        audit_logger=logger,
+        run_id=run_id,
+        definition_checker=DefinitionChecker(judge=_RaisingJudge()),
+    )
+
+    assert result.n_definition_short_circuited == 1
+    assert result.n_definition_findings == 0  # consistent_auto is not a finding
+    assert result.n_definition_pairs_judged == 1  # the pair was still processed
+    rows = store._conn.execute(
+        "SELECT judge_verdict FROM findings WHERE run_id = ? "
+        "AND detector_type = 'definition_inconsistency'",
+        (run_id,),
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["judge_verdict"] == "definition_consistent_auto"
