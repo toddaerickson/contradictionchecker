@@ -33,3 +33,13 @@ Range overlaps that aren't sign-flips — e.g. "Revenue grew 12%" vs. "Revenue g
 - Cost win: on a financial-corpus benchmark, sign-flip pairs are a meaningful fraction of all candidate pairs surviving Stage A. Short-circuiting them is a direct LLM-spend reduction, with the additional benefit that deterministic reasoning is reproducible across re-runs (no temperature noise on the verdict).
 - If the numeric extractor produces a false positive (incorrectly flags a non-contradiction as sign-flip), there's no LLM safety net for that case. Mitigation: keep the extractor conservative — require *strict* metric+scope+unit match before short-circuiting. Anything ambiguous falls through to the LLM judge as before.
 - Future v0.3+ extension: when entity-NER (futureplans #7) lands, the numeric extractor's scope heuristic can be replaced with NER-derived scope canonicalisation, raising recall without changing the short-circuit interface.
+
+**Definition extension (2026-05-21).** The same deterministic-pre-judge pattern
+now also serves the definition-inconsistency detector: `definitions_equivalent`
+(in `check/definition_terms.py`) short-circuits textually identical definition
+pairs at the checker layer, emitting the machine verdict string
+`definition_consistent_auto`. Note the inverse polarity — the numeric gate emits
+a *contradiction*, this one emits a *consistent* (non-finding) verdict that is
+filtered out of reports and not counted in `DEFINITION_INCONSISTENCY_VERDICTS`.
+Like `numeric_short_circuit`, the label is free-text in `findings.judge_verdict`,
+so no migration was required.
