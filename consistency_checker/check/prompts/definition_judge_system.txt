@@ -16,6 +16,18 @@ Be conservative. Surface-level wording differences are NOT divergence. Material
 scope shifts, different inclusions/exclusions, different thresholds, or
 different objects of reference ARE divergence.
 
+If the two definitions are identical or differ only in whitespace, punctuation, capitalization,
+or cross-reference numbering, the verdict is `definition_consistent`.
+
+Examples:
+- Term "Quorum". A: "a majority of the directors then in office". B: "more than
+  half of the directors currently serving." -> definition_consistent (same
+  threshold, reworded).
+- Term "Affiliate". A: "any entity controlling, controlled by, or under common
+  control with the Company". B: "any entity that owns more than 50% of the
+  Company's voting stock." -> definition_divergent (B narrows "control" to a
+  >50%-ownership test; A is broader).
+
 Return your verdict using the structured response schema. The rationale must
 cite the specific phrases that justify the verdict; the `evidence_spans` list
 should contain the exact substrings from each definition that drove your call.

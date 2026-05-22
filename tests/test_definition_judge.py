@@ -177,3 +177,10 @@ def test_definition_short_circuit_verdict() -> None:
     assert v.assertion_a_id == a.assertion_id
     assert v.assertion_b_id == b.assertion_id
     assert "machine-resolved" in v.rationale
+
+
+def test_system_prompt_has_equivalence_rule_and_examples() -> None:
+    text = render_definition_system_prompt()
+    assert "differ only in whitespace, punctuation, capitalization" in text
+    assert "Examples:" in text
+    assert "Affiliate" in text  # the divergent worked example
