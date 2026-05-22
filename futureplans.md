@@ -256,7 +256,7 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
   `definition_consistent_auto` verdict (no migration; free-text `judge_verdict`);
   tightened `definition_judge_system.txt`; `n_definition_short_circuited` in
   `CheckResult`; labeled regression set under `benchmarks/definition_eval/`.
-  Spec: `docs/superpowers/specs/2026-05-21-canonicalizer-precision-design.md`.
+  Provenance: PR #62 and `docs/decisions/0005-numeric-short-circuit.md`.
   **Deferred:** the `canonicalize_term` rewrite (gated on eval showing real
   distinct-term over-merge; use a recall-safe casefold key, NOT case-sensitive)
   and alias-aware grouping. Item #2 (org grouping) resumes next.
