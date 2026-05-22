@@ -51,6 +51,11 @@ def test_canonicalize_empty() -> None:
         ("a majority of the directors", "two-thirds of the directors", False),
         # mid-string comma that changes scope must NOT be equivalent
         ("directors, officers and employees", "directors officers and employees", False),
+        # all-punctuation normalizes to empty — pinned behavior
+        ("...", "", True),
+        ("", "", True),
+        # non-breaking space collapses like normal whitespace
+        ("the\N{NO-BREAK SPACE}board", "the board", True),
     ],
 )
 def test_definitions_equivalent(a: str, b: str, expected: bool) -> None:

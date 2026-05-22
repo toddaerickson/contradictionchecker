@@ -12,7 +12,7 @@ from __future__ import annotations
 import string
 
 _QUOTE_CHARS = ('"', "'", "“", "”", "‘", "’", "`")  # noqa: RUF001
-_STRIP_CHARS = string.punctuation + "".join(_QUOTE_CHARS)
+_STRIP_CHARS = string.punctuation + "".join(c for c in _QUOTE_CHARS if c not in string.punctuation)
 
 
 def canonicalize_term(raw: str) -> str:
