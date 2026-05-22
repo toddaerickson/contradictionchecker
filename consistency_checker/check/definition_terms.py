@@ -9,7 +9,10 @@ terms (false positive).
 
 from __future__ import annotations
 
+import string
+
 _QUOTE_CHARS = ('"', "'", "“", "”", "‘", "’", "`")  # noqa: RUF001
+_STRIP_CHARS = string.punctuation + "".join(_QUOTE_CHARS)
 
 
 def canonicalize_term(raw: str) -> str:
@@ -25,3 +28,22 @@ def canonicalize_term(raw: str) -> str:
     if len(text) > 2 and text.endswith("s") and not text.endswith("ss"):
         text = text[:-1]
     return text
+
+
+def definitions_equivalent(a_text: str, b_text: str) -> bool:
+    """True if two definition texts are equal after normalization.
+
+    Normalization (in order): casefold, collapse all whitespace runs to a
+    single space, strip leading/trailing punctuation and quote characters.
+    INTERNAL punctuation is left untouched, so a mid-string comma that changes
+    scope keeps the texts unequal.
+
+    This is deliberately case-INSENSITIVE body comparison, distinct from
+    :func:`canonicalize_term`, which is the case-folding term-grouping key and
+    is intentionally left unchanged here. Do not unify their case handling.
+    """
+
+    def _norm(text: str) -> str:
+        return " ".join(text.casefold().split()).strip(_STRIP_CHARS)
+
+    return _norm(a_text) == _norm(b_text)
