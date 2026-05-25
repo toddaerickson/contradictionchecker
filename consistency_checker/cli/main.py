@@ -67,6 +67,8 @@ from consistency_checker.pipeline import (
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Consistency checker CLI.")
 store_app = typer.Typer(help="Assertion-store maintenance commands.")
 app.add_typer(store_app, name="store")
+corpus_app = typer.Typer(help="Inspect or maintain corpora.")
+app.add_typer(corpus_app, name="corpus")
 
 
 @app.callback()
@@ -679,6 +681,111 @@ def store_rebuild_index(
     n = rebuild_faiss(store=store, faiss_store=faiss_store, embedder=embedder)
     store.close()
     typer.echo(f"Rebuilt FAISS index from {n} assertions.")
+
+
+# --- corpus subcommands -------------------------------------------------------
+
+
+@corpus_app.command("list")
+def corpus_list(
+    db: Path = typer.Option(..., "--db", help="Path to the SQLite DB."),
+) -> None:
+    """List corpora with document counts and paths."""
+    from consistency_checker.index.assertion_store import AssertionStore
+
+    store = AssertionStore(db)
+    store.migrate()
+    try:
+        rows = store.list_corpora()
+        if not rows:
+            typer.echo("No corpora.")
+            return
+        for c in rows:
+            stats = store.stats(corpus_id=c.corpus_id)
+            typer.echo(f"{c.corpus_name:30s}  {stats['documents']:>5d} docs   ({c.corpus_path})")
+    finally:
+        store.close()
+
+
+@corpus_app.command("delete")
+def corpus_delete(
+    name: str,
+    db: Path = typer.Option(..., "--db"),
+    yes: bool = typer.Option(
+        False,
+        "--yes-i-mean-it",
+        help="Required confirmation; cascades to all docs/assertions.",
+    ),
+) -> None:
+    """Delete a corpus and all its documents/assertions/findings."""
+    from consistency_checker.index.assertion_store import AssertionStore
+
+    if not yes:
+        raise typer.BadParameter("Refusing to delete without --yes-i-mean-it")
+    store = AssertionStore(db)
+    store.migrate()
+    try:
+        match = next((c for c in store.list_corpora() if c.corpus_name == name), None)
+        if not match:
+            available = ", ".join(c.corpus_name for c in store.list_corpora()) or "<none>"
+            raise typer.BadParameter(f"No corpus named {name!r} (available: {available})")
+        store.delete_corpus(match.corpus_id)
+        typer.echo(f"Deleted corpus {name!r}.")
+    finally:
+        store.close()
+
+
+@corpus_app.command("reassign")
+def corpus_reassign(
+    db: Path = typer.Option(..., "--db"),
+    src: str = typer.Option(..., "--from", help="Source corpus name."),
+    dst: str = typer.Option(..., "--to", help="Destination corpus name (created if absent)."),
+    where: str = typer.Option(
+        "",
+        "--where",
+        help=("Safe-listed WHERE clause filter on documents (e.g. \"org_label LIKE 'ATKINS%'\")."),
+    ),
+) -> None:
+    """Move documents from one corpus to another.
+
+    The --where clause is restricted to a safe subset (column=literal /
+    column LIKE pattern, joined by AND/OR) to prevent SQL injection.
+    """
+    import re
+
+    from consistency_checker.index.assertion_store import AssertionStore
+
+    # Safe-list: alphanumeric column names, _, single-quoted string literals
+    # with % wildcards, =, LIKE, AND, OR. Reject anything else.
+    if where and not re.fullmatch(
+        r"\s*[A-Za-z_][A-Za-z0-9_]*\s*(?:=|LIKE)\s*'[^']*'"
+        r"(?:\s+(?:AND|OR)\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:=|LIKE)\s*'[^']*')*\s*",
+        where,
+    ):
+        raise typer.BadParameter(
+            "--where allows only column=literal or column LIKE 'pattern' "
+            "joined by AND/OR (single-quoted string literals)."
+        )
+
+    store = AssertionStore(db)
+    store.migrate()
+    try:
+        src_match = next((c for c in store.list_corpora() if c.corpus_name == src), None)
+        if src_match is None:
+            available = ", ".join(c.corpus_name for c in store.list_corpora()) or "<none>"
+            raise typer.BadParameter(f"--from corpus {src!r} not found (available: {available})")
+        dst_id = store.get_or_create_corpus(dst, "(reassigned)", "moonshot")
+        sql = "UPDATE documents SET corpus_id = ? WHERE corpus_id = ?"
+        params: list[str] = [dst_id, src_match.corpus_id]
+        if where:
+            sql += f" AND ({where})"
+        with store._conn:
+            cur = store._conn.execute(sql, params)
+            n = cur.rowcount
+        word = "document" if n == 1 else "documents"
+        typer.echo(f"Moved {n} {word} from {src} to {dst}.")
+    finally:
+        store.close()
 
 
 if __name__ == "__main__":
