@@ -390,7 +390,7 @@ class MoonshotExtractor:
                 ],
                 response_format=_OrgIdentificationPayload,
                 max_tokens=200,
-                extra_body={"thinking": {"type": "disabled"}},
+                extra_body=self._extra_body,
             )
         except Exception:
             return OrgIdentification(label=None, reason="llm_error")

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import secrets
 import shutil
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -745,7 +746,8 @@ def create_app(
 
                 if definition_judge is not None:
                     def_checker: DefinitionChecker | None = DefinitionChecker(
-                        judge=definition_judge
+                        judge=definition_judge,
+                        org_scope_enabled=config.org_scope_enabled,
                     )
                 else:
                     from consistency_checker.pipeline import make_definition_checker
@@ -1095,7 +1097,11 @@ def _ingest_uploaded_paths(
         loaded = load_path(
             path, junk_filter_enabled=config.junk_filter_enabled, junk_audit=junk_audit
         )
-        store.add_document(loaded.document)
+        doc = loaded.document
+        if config.org_grouping_enabled:
+            res = extractor.identify_org(title=doc.title, text=loaded.text)
+            doc = replace(doc, org_label=res.label, org_reason=res.reason)
+        store.add_document(doc)
         for chunk in chunk_document(
             loaded,
             max_chars=config.chunk_max_chars,

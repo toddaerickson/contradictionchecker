@@ -41,6 +41,7 @@ from consistency_checker.cli.warnings import (
     summarize_buckets,
 )
 from consistency_checker.config import Config, load_local_env
+from consistency_checker.corpus.loader import load_path
 from consistency_checker.index.assertion_store import AssertionStore
 from consistency_checker.index.faiss_store import FaissStore
 from consistency_checker.logging_setup import configure as configure_logging
@@ -562,11 +563,14 @@ def store_reidentify_orgs(
             if not walk_all and null_only and doc.org_label is not None:
                 continue
             try:
-                content = Path(doc.source_path).read_text(encoding="utf-8", errors="ignore")
-            except OSError as exc:
-                typer.echo(f"{doc.doc_id}: SKIP (source unreadable: {exc})")
+                loaded = load_path(
+                    Path(doc.source_path),
+                    junk_filter_enabled=cfg.junk_filter_enabled,
+                )
+            except (FileNotFoundError, ValueError, NotImplementedError, OSError) as exc:
+                typer.echo(f"{doc.doc_id}: SKIP ({exc})")
                 continue
-            res = extractor.identify_org(title=doc.title, text=content)
+            res = extractor.identify_org(title=doc.title, text=loaded.text)
             store.update_org_label(doc.doc_id, res.label, res.reason)
             typer.echo(f"{doc.doc_id}: {res.reason} -> {res.label!r}")
     finally:

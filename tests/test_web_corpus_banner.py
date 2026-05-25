@@ -11,7 +11,7 @@ from consistency_checker.audit.logger import AuditLogger
 from consistency_checker.check.llm_judge import FixtureJudge
 from consistency_checker.check.nli_checker import FixtureNliChecker
 from consistency_checker.config import Config
-from consistency_checker.extract.atomic_facts import FixtureExtractor
+from consistency_checker.extract.atomic_facts import FixtureExtractor, OrgIdentification
 from consistency_checker.extract.schema import Assertion, Document
 from consistency_checker.index.assertion_store import AssertionStore
 from consistency_checker.web.app import create_app
@@ -144,3 +144,49 @@ def test_run_stats_fragment_shows_suppressed_pair_count(tmp_path: Path) -> None:
     r = client.get(f"/runs/{run_id}/stats")
     assert r.status_code == 200
     assert "2 cross-organization definition pair(s) were suppressed" in r.text
+
+
+def test_upload_route_persists_org_label_and_banner_renders(tmp_path: Path) -> None:
+    """Uploading two docs from distinct orgs via /uploads should populate
+    org_label so the Stats tab banner fires."""
+    cfg = _config(tmp_path)
+    cfg.data_dir.mkdir(parents=True, exist_ok=True)
+    AssertionStore(cfg.db_path).migrate()
+
+    org_fixtures = {
+        ("acme", "Acme Corp"): OrgIdentification(label="Acme Corp", reason="org_found"),
+        ("globex", "Globex Inc"): OrgIdentification(label="Globex Inc", reason="org_found"),
+    }
+    extractor = FixtureExtractor({}, org_fixtures=org_fixtures)
+    app = create_app(
+        cfg,
+        extractor=extractor,
+        embedder=HashEmbedder(dim=64),
+        nli_checker=FixtureNliChecker({}),
+        judge=FixtureJudge({}),
+    )
+    client = TestClient(app)
+
+    files = [
+        ("files", ("acme.md", b"Acme Corp is a company. It does things.", "text/markdown")),
+        (
+            "files",
+            ("globex.md", b"Globex Inc is a company. It does other things.", "text/markdown"),
+        ),
+    ]
+    r = client.post("/uploads", files=files)
+    assert r.status_code == 200, r.text
+
+    store = AssertionStore(cfg.db_path)
+    try:
+        labels = sorted(doc.org_label for doc in store.iter_documents())
+        logger = AuditLogger(store)
+        run_id = logger.begin_run()
+        logger.end_run(run_id, n_assertions=0, n_pairs_gated=0, n_pairs_judged=0)
+    finally:
+        store.close()
+    assert labels == ["Acme Corp", "Globex Inc"]
+
+    stats = client.get("/tabs/stats")
+    assert stats.status_code == 200
+    assert "Corpus spans 2 organizations" in stats.text
