@@ -64,7 +64,7 @@ def test_mae_divergence_detected_by_real_judge(tmp_path: Path) -> None:
     # Sanity: at least the two MAE definitions must have been extracted.
     definitions = list(store.iter_definitions())
     mae_defs = [
-        d for d in definitions if canonicalize_term(d.term or "") == "material adverse effect"
+        d for d, _ in definitions if canonicalize_term(d.term or "") == "material adverse effect"
     ]
     assert len(mae_defs) >= 2, f"expected ≥2 MAE definitions extracted; got {len(mae_defs)}"
 

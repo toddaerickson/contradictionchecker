@@ -121,6 +121,7 @@ class CheckResult:
     n_definition_pairs_judged: int = 0
     n_definition_findings: int = 0
     n_definition_short_circuited: int = 0
+    n_definition_pairs_suppressed: int = 0
 
 
 # --- factories --------------------------------------------------------------
@@ -193,7 +194,10 @@ def make_definition_judge(config: Config) -> DefinitionJudge:
 
 
 def make_definition_checker(config: Config) -> DefinitionChecker:
-    return DefinitionChecker(judge=make_definition_judge(config))
+    return DefinitionChecker(
+        judge=make_definition_judge(config),
+        org_scope_enabled=config.org_scope_enabled,
+    )
 
 
 # --- ingest -----------------------------------------------------------------
@@ -403,26 +407,36 @@ def _run_definition_pass(
     checker: DefinitionChecker,
     audit_logger: AuditLogger,
     run_id: str,
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     """Run the definition checker over all stored definitions and log findings.
 
-    Returns ``(n_judged, n_findings, n_short_circuited)``. ``n_judged`` counts
-    every pair the checker emitted a verdict for (judged or short-circuited);
-    ``n_short_circuited`` is the subset resolved deterministically without an
-    LLM call. The NLI gate is bypassed for this stage by design.
+    Returns ``(n_judged, n_findings, n_short_circuited, n_suppressed)``.
+    ``n_judged`` counts every pair the checker emitted a verdict for (judged
+    or short-circuited); ``n_short_circuited`` is the subset resolved
+    deterministically without an LLM call; ``n_suppressed`` counts cross-org
+    pairs dropped by the org-scope gate (when enabled) and persisted with
+    ``suppressed=1`` for replay. The NLI gate is bypassed for this stage by
+    design.
     """
     definitions = list(store.iter_definitions())
+    result = checker.run(definitions)
     n_judged = 0
     n_findings = 0
     n_short_circuited = 0
-    for finding in checker.find_inconsistencies(definitions):
+    for finding in result.findings:
         audit_logger.record_definition_finding(run_id, finding=finding)
         n_judged += 1
         if finding.verdict.verdict == DEFINITION_CONSISTENT_AUTO:
             n_short_circuited += 1
         if finding.verdict.verdict in DEFINITION_INCONSISTENCY_VERDICTS:
             n_findings += 1
-    return n_judged, n_findings, n_short_circuited
+    for suppressed in result.suppressed_pairs:
+        store.insert_suppressed_finding(
+            run_id=run_id,
+            assertion_a_id=suppressed.a.assertion_id,
+            assertion_b_id=suppressed.b.assertion_id,
+        )
+    return n_judged, n_findings, n_short_circuited, len(result.suppressed_pairs)
 
 
 def check(
@@ -512,11 +526,13 @@ def check(
     n_definition_pairs_judged = 0
     n_definition_findings = 0
     n_definition_short_circuited = 0
+    n_definition_pairs_suppressed = 0
     if definition_checker is not None:
         (
             n_definition_pairs_judged,
             n_definition_findings,
             n_definition_short_circuited,
+            n_definition_pairs_suppressed,
         ) = _run_definition_pass(
             store=store,
             checker=definition_checker,
@@ -556,6 +572,7 @@ def check(
         n_definition_pairs_judged=n_definition_pairs_judged,
         n_definition_findings=n_definition_findings,
         n_definition_short_circuited=n_definition_short_circuited,
+        n_definition_pairs_suppressed=n_definition_pairs_suppressed,
     )
 
 
@@ -579,7 +596,7 @@ def estimate_cost(
     """
     n_candidate_pairs = sum(1 for _ in _iter_candidates(config, store, faiss_store, gate=None))
 
-    groups = _group_by_canonical_term(store.iter_definitions())
+    groups = _group_by_canonical_term(list(store.iter_definitions()))
     n_definition_pairs = sum(len(v) * (len(v) - 1) // 2 for v in groups.values())
 
     judge_calls_ceiling = n_candidate_pairs + n_definition_pairs

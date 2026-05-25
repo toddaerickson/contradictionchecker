@@ -21,7 +21,8 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any
 
-from consistency_checker.extract.schema import Assertion, Document
+from consistency_checker.check.definition_terms import normalize_org
+from consistency_checker.extract.schema import Assertion, Document, hash_id
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 _MIGRATION_NAME = re.compile(r"^(\d{4})_.*\.sql$")
@@ -262,13 +263,45 @@ class AssertionStore:
         ).fetchone()
         return _row_to_assertion(row) if row else None
 
-    def iter_definitions(self) -> Iterator[Assertion]:
-        """Iterate every assertion with ``kind='definition'`` ordered by created_at."""
+    def iter_definitions(self) -> Iterator[tuple[Assertion, str]]:
+        """Yield ``(definition_assertion, org_key)`` ordered by created_at.
+
+        ``org_key`` is :func:`normalize_org` of the joined ``documents.org_label``,
+        or ``""`` for documents whose org_label is NULL (the unknown bucket).
+        """
         cursor = self._conn.execute(
-            "SELECT * FROM assertions WHERE kind = 'definition' ORDER BY created_at, assertion_id"
+            "SELECT a.*, d.org_label FROM assertions a "
+            "LEFT JOIN documents d ON d.doc_id = a.doc_id "
+            "WHERE a.kind = 'definition' "
+            "ORDER BY a.created_at, a.assertion_id"
         )
         for row in cursor:
-            yield _row_to_assertion(row)
+            org_label = row["org_label"]
+            org_key = normalize_org(org_label) if org_label else ""
+            yield _row_to_assertion(row), org_key
+
+    def insert_suppressed_finding(
+        self,
+        *,
+        run_id: str,
+        assertion_a_id: str,
+        assertion_b_id: str,
+    ) -> str:
+        """Record a cross-org definition pair that was skipped by the judge.
+
+        Preserves the precision-measurement surface (spec §6): downstream
+        readers can ``WHERE suppressed = 1`` to count or replay suppressions.
+        """
+        finding_id = hash_id(run_id, "definition_suppressed", assertion_a_id, assertion_b_id)
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO findings ("
+                "finding_id, run_id, assertion_a_id, assertion_b_id, "
+                "judge_verdict, detector_type, suppressed"
+                ") VALUES (?, ?, ?, ?, NULL, 'definition_inconsistency', 1)",
+                (finding_id, run_id, assertion_a_id, assertion_b_id),
+            )
+        return finding_id
 
     def iter_assertions(
         self,

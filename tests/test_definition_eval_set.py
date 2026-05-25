@@ -50,6 +50,6 @@ def test_identical_rows_short_circuit() -> None:
             term=r["term"],
             definition_text=r["def_b"],
         )
-        findings = list(checker.find_inconsistencies([a, b]))
+        findings = list(checker.find_inconsistencies([(a, ""), (b, "")]))
         assert len(findings) == 1
         assert findings[0].verdict.verdict == DEFINITION_CONSISTENT_AUTO, r["pair_id"]

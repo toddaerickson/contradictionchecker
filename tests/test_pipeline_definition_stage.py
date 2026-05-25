@@ -89,7 +89,7 @@ def test_check_runs_definition_stage_and_logs_findings(
     run_id = logger.begin_run()
 
     definitions = list(stocked_store.iter_definitions())
-    a, b = definitions[0], definitions[1]
+    a, b = definitions[0][0], definitions[1][0]
     key = (min(a.assertion_id, b.assertion_id), max(a.assertion_id, b.assertion_id))
     fixture_verdict = DefinitionJudgeVerdict(
         assertion_a_id=key[0],
