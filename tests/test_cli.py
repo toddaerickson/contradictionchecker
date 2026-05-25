@@ -609,6 +609,146 @@ def test_estimate_cost_per_call_flags_flow_through(
     assert captured["per_call_high"] == 0.020
 
 
+# --- org-scope flag + corpus warnings --------------------------------------
+
+
+def test_check_accepts_org_scope_flag(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--org-scope`` succeeds and propagates org_scope_enabled=True into the config."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    captured: dict[str, Any] = {}
+
+    def fake_embedder(_cfg: Any) -> Any:
+        return HashEmbedder(dim=64)
+
+    def fake_judge(_cfg: Any) -> Any:
+        return FixtureJudge({})
+
+    def fake_definition_checker(_cfg: Any) -> Any:
+        captured["org_scope_enabled"] = _cfg.org_scope_enabled
+        # Return None — pipeline.check handles definition_checker=None gracefully.
+        from consistency_checker.check.definition_checker import DefinitionChecker
+        from consistency_checker.check.definition_judge import FixtureDefinitionJudge
+
+        return DefinitionChecker(
+            judge=FixtureDefinitionJudge({}),
+            org_scope_enabled=_cfg.org_scope_enabled,
+        )
+
+    class _FakeNliFactory:
+        def __init__(self, model_name: str) -> None:
+            self._inner = FixtureNliChecker({})
+
+        def score(self, premise: str, hypothesis: str) -> NliResult:
+            return self._inner.score(premise, hypothesis)
+
+        def release(self) -> None:
+            self._inner.release()
+
+    monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
+    monkeypatch.setattr("consistency_checker.cli.main.make_judge", fake_judge)
+    monkeypatch.setattr(
+        "consistency_checker.cli.main.make_definition_checker", fake_definition_checker
+    )
+    monkeypatch.setattr(
+        "consistency_checker.check.nli_checker.TransformerNliChecker", _FakeNliFactory
+    )
+
+    result = runner.invoke(app, ["check", "--org-scope", "--config", str(cfg_path)])
+    assert result.exit_code == 0, result.stdout
+    assert captured.get("org_scope_enabled") is True
+
+
+def _write_two_org_corpus(corpus: Path) -> None:
+    corpus.mkdir(exist_ok=True)
+    (corpus / "acme.txt").write_text("Bylaws of Acme Foundation, Inc. Article I.")
+    (corpus / "globex.txt").write_text("Charter of Globex LLC. Section 1.")
+
+
+def _multi_org_fixture_extractor() -> Any:
+    from consistency_checker.extract.atomic_facts import (
+        FixtureExtractor,
+        OrgIdentification,
+    )
+
+    return FixtureExtractor(
+        fixtures={},
+        org_fixtures={
+            ("acme", "Bylaws of Acme"): OrgIdentification(
+                label="Acme Foundation, Inc.", reason="org_found"
+            ),
+            ("globex", "Charter of Globex"): OrgIdentification(
+                label="Globex LLC", reason="org_found"
+            ),
+        },
+    )
+
+
+def test_ingest_prints_corpus_warning_for_multi_org(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    corpus = tmp_path / "corpus"
+    _write_two_org_corpus(corpus)
+    cfg_path = write_config(tmp_path, corpus)
+
+    extractor = _multi_org_fixture_extractor()
+
+    def fake_extractor(_cfg: Any) -> Any:
+        return extractor
+
+    def fake_embedder(_cfg: Any) -> Any:
+        return HashEmbedder(dim=64)
+
+    monkeypatch.setattr("consistency_checker.cli.main.make_extractor", fake_extractor)
+    monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
+
+    result = runner.invoke(app, ["ingest", str(corpus), "--config", str(cfg_path)])
+    assert result.exit_code == 0, result.stdout
+    assert "Corpus spans 2 organizations" in result.stdout
+    # Default --no-org-scope: hint to enable --org-scope is shown.
+    assert "--org-scope" in result.stdout
+
+
+def test_ingest_no_warning_for_single_org(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from consistency_checker.extract.atomic_facts import (
+        FixtureExtractor,
+        OrgIdentification,
+    )
+
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "acme.txt").write_text("Bylaws of Acme Foundation, Inc. Article I.")
+    cfg_path = write_config(tmp_path, corpus)
+
+    extractor = FixtureExtractor(
+        fixtures={},
+        org_fixtures={
+            ("acme", "Bylaws of Acme"): OrgIdentification(
+                label="Acme Foundation, Inc.", reason="org_found"
+            ),
+        },
+    )
+
+    def fake_extractor(_cfg: Any) -> Any:
+        return extractor
+
+    def fake_embedder(_cfg: Any) -> Any:
+        return HashEmbedder(dim=64)
+
+    monkeypatch.setattr("consistency_checker.cli.main.make_extractor", fake_extractor)
+    monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
+
+    result = runner.invoke(app, ["ingest", str(corpus), "--config", str(cfg_path)])
+    assert result.exit_code == 0, result.stdout
+    assert "Corpus spans" not in result.stdout
+
+
 # --- eval -----------------------------------------------------------------
 
 

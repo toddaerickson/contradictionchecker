@@ -34,6 +34,12 @@ from consistency_checker.audit.naming import (
     report_filename,
 )
 from consistency_checker.audit.report import render_report
+from consistency_checker.cli.warnings import (
+    render_corpus_warning,
+    render_fragmentation_warning,
+    render_identification_failure_notice,
+    summarize_buckets,
+)
 from consistency_checker.config import Config, load_local_env
 from consistency_checker.index.assertion_store import AssertionStore
 from consistency_checker.index.faiss_store import FaissStore
@@ -141,6 +147,33 @@ def _preflight_memory(cfg: Config) -> None:
         )
 
 
+# --- corpus warnings -------------------------------------------------------
+
+
+def _emit_corpus_warnings(store: AssertionStore, cfg: Config) -> None:
+    """Print Task 12 corpus warnings using a single pass over documents."""
+    docs = list(store.iter_documents())
+    rows = [(d.doc_id, d.org_label) for d in docs]
+    summary = summarize_buckets(rows)
+
+    warn = render_corpus_warning(
+        summary.known,
+        summary.unknown_count,
+        scope_enabled=cfg.org_scope_enabled,
+    )
+    if warn:
+        typer.echo(warn)
+
+    frag = render_fragmentation_warning(summary.known)
+    if frag:
+        typer.echo(frag)
+
+    failures = sum(1 for d in docs if d.org_reason in {"llm_error", "truncated"})
+    notice = render_identification_failure_notice(failures=failures, total=len(rows))
+    if notice:
+        typer.echo(notice)
+
+
 # --- ingest -----------------------------------------------------------------
 
 
@@ -148,9 +181,14 @@ def _preflight_memory(cfg: Config) -> None:
 def ingest(
     corpus_dir: Path = typer.Argument(..., exists=True, file_okay=False, dir_okay=True),
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
+    org_scope: bool = typer.Option(
+        False,
+        "--org-scope/--no-org-scope",
+        help="Suppress cross-organization definition pairs and write them to the audit trail.",
+    ),
 ) -> None:
     cfg = _load_config(config)
-    cfg = cfg.model_copy(update={"corpus_dir": corpus_dir})
+    cfg = cfg.model_copy(update={"corpus_dir": corpus_dir, "org_scope_enabled": org_scope})
     configure_logging(cfg.log_dir)
     extractor = make_extractor(cfg)
     embedder = make_embedder(cfg)
@@ -159,6 +197,7 @@ def ingest(
     result = run_ingest(
         cfg, store=store, faiss_store=faiss_store, extractor=extractor, embedder=embedder
     )
+    _emit_corpus_warnings(store, cfg)
     store.close()
     typer.echo(
         f"Ingested {result.n_documents} documents, {result.n_chunks} chunks, "
@@ -182,15 +221,22 @@ def check(
         "--no-definitions",
         help="Skip the definition-inconsistency stage (ADR-0009). Default: enabled.",
     ),
+    org_scope: bool = typer.Option(
+        False,
+        "--org-scope/--no-org-scope",
+        help="Suppress cross-organization definition pairs and write them to the audit trail.",
+    ),
 ) -> None:
     cfg = _load_config(config)
     if deep:
         cfg = cfg.model_copy(update={"enable_multi_party": True})
+    cfg = cfg.model_copy(update={"org_scope_enabled": org_scope})
     configure_logging(cfg.log_dir)
     _preflight_memory(cfg)
     embedder = make_embedder(cfg)
     store = _open_store(cfg)
     faiss_store = _open_faiss(cfg, dim=embedder.dim)
+    _emit_corpus_warnings(store, cfg)
     audit_logger = AuditLogger(store)
 
     # Lazy NLI import — keeps `ingest` fast when the model is not yet cached.
