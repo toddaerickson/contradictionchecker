@@ -7,7 +7,7 @@ ALTER TABLE pipeline_runs ADD COLUMN corpus_id TEXT REFERENCES corpora(corpus_id
 
 -- Auto-create "legacy" corpus when pre-isolation rows exist.
 INSERT INTO corpora (corpus_id, corpus_name, corpus_path, judge_provider, created_at, updated_at)
-SELECT lower(hex(randomblob(8))), 'legacy', '(pre-isolation)', 'moonshot',
+SELECT lower(hex(randomblob(16))), 'legacy', '(pre-isolation)', 'moonshot',
        datetime('now'), datetime('now')
 WHERE EXISTS (
     SELECT 1 FROM documents     WHERE corpus_id IS NULL

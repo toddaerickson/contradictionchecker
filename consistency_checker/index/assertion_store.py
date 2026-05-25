@@ -216,7 +216,6 @@ class AssertionStore:
     def delete_corpus(self, corpus_id: str) -> None:
         """Delete a corpus and CASCADE to documents/pipeline_runs/runs (and their
         descendants). reviewer_verdicts may be left as orphans — v1 accepts this."""
-        self._conn.execute("PRAGMA foreign_keys = ON")
         with self._conn:
             self._conn.execute("DELETE FROM corpora WHERE corpus_id = ?", (corpus_id,))
 
