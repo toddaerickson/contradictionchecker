@@ -182,6 +182,11 @@ def _emit_corpus_warnings(store: AssertionStore, cfg: Config) -> None:
 def ingest(
     corpus_dir: Path = typer.Argument(..., exists=True, file_okay=False, dir_okay=True),
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
+    corpus: str | None = typer.Option(
+        None,
+        "--corpus",
+        help="Corpus name. Required (interactive picker on TTY).",
+    ),
     org_scope: bool = typer.Option(
         False,
         "--org-scope/--no-org-scope",
@@ -195,10 +200,13 @@ def ingest(
     embedder = make_embedder(cfg)
     store = _open_store(cfg)
     faiss_store = _open_faiss(cfg, dim=embedder.dim)
-    # Task 4 scaffold: Task 7 wires --corpus from the CLI. For now, default to
-    # a corpus named "default" (judge_provider clamped to moonshot to satisfy
-    # the corpora CHECK constraint).
-    corpus_id = store.get_or_create_corpus("default", str(cfg.corpus_dir), "moonshot")
+    # Clamp to schema's CHECK-allowed providers.
+    provider_for_corpus = (
+        cfg.judge_provider if cfg.judge_provider in ("moonshot", "anthropic") else "moonshot"
+    )
+    from consistency_checker.cli.corpus_prompt import resolve_corpus
+
+    corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
     result = run_ingest(
         cfg,
         store=store,

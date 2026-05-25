@@ -123,7 +123,9 @@ def test_ingest_runs_with_fakes(
     monkeypatch.setattr("consistency_checker.cli.main.make_extractor", fake_extractor)
     monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
 
-    result = runner.invoke(app, ["ingest", str(corpus), "--config", str(cfg_path)])
+    result = runner.invoke(
+        app, ["ingest", str(corpus), "--config", str(cfg_path), "--corpus", "default"]
+    )
     assert result.exit_code == 0, result.stdout
     assert "Ingested" in result.stdout
 
@@ -710,7 +712,9 @@ def test_ingest_prints_corpus_warning_for_multi_org(
     monkeypatch.setattr("consistency_checker.cli.main.make_extractor", fake_extractor)
     monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
 
-    result = runner.invoke(app, ["ingest", str(corpus), "--config", str(cfg_path)])
+    result = runner.invoke(
+        app, ["ingest", str(corpus), "--config", str(cfg_path), "--corpus", "default"]
+    )
     assert result.exit_code == 0, result.stdout
     assert "Corpus spans 2 organizations" in result.stdout
     # Default --no-org-scope: hint to enable --org-scope is shown.
@@ -748,7 +752,9 @@ def test_ingest_no_warning_for_single_org(
     monkeypatch.setattr("consistency_checker.cli.main.make_extractor", fake_extractor)
     monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
 
-    result = runner.invoke(app, ["ingest", str(corpus), "--config", str(cfg_path)])
+    result = runner.invoke(
+        app, ["ingest", str(corpus), "--config", str(cfg_path), "--corpus", "default"]
+    )
     assert result.exit_code == 0, result.stdout
     assert "Corpus spans" not in result.stdout
 
@@ -846,3 +852,50 @@ def test_eval_rejects_unknown_detector(runner: CliRunner, tmp_path: Path) -> Non
     result = runner.invoke(app, ["eval", "--config", str(cfg_path), "--detector", "contraddiction"])
     assert result.exit_code != 0
     assert "must be one of" in (result.stdout + result.stderr).lower()
+
+
+def test_ingest_without_corpus_errors_in_non_tty(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = tmp_path / "config.yml"
+    cfg.write_text(f"corpus_dir: {tmp_path}\ndata_dir: {tmp_path}\n", encoding="utf-8")
+    # Make sure no stdin TTY
+    runner = CliRunner()
+    res = runner.invoke(app, ["ingest", str(tmp_path), "--config", str(cfg)])
+    # The Click/Typer error message embeds "--corpus is required"
+    assert res.exit_code != 0
+    out = (res.output or "") + str(res.exception or "")
+    assert "--corpus is required" in out
+
+
+def test_ingest_with_corpus_persists(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Mirror existing ingest test fixtures. Confirm corpus_id is set on every doc."""
+    import consistency_checker.pipeline as pipeline_mod
+    from consistency_checker.extract.atomic_facts import FixtureExtractor, OrgIdentification
+
+    doc_path = tmp_path / "doc.txt"
+    doc_path.write_text("Atkins bylaws text", encoding="utf-8")
+    cfg_path = tmp_path / "config.yml"
+    cfg_path.write_text(
+        f"corpus_dir: {tmp_path}\ndata_dir: {tmp_path}\njudge_provider: moonshot\n",
+        encoding="utf-8",
+    )
+    fx = FixtureExtractor(
+        {}, org_fixtures={("doc", "Atkins"): OrgIdentification("Atkins", "org_found")}
+    )
+    monkeypatch.setattr(pipeline_mod, "make_extractor", lambda c: fx)
+
+    runner = CliRunner()
+    res = runner.invoke(
+        app, ["ingest", str(tmp_path), "--config", str(cfg_path), "--corpus", "atkins"]
+    )
+    assert res.exit_code == 0, res.output
+
+    store = AssertionStore(tmp_path / "assertions.db")
+    store.migrate()
+    names = [c.corpus_name for c in store.list_corpora()]
+    assert "atkins" in names
+    atkins_id = next(c.corpus_id for c in store.list_corpora() if c.corpus_name == "atkins")
+    rows = store._conn.execute("SELECT corpus_id FROM documents").fetchall()
+    assert rows and all(r[0] == atkins_id for r in rows)
+    store.close()
