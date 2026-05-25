@@ -62,6 +62,7 @@ def _parse_timestamp(value: Any) -> datetime | None:
 
 
 def _row_to_document(row: sqlite3.Row) -> Document:
+    keys = row.keys()
     return Document(
         doc_id=row["doc_id"],
         source_path=row["source_path"],
@@ -70,6 +71,8 @@ def _row_to_document(row: sqlite3.Row) -> Document:
         doc_type=row["doc_type"],
         metadata_json=row["metadata_json"],
         ingested_at=_parse_timestamp(row["ingested_at"]),
+        org_label=row["org_label"] if "org_label" in keys else None,
+        org_reason=row["org_reason"] if "org_reason" in keys else None,
     )
 
 
@@ -156,8 +159,9 @@ class AssertionStore:
         with self._conn:
             self._conn.execute(
                 "INSERT OR IGNORE INTO documents"
-                "(doc_id, source_path, title, doc_date, doc_type, metadata_json) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(doc_id, source_path, title, doc_date, doc_type, metadata_json, "
+                "org_label, org_reason) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     doc.doc_id,
                     doc.source_path,
@@ -165,7 +169,17 @@ class AssertionStore:
                     doc.doc_date,
                     doc.doc_type,
                     doc.metadata_json,
+                    doc.org_label,
+                    doc.org_reason,
                 ),
+            )
+
+    def update_org_label(self, doc_id: str, org_label: str | None, org_reason: str) -> None:
+        """Backfill or refresh org identification on an existing document row."""
+        with self._conn:
+            self._conn.execute(
+                "UPDATE documents SET org_label = ?, org_reason = ? WHERE doc_id = ?",
+                (org_label, org_reason, doc_id),
             )
 
     def add_assertion(self, assertion: Assertion) -> None:

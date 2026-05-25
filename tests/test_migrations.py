@@ -101,3 +101,14 @@ def test_migration_0009_idempotent(tmp_path: Path) -> None:
     store = AssertionStore(db)
     assert store.migrate() == []
     store.close()
+
+
+def test_migration_0013_adds_org_columns_and_findings_suppressed(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "test.db")
+    store.migrate()
+    cols_docs = {r[1] for r in store._conn.execute("PRAGMA table_info(documents)")}
+    cols_findings = {r[1] for r in store._conn.execute("PRAGMA table_info(findings)")}
+    assert "org_label" in cols_docs
+    assert "org_reason" in cols_docs
+    assert "suppressed" in cols_findings
+    store.close()

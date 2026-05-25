@@ -293,3 +293,36 @@ def test_iter_definitions_filters_to_kind_definition(tmp_path: Path) -> None:
     assert len(defs) == 2
     assert all(d.kind == "definition" for d in defs)
     s.close()
+
+
+def test_add_document_persists_org_label_and_reason(tmp_path: Path) -> None:
+    s = AssertionStore(tmp_path / "test.db")
+    s.migrate()
+    s.add_document(
+        Document(
+            doc_id="d1",
+            source_path="/x.txt",
+            org_label="Acme",
+            org_reason="org_found",
+        )
+    )
+    got = s.get_document("d1")
+    assert got is not None
+    assert got.org_label == "Acme"
+    assert got.org_reason == "org_found"
+    s.close()
+
+
+def test_update_org_label_overwrites_existing(tmp_path: Path) -> None:
+    s = AssertionStore(tmp_path / "test.db")
+    s.migrate()
+    s.add_document(Document(doc_id="d1", source_path="/x.txt"))
+    got = s.get_document("d1")
+    assert got is not None
+    assert got.org_label is None
+    s.update_org_label("d1", "Beta Trust", "org_found")
+    got = s.get_document("d1")
+    assert got is not None
+    assert got.org_label == "Beta Trust"
+    assert got.org_reason == "org_found"
+    s.close()
