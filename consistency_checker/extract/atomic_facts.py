@@ -113,6 +113,38 @@ class OrgIdentification:
     reason: OrgIdentificationReason
 
 
+ORG_PROMPT_CHAR_CAP = 2000
+
+ORG_TOOL_SCHEMA: dict[str, Any] = {
+    "name": "identify_org",
+    "description": "Identify the primary issuing organization of a document.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "label": {"type": ["string", "null"]},
+            "reason": {"type": "string", "enum": ["org_found", "no_org"]},
+        },
+        "required": ["label", "reason"],
+    },
+}
+
+
+def _render_org_prompts(title: str | None, text: str) -> tuple[str, str, bool]:
+    """Return (system, user, truncated). truncated is True iff text was clipped."""
+    here = Path(__file__).resolve().parent / "prompts"
+    system = (here / "org_identifier_system.txt").read_text(encoding="utf-8")
+    template = (here / "org_identifier_user.txt").read_text(encoding="utf-8")
+    truncated = len(text) > ORG_PROMPT_CHAR_CAP
+    text_prefix = text[:ORG_PROMPT_CHAR_CAP]
+    user = template.replace("{title}", title or "(none)").replace("{text_prefix}", text_prefix)
+    return system, user, truncated
+
+
+class _OrgIdentificationPayload(BaseModel):
+    label: str | None
+    reason: Literal["org_found", "no_org"]
+
+
 def render_prompt(chunk_text: str) -> str:
     """Substitute ``{chunk_text}`` into the prompt template."""
     template = PROMPT_PATH.read_text(encoding="utf-8")
@@ -244,7 +276,36 @@ class AnthropicExtractor:
         return _assertions_from_payload(chunk, payload)
 
     def identify_org(self, *, title: str | None, text: str) -> OrgIdentification:
-        raise NotImplementedError("AnthropicExtractor.identify_org lands in a later task")
+        system, user, truncated = _render_org_prompts(title, text)
+        try:
+            response = self._client.messages.create(
+                model=self._model,
+                max_tokens=200,
+                system=system,
+                tools=[ORG_TOOL_SCHEMA],
+                tool_choice={"type": "tool", "name": "identify_org"},
+                messages=[{"role": "user", "content": user}],
+            )
+        except Exception:
+            return OrgIdentification(label=None, reason="llm_error")
+        for block in getattr(response, "content", []) or []:
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and getattr(block, "name", None) == "identify_org"
+            ):
+                payload = block.input or {}
+                label = payload.get("label")
+                reason = payload.get("reason", "no_org")
+                if reason == "no_org" and truncated:
+                    return OrgIdentification(label=None, reason="truncated")
+                if reason not in ("org_found", "no_org"):
+                    return OrgIdentification(label=None, reason="llm_error")
+                if reason == "org_found" and not (isinstance(label, str) and label.strip()):
+                    return OrgIdentification(label=None, reason="llm_error")
+                return OrgIdentification(
+                    label=label if reason == "org_found" else None, reason=reason
+                )
+        return OrgIdentification(label=None, reason="llm_error")
 
 
 class MoonshotExtractor:
@@ -319,7 +380,29 @@ class MoonshotExtractor:
         return _assertions_from_payload(chunk, payload)
 
     def identify_org(self, *, title: str | None, text: str) -> OrgIdentification:
-        raise NotImplementedError("MoonshotExtractor.identify_org lands in a later task")
+        system, user, truncated = _render_org_prompts(title, text)
+        try:
+            response = self._client.beta.chat.completions.parse(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                response_format=_OrgIdentificationPayload,
+                max_tokens=200,
+                extra_body={"thinking": "disabled"},
+            )
+        except Exception:
+            return OrgIdentification(label=None, reason="llm_error")
+        parsed = response.choices[0].message.parsed if response.choices else None
+        if parsed is None:
+            return OrgIdentification(label=None, reason="llm_error")
+        label, reason = parsed.label, parsed.reason
+        if reason == "no_org" and truncated:
+            return OrgIdentification(label=None, reason="truncated")
+        if reason == "org_found" and not (isinstance(label, str) and label.strip()):
+            return OrgIdentification(label=None, reason="llm_error")
+        return OrgIdentification(label=label if reason == "org_found" else None, reason=reason)
 
 
 class JunkFilteringExtractor:
