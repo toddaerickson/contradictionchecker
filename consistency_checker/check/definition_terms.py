@@ -47,3 +47,41 @@ def definitions_equivalent(a_text: str, b_text: str) -> bool:
         return " ".join(text.casefold().split()).strip(_STRIP_CHARS)
 
     return _norm(a_text) == _norm(b_text)
+
+
+_LEGAL_SUFFIXES: tuple[str, ...] = (
+    "limited", "ltd", "company", "co",
+    "corporation", "corp", "lp", "l.p.", "llc", "inc",
+)
+
+
+def normalize_org(label: str) -> str:
+    """Return the canonical, comparison-ready org key for ``label``.
+
+    Rules (in order):
+      1. casefold; collapse internal whitespace and punctuation to single spaces.
+      2. strip a single leading article ('the ').
+      3. strip ONE trailing legal-form suffix, but only when at least one other
+         significant token would remain. Entity-type words (Trust, Foundation)
+         are NOT suffixes — they distinguish organizations and stay in the key.
+      4. trim.
+
+    Idempotent: ``normalize_org(normalize_org(x)) == normalize_org(x)``.
+    """
+    if not label or not label.strip():
+        return ""
+    chars = []
+    for ch in label.casefold():
+        if ch.isalnum() or ch.isspace():
+            chars.append(ch)
+        else:
+            chars.append(" ")
+    text = " ".join("".join(chars).split())
+    if text.startswith("the "):
+        text = text[4:]
+    tokens = text.split()
+    if len(tokens) >= 3 and tokens[-2:] == ["l", "p"]:
+        tokens = tokens[:-2]
+    elif len(tokens) >= 2 and tokens[-1] in _LEGAL_SUFFIXES:
+        tokens = tokens[:-1]
+    return " ".join(tokens).strip()

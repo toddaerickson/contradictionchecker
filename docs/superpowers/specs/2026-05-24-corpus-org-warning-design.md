@@ -141,12 +141,12 @@ Lives in `check/definition_terms.py` (alongside `canonicalize_term`). Rules:
 
 1. casefold; collapse internal whitespace and punctuation to single spaces
 2. strip a single leading article (`the`)
-3. strip a trailing legal suffix from the set
-   `{inc, llc, l.p., lp, corporation, corp, foundation, trust, company, co,
-   ltd, limited}` **only when at least one significant token remains**.
-   Never reduce a name to a single common token. "Acme Trust" and "Acme
-   Foundation" must NOT collapse together; "Trust" alone does not collapse
-   to empty.
+3. strip a trailing legal-form suffix from the set
+   `{inc, llc, l.p., lp, corporation, corp, company, co, ltd, limited}` **only
+   when at least one significant token remains**. Entity-type words
+   ("Trust", "Foundation") are intentionally NOT in this set — they
+   distinguish organizations (a Trust is legally distinct from a Foundation)
+   and must stay in the key.
 4. trim
 
 `org_key := normalize_org(org_label)`. Idempotent:

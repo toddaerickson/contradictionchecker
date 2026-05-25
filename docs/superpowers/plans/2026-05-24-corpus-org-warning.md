@@ -280,8 +280,10 @@ def test_does_not_strip_internal_the():
 
 
 def test_strips_trailing_legal_suffixes():
+    # Pure legal-form suffixes only. Entity types (Trust, Foundation) are
+    # load-bearing and stay in the key.
     for suffix in ["Inc", "LLC", "L.P.", "LP", "Corporation", "Corp",
-                   "Foundation", "Trust", "Company", "Co", "Ltd", "Limited"]:
+                   "Company", "Co", "Ltd", "Limited"]:
         full = f"Acme {suffix}"
         got = normalize_org(full)
         assert got == "acme", f"{full!r} -> {got!r}"
@@ -292,13 +294,13 @@ def test_collapses_punctuation():
 
 
 def test_distinct_orgs_with_same_token_do_not_merge():
-    # Adversary-binding non-merge cases from the spec
+    # Trust and Foundation are entity TYPES, not legal-form decorators.
     assert normalize_org("Acme Trust") != normalize_org("Acme Foundation")
     assert normalize_org("Acme Corp") != normalize_org("Acme Trust")
 
 
 def test_suffix_alone_does_not_reduce_to_empty():
-    # Rule 3: never reduce a name to a single common token
+    assert normalize_org("Inc") == "inc"
     assert normalize_org("Trust") == "trust"
     assert normalize_org("Foundation") == "foundation"
 
@@ -312,6 +314,11 @@ def test_idempotent():
 def test_empty_and_whitespace_only():
     assert normalize_org("") == ""
     assert normalize_org("   ") == ""
+
+
+def test_lp_with_dots_collapses_to_single_word():
+    assert normalize_org("Acme L.P.") == "acme"
+    assert normalize_org("Acme LP") == "acme"
 ```
 
 - [ ] **Step 2: Run — confirm all fail**
@@ -328,7 +335,7 @@ In `consistency_checker/check/definition_terms.py`, append:
 
 ```python
 _LEGAL_SUFFIXES: tuple[str, ...] = (
-    "limited", "ltd", "company", "co", "trust", "foundation",
+    "limited", "ltd", "company", "co",
     "corporation", "corp", "lp", "l.p.", "llc", "inc",
 )
 
@@ -339,9 +346,9 @@ def normalize_org(label: str) -> str:
     Rules (in order):
       1. casefold; collapse internal whitespace and punctuation to single spaces.
       2. strip a single leading article ('the ').
-      3. strip ONE trailing legal suffix, but only when at least one other
-         significant token would remain. Never reduce a name to nothing or
-         to a single suffix-token.
+      3. strip ONE trailing legal-form suffix, but only when at least one other
+         significant token would remain. Entity-type words (Trust, Foundation)
+         are NOT suffixes — they distinguish organizations and stay in the key.
       4. trim.
 
     Idempotent: ``normalize_org(normalize_org(x)) == normalize_org(x)``.
@@ -358,11 +365,10 @@ def normalize_org(label: str) -> str:
     if text.startswith("the "):
         text = text[4:]
     tokens = text.split()
-    if len(tokens) >= 2 and tokens[-1] in _LEGAL_SUFFIXES:
+    if len(tokens) >= 3 and tokens[-2:] == ["l", "p"]:
+        tokens = tokens[:-2]
+    elif len(tokens) >= 2 and tokens[-1] in _LEGAL_SUFFIXES:
         tokens = tokens[:-1]
-        # Handle two-token suffixes that survived punctuation-stripping (e.g. "l p").
-        if len(tokens) >= 2 and tokens[-1] in {"l", "p"} and tokens[-2] == "l":
-            tokens = tokens[:-2]
     return " ".join(tokens).strip()
 ```
 
