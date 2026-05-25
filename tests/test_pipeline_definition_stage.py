@@ -260,7 +260,10 @@ def test_ingest_populates_org_label_via_fixture_extractor(tmp_path: Path) -> Non
         dim=embedder.dim,
     )
 
-    ingest(cfg, store=store, faiss_store=faiss, extractor=extractor, embedder=embedder)
+    cid = store.get_or_create_corpus("default", str(cfg.corpus_dir), "moonshot")
+    ingest(
+        cfg, store=store, faiss_store=faiss, extractor=extractor, embedder=embedder, corpus_id=cid
+    )
 
     docs = list(store.iter_documents())
     assert len(docs) == 1
@@ -286,10 +289,95 @@ def test_ingest_skips_org_identification_when_disabled(tmp_path: Path) -> None:
         dim=embedder.dim,
     )
 
-    ingest(cfg, store=store, faiss_store=faiss, extractor=FixtureExtractor({}), embedder=embedder)
+    cid = store.get_or_create_corpus("default", str(cfg.corpus_dir), "moonshot")
+    ingest(
+        cfg,
+        store=store,
+        faiss_store=faiss,
+        extractor=FixtureExtractor({}),
+        embedder=embedder,
+        corpus_id=cid,
+    )
 
     docs = list(store.iter_documents())
     assert len(docs) == 1
     assert docs[0].org_label is None
     assert docs[0].org_reason is None
+    store.close()
+
+
+def test_ingest_requires_and_persists_corpus_id(tmp_path: Path) -> None:
+    from consistency_checker.config import Config
+    from consistency_checker.extract.atomic_facts import FixtureExtractor
+    from consistency_checker.index.assertion_store import AssertionStore
+    from consistency_checker.index.faiss_store import FaissStore
+    from consistency_checker.pipeline import ingest
+    from tests.conftest import HashEmbedder
+
+    doc_path = tmp_path / "doc.txt"
+    doc_path.write_text("hello world", encoding="utf-8")
+    cfg_path = tmp_path / "config.yml"
+    cfg_path.write_text(
+        f"corpus_dir: {tmp_path}\ndata_dir: {tmp_path}\n",
+        encoding="utf-8",
+    )
+
+    store = AssertionStore(tmp_path / "store.db")
+    store.migrate()
+    faiss = FaissStore.open_or_create(
+        index_path=tmp_path / "faiss.idx",
+        id_map_path=tmp_path / "faiss.idmap.json",
+        dim=32,
+    )
+    cid = store.get_or_create_corpus("atkins", str(tmp_path), "moonshot")
+
+    ingest(
+        Config.from_yaml(cfg_path),
+        store=store,
+        faiss_store=faiss,
+        extractor=FixtureExtractor({}),
+        embedder=HashEmbedder(dim=32),
+        corpus_id=cid,
+    )
+
+    rows = store._conn.execute("SELECT corpus_id FROM documents").fetchall()
+    assert rows, "no documents were ingested"
+    assert all(r[0] == cid for r in rows), f"some docs not tagged with {cid}: {rows}"
+    store.close()
+
+
+def test_ingest_without_corpus_id_raises(tmp_path: Path) -> None:
+    import pytest
+
+    from consistency_checker.config import Config
+    from consistency_checker.extract.atomic_facts import FixtureExtractor
+    from consistency_checker.index.assertion_store import AssertionStore
+    from consistency_checker.index.faiss_store import FaissStore
+    from consistency_checker.pipeline import ingest
+    from tests.conftest import HashEmbedder
+
+    doc_path = tmp_path / "doc.txt"
+    doc_path.write_text("hello world", encoding="utf-8")
+    cfg_path = tmp_path / "config.yml"
+    cfg_path.write_text(
+        f"corpus_dir: {tmp_path}\ndata_dir: {tmp_path}\n",
+        encoding="utf-8",
+    )
+
+    store = AssertionStore(tmp_path / "store.db")
+    store.migrate()
+    faiss = FaissStore.open_or_create(
+        index_path=tmp_path / "faiss.idx",
+        id_map_path=tmp_path / "faiss.idmap.json",
+        dim=32,
+    )
+
+    with pytest.raises(TypeError):  # missing required kwarg
+        ingest(
+            Config.from_yaml(cfg_path),
+            store=store,
+            faiss_store=faiss,
+            extractor=FixtureExtractor({}),
+            embedder=HashEmbedder(dim=32),
+        )
     store.close()

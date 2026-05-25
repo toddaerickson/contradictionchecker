@@ -195,8 +195,17 @@ def ingest(
     embedder = make_embedder(cfg)
     store = _open_store(cfg)
     faiss_store = _open_faiss(cfg, dim=embedder.dim)
+    # Task 4 scaffold: Task 7 wires --corpus from the CLI. For now, default to
+    # a corpus named "default" (judge_provider clamped to moonshot to satisfy
+    # the corpora CHECK constraint).
+    corpus_id = store.get_or_create_corpus("default", str(cfg.corpus_dir), "moonshot")
     result = run_ingest(
-        cfg, store=store, faiss_store=faiss_store, extractor=extractor, embedder=embedder
+        cfg,
+        store=store,
+        faiss_store=faiss_store,
+        extractor=extractor,
+        embedder=embedder,
+        corpus_id=corpus_id,
     )
     _emit_corpus_warnings(store, cfg)
     store.close()

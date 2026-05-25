@@ -239,12 +239,14 @@ def test_end_to_end_mixed_format_corpus(
         dim=embedder.dim,
     )
 
+    _cid = store.get_or_create_corpus("default", str(cfg.corpus_dir), "moonshot")
     ingest_result = run_ingest(
         cfg,
         store=store,
         faiss_store=faiss_store,
         extractor=FixtureExtractor(extractor_fixture),
         embedder=embedder,
+        corpus_id=_cid,
     )
     assert ingest_result.n_documents == 4
     assert ingest_result.n_assertions >= 4
@@ -287,12 +289,14 @@ def test_end_to_end_pipeline_fixture(tmp_path: Path) -> None:
     )
 
     # 1. Ingest.
+    _cid = store.get_or_create_corpus("default", str(cfg.corpus_dir), "moonshot")
     ingest_result = run_ingest(
         cfg,
         store=store,
         faiss_store=faiss_store,
         extractor=FixtureExtractor(extractor_fixture),
         embedder=embedder,
+        corpus_id=_cid,
     )
     assert ingest_result.n_documents == 5
     expected_n_assertions = sum(len(v) for v in _FIXTURE_ASSERTIONS_BY_FILE.values())
@@ -386,12 +390,14 @@ def test_end_to_end_pipeline_live(tmp_path: Path) -> None:
         dim=embedder.dim,
     )
 
+    _cid = store.get_or_create_corpus("default", str(cfg.corpus_dir), "moonshot")
     run_ingest(
         cfg,
         store=store,
         faiss_store=faiss_store,
         extractor=AnthropicExtractor(model=cfg.judge_model),
         embedder=embedder,
+        corpus_id=_cid,
     )
 
     audit_logger = AuditLogger(store)

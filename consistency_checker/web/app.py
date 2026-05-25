@@ -1089,17 +1089,11 @@ def _ingest_uploaded_paths(
     a directory — the web upload doesn't have a single corpus_dir, just a
     handful of just-saved files. Returns the number of assertions added.
     """
+    # Task 4 scaffold: Task 10 replaces this with the user-selected corpus_id
+    # from the web upload form. For now resolve a stable "default" corpus.
+    corpus_id = store.get_or_create_corpus("default", str(config.corpus_dir), "moonshot")
     junk_audit = (
         JunkAudit(config.data_dir / "junk_drops.jsonl") if config.junk_filter_enabled else None
-    )
-    # Task 2 stub: Task 10 replaces this with the user-selected corpus_id from
-    # the web upload form. For now resolve a stable "default" corpus.
-    # Clamp provider to a valid DB value; "fixture" is test-only.
-    _stub_provider = (
-        config.judge_provider if config.judge_provider in ("moonshot", "anthropic") else "moonshot"
-    )
-    _default_corpus_id = store.get_or_create_corpus(
-        "default", str(config.corpus_dir), _stub_provider
     )
     n_assertions = 0
     for path in paths:
@@ -1110,7 +1104,7 @@ def _ingest_uploaded_paths(
         if config.org_grouping_enabled:
             res = extractor.identify_org(title=doc.title, text=loaded.text)
             doc = replace(doc, org_label=res.label, org_reason=res.reason)
-        store.add_document(doc, corpus_id=_default_corpus_id)
+        store.add_document(doc, corpus_id=corpus_id)
         for chunk in chunk_document(
             loaded,
             max_chars=config.chunk_max_chars,
