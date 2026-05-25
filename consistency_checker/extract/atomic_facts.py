@@ -20,8 +20,9 @@ downstream code.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -101,6 +102,17 @@ class _ExtractionPayload(BaseModel):
     definitions: list[_DefinitionItem] = Field(default_factory=list)
 
 
+OrgIdentificationReason = Literal["org_found", "no_org", "llm_error", "truncated"]
+
+
+@dataclass(frozen=True, slots=True)
+class OrgIdentification:
+    """Result of a document-level org-identification call."""
+
+    label: str | None
+    reason: OrgIdentificationReason
+
+
 def render_prompt(chunk_text: str) -> str:
     """Substitute ``{chunk_text}`` into the prompt template."""
     template = PROMPT_PATH.read_text(encoding="utf-8")
@@ -155,6 +167,7 @@ class Extractor(Protocol):
     """Anything that turns a Chunk into a list of Assertion records."""
 
     def extract(self, chunk: Chunk) -> list[Assertion]: ...
+    def identify_org(self, *, title: str | None, text: str) -> OrgIdentification: ...
 
 
 class FixtureExtractor:
@@ -171,11 +184,15 @@ class FixtureExtractor:
         *,
         facts: Mapping[str, list[str]] | None = None,
         definitions: Mapping[str, list[Mapping[str, str]]] | None = None,
+        org_fixtures: Mapping[tuple[str | None, str], OrgIdentification] | None = None,
     ) -> None:
         if fixtures is not None and facts is not None:
             raise ValueError("pass either fixtures (legacy) or facts=, not both")
         self._facts: dict[str, list[str]] = dict(fixtures or facts or {})
         self._definitions: dict[str, list[Mapping[str, str]]] = dict(definitions or {})
+        self._org_fixtures: dict[tuple[str | None, str], OrgIdentification] = dict(
+            org_fixtures or {}
+        )
 
     def extract(self, chunk: Chunk) -> list[Assertion]:
         payload = _ExtractionPayload(
@@ -183,6 +200,12 @@ class FixtureExtractor:
             definitions=[_DefinitionItem(**d) for d in self._definitions.get(chunk.chunk_id, [])],
         )
         return _assertions_from_payload(chunk, payload)
+
+    def identify_org(self, *, title: str | None, text: str) -> OrgIdentification:
+        for (k_title, k_prefix), res in self._org_fixtures.items():
+            if k_title == title and text.startswith(k_prefix):
+                return res
+        return OrgIdentification(label=None, reason="no_org")
 
 
 class AnthropicExtractor:
@@ -219,6 +242,9 @@ class AnthropicExtractor:
             _log.warning("Atomic-fact extraction returned no usable payload: %s", exc)
             return []
         return _assertions_from_payload(chunk, payload)
+
+    def identify_org(self, *, title: str | None, text: str) -> OrgIdentification:
+        raise NotImplementedError("AnthropicExtractor.identify_org lands in a later task")
 
 
 class MoonshotExtractor:
@@ -292,6 +318,9 @@ class MoonshotExtractor:
             return []
         return _assertions_from_payload(chunk, payload)
 
+    def identify_org(self, *, title: str | None, text: str) -> OrgIdentification:
+        raise NotImplementedError("MoonshotExtractor.identify_org lands in a later task")
+
 
 class JunkFilteringExtractor:
     """Wraps an :class:`Extractor`, dropping assertions flagged by ``is_junk_assertion``.
@@ -318,3 +347,6 @@ class JunkFilteringExtractor:
                     text=assertion.assertion_text,
                 )
         return kept
+
+    def identify_org(self, *, title: str | None, text: str) -> OrgIdentification:
+        return self._inner.identify_org(title=title, text=text)
