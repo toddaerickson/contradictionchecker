@@ -135,3 +135,27 @@ def test_check_corpus_b_sees_only_its_own_assertions(tmp_path: Path) -> None:
     assert result.n_cross_corpus_gate_drops >= 1
     assert result.n_pairs_gated == 0
     store.close()
+
+
+def test_check_result_n_assertions_is_corpus_scoped(tmp_path: Path) -> None:
+    """With two corpora of 1 assertion each, check(corpus_id=a) reports 1 (not 2)."""
+    cfg, store, faiss, cid_a, _ = _setup(tmp_path)
+
+    audit = AuditLogger(store)
+    run_id = audit.begin_run()
+    result = check(
+        cfg,
+        store=store,
+        faiss_store=faiss,
+        nli_checker=FixtureNliChecker({}),
+        judge=FixtureJudge({}),
+        audit_logger=audit,
+        gate=AllPairsGate(allow_same_document=False),
+        run_id=run_id,
+        corpus_id=cid_a,
+    )
+
+    assert result.n_assertions == 1, (
+        f"expected 1 (corpus-scoped) but got {result.n_assertions} (likely unscoped total)"
+    )
+    store.close()

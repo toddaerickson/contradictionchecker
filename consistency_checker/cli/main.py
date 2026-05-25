@@ -98,6 +98,17 @@ def _open_faiss(config: Config, dim: int) -> FaissStore:
     )
 
 
+_CORPUS_PROVIDER_CHECK_ALLOWED = ("moonshot", "anthropic")
+
+
+def _provider_for_corpus(judge_provider: str) -> str:
+    """Clamp config.judge_provider to a value the corpora.judge_provider CHECK
+    constraint accepts. Why: schema allows only ('moonshot', 'anthropic'); see
+    ADR-0013 'Consequences' — future spec may widen the CHECK.
+    """
+    return judge_provider if judge_provider in _CORPUS_PROVIDER_CHECK_ALLOWED else "moonshot"
+
+
 def _warn_if_model_download_needed(model_name: str) -> None:
     """Print a one-line warning if the HF model isn't in the local cache."""
     try:
@@ -203,10 +214,7 @@ def ingest(
     embedder = make_embedder(cfg)
     store = _open_store(cfg)
     faiss_store = _open_faiss(cfg, dim=embedder.dim)
-    # Clamp to schema's CHECK-allowed providers.
-    provider_for_corpus = (
-        cfg.judge_provider if cfg.judge_provider in ("moonshot", "anthropic") else "moonshot"
-    )
+    provider_for_corpus = _provider_for_corpus(cfg.judge_provider)
     corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
     result = run_ingest(
         cfg,
@@ -259,9 +267,7 @@ def check(
     _preflight_memory(cfg)
     embedder = make_embedder(cfg)
     store = _open_store(cfg)
-    provider_for_corpus = (
-        cfg.judge_provider if cfg.judge_provider in ("moonshot", "anthropic") else "moonshot"
-    )
+    provider_for_corpus = _provider_for_corpus(cfg.judge_provider)
     corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
     faiss_store = _open_faiss(cfg, dim=embedder.dim)
     _emit_corpus_warnings(store, cfg)
@@ -364,9 +370,7 @@ def estimate_cost(
         raise typer.BadParameter(
             f"{exc} Run `consistency-check ingest <corpus_dir>` first."
         ) from exc
-    provider_for_corpus = (
-        cfg.judge_provider if cfg.judge_provider in ("moonshot", "anthropic") else "moonshot"
-    )
+    provider_for_corpus = _provider_for_corpus(cfg.judge_provider)
     corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
     est = run_estimate_cost(
         cfg,
@@ -482,10 +486,10 @@ def export(
 ) -> None:
     cfg = _load_config(config)
     store = _open_store(cfg)
-    provider_for_corpus = (
-        cfg.judge_provider if cfg.judge_provider in ("moonshot", "anthropic") else "moonshot"
+    provider_for_corpus = _provider_for_corpus(cfg.judge_provider)
+    corpus_id = resolve_corpus(
+        store, corpus, str(cfg.corpus_dir), provider_for_corpus, allow_create=False
     )
-    corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
     if fmt == "csv":
         if out is None:
             out = cfg.data_dir / "reports" / export_csv_filename()
@@ -639,10 +643,10 @@ def store_reidentify_orgs(
     store = AssertionStore(db)
     try:
         store.migrate()
-        provider_for_corpus = (
-            cfg.judge_provider if cfg.judge_provider in ("moonshot", "anthropic") else "moonshot"
+        provider_for_corpus = _provider_for_corpus(cfg.judge_provider)
+        corpus_id = resolve_corpus(
+            store, corpus, str(cfg.corpus_dir), provider_for_corpus, allow_create=False
         )
-        corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
         walk_all = all_docs
         for doc in store.iter_documents(corpus_id=corpus_id):
             if not walk_all and null_only and doc.org_label is not None:

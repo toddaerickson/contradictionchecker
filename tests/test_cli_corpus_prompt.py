@@ -79,3 +79,29 @@ def test_resolve_corpus_interactive_empty_store_prompts_for_name(tmp_path, monke
     resolve_corpus(store, None, "/somepath", "moonshot", isatty=True)
     assert any(c.corpus_name == "first-corpus" for c in store.list_corpora())
     store.close()
+
+
+def test_resolve_corpus_errors_on_unknown_when_allow_create_false(tmp_path):
+    import pytest
+
+    from consistency_checker.cli.corpus_prompt import CorpusRequiredError, resolve_corpus
+    from consistency_checker.index.assertion_store import AssertionStore
+
+    store = AssertionStore(tmp_path / "t.db")
+    store.migrate()
+    store.get_or_create_corpus("atkins", "/atkins", "moonshot")
+    with pytest.raises(CorpusRequiredError, match="acme_typo"):
+        resolve_corpus(store, "acme_typo", "/p", "moonshot", isatty=False, allow_create=False)
+    store.close()
+
+
+def test_resolve_corpus_returns_existing_when_allow_create_false_and_name_matches(tmp_path):
+    from consistency_checker.cli.corpus_prompt import resolve_corpus
+    from consistency_checker.index.assertion_store import AssertionStore
+
+    store = AssertionStore(tmp_path / "t.db")
+    store.migrate()
+    expected = store.get_or_create_corpus("atkins", "/atkins", "moonshot")
+    got = resolve_corpus(store, "atkins", "/atkins", "moonshot", isatty=False, allow_create=False)
+    assert got == expected
+    store.close()

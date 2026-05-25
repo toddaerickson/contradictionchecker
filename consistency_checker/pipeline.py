@@ -485,7 +485,7 @@ def check(
     n_pairs_judged = 0
     n_findings = 0
     n_cross_corpus_drops = 0
-    n_assertions = store.stats()["assertions"]
+    n_assertions = store.stats(corpus_id=corpus_id)["assertions"]
     track_strong_keys = multi_party_judge is not None
     strong_keys: set[tuple[str, str]] = set()
 
@@ -657,7 +657,7 @@ def estimate_cost(
 
     judge_calls_ceiling = n_candidate_pairs + n_definition_pairs
     return CostEstimate(
-        n_assertions=store.stats()["assertions"],
+        n_assertions=store.stats(corpus_id=corpus_id)["assertions"],
         n_candidate_pairs=n_candidate_pairs,
         n_definition_pairs=n_definition_pairs,
         judge_calls_ceiling=judge_calls_ceiling,

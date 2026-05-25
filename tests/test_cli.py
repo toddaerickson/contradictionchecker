@@ -1067,6 +1067,21 @@ def test_export_with_corpus_scopes_output(tmp_path: Path) -> None:
     assert "Alpha assertion." in text
 
 
+def test_export_errors_on_unknown_corpus_name(tmp_path: Path) -> None:
+    """export with an unknown --corpus name must error rather than silently exporting 0 rows."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    out = tmp_path / "out.csv"
+    runner = CliRunner()
+    res = runner.invoke(
+        app,
+        ["export", "csv", "--out", str(out), "--config", str(cfg_path), "--corpus", "typo_name"],
+    )
+    assert res.exit_code != 0, "expected non-zero exit for unknown corpus name"
+
+
 def test_report_infers_corpus_from_run_when_not_specified(tmp_path: Path) -> None:
     """report --run <id> without --corpus infers corpus from pipeline_runs.corpus_id."""
     from consistency_checker.audit.logger import AuditLogger
