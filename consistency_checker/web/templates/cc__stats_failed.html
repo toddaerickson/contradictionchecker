@@ -10,6 +10,7 @@
   {% endif %}
   <p>
     <form hx-post="/runs" hx-swap="none" style="display:inline;">
+      <input type="hidden" name="corpus_id" value="{{ counters.run_corpus_id | e }}">
       <button type="submit" class="cc-button cc-button--primary">Try again</button>
     </form>
   </p>

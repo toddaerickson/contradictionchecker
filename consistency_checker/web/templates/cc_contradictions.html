@@ -15,6 +15,7 @@
         contradiction check to see results here.
       </p>
       <form hx-post="/runs" hx-swap="none" hx-confirm="This will use your configured AI model to check for contradictions. API usage charges may apply. Continue?" style="display: inline-block;">
+        <input type="hidden" name="corpus_id" value="{{ run_corpus_id | e }}">
         <label class="cc-muted">
           <input type="checkbox" name="deep" value="true"> Include cross-document analysis
         </label>

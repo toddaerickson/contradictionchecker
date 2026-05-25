@@ -138,3 +138,60 @@ def test_stats_tab_filters_to_selected_corpus(tmp_path: Path) -> None:
     assert r.status_code == 200
     # Corpus A has two orgs — the banner should fire.
     assert "Corpus spans 2 organizations" in r.text
+
+
+# ---------------------------------------------------------------------------
+# POST /runs corpus_id threading
+# ---------------------------------------------------------------------------
+
+
+def test_post_runs_without_corpus_id_returns_400(tmp_path: Path) -> None:
+    """Omitting corpus_id must return 400 — the run must not be started."""
+    cfg = _config(tmp_path)
+    client = _make_client(cfg)
+    r = client.post("/runs", data={"deep": "false"}, follow_redirects=False)
+    assert r.status_code == 422  # FastAPI validation error for missing required Form field
+
+
+def test_post_runs_with_corpus_id_scopes_run(tmp_path: Path) -> None:
+    """POST /runs with a real corpus_id returns 303 and the run is scoped to that corpus."""
+    from consistency_checker.extract.schema import Assertion
+    from consistency_checker.index.embedder import embed_pending
+    from consistency_checker.index.faiss_store import FaissStore
+
+    cfg = Config(
+        corpus_dir=tmp_path / "corpus",
+        judge_provider="fixture",
+        judge_model="test",
+        data_dir=tmp_path / "store",
+        log_dir=tmp_path / "logs",
+        embedder_model="hash",
+        nli_model="fixture",
+        gate_similarity_threshold=-1.0,
+        nli_contradiction_threshold=0.0,
+    )
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    cid = store.get_or_create_corpus("atkins", "/atkins", "moonshot")
+    doc = Document.from_content("Body text.", source_path="doc.md", title="Doc")
+    store.add_document(doc, corpus_id=cid)
+    store.add_assertions([Assertion.build(doc.doc_id, "Revenue grew 12%.")])
+    embedder_inst = HashEmbedder(dim=64)
+    fs = FaissStore.open_or_create(
+        index_path=cfg.faiss_path,
+        id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
+        dim=embedder_inst.dim,
+    )
+    embed_pending(store, fs, embedder_inst)
+    store.close()
+
+    client = _make_client(cfg)
+    r = client.post("/runs", data={"deep": "false", "corpus_id": cid}, follow_redirects=False)
+    assert r.status_code in (202, 303), r.text
+
+    verify_store = AssertionStore(cfg.db_path)
+    audit = AuditLogger(verify_store)
+    run = audit.most_recent_run()
+    verify_store.close()
+    assert run is not None
+    assert run.corpus_id == cid

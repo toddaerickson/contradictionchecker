@@ -155,6 +155,7 @@ def _live_counters(run: Any, audit: Any = None) -> dict[str, Any]:
     )
     return {
         "run_id": run.run_id,
+        "run_corpus_id": run.corpus_id,
         "n_assertions": run.n_assertions,
         "n_pairs_gated": run.n_pairs_gated,
         "n_pairs_judged": run.n_pairs_judged,
@@ -385,6 +386,14 @@ def create_app(
             pair_total = _count_total_findings(store, "contradiction")
             mp_reviewed = sum(audit.count_reviewer_verdicts(detector_type="multi_party").values())
             mp_total = _count_total_findings(store, "multi_party")
+            # Corpus to scope a re-run against: use the run's corpus when available,
+            # otherwise fall back to the most recently created corpus.
+            run_corpus_id: str | None = run.corpus_id if run is not None else None
+            if run_corpus_id is None:
+                row = store._conn.execute(
+                    "SELECT corpus_id FROM corpora ORDER BY created_at DESC LIMIT 1"
+                ).fetchone()
+                run_corpus_id = row[0] if row else None
         finally:
             store.close()
 
@@ -401,6 +410,7 @@ def create_app(
                 }
                 if run is not None
                 else None,
+                "run_corpus_id": run_corpus_id,
                 "pair_findings": pair_findings,
                 "multi_party_findings": multi_party_findings,
                 "show_reviewed_contradiction": show_reviewed_contradiction,
@@ -721,7 +731,7 @@ def create_app(
             store.close()
         return templates.TemplateResponse(request, "cc__assertion_detail.html", context)
 
-    def _run_check_in_background(run_id: str, deep: bool) -> None:
+    def _run_check_in_background(run_id: str, deep: bool, corpus_id: str) -> None:
         # SQLite handles can't safely be shared across threads, so the
         # background task opens its own store. The embedder is not needed for
         # check (only for ingest), so open faiss directly to avoid the ~800 MB
@@ -771,11 +781,6 @@ def create_app(
 
                     def_checker = make_definition_checker(config)
 
-                # Task 5 scaffold: Task 10 wires corpus selection from the UI.
-                # For now, default to a corpus named "default".
-                web_corpus_id = store.get_or_create_corpus(
-                    "default", str(config.corpus_dir), "moonshot"
-                )
                 run_check(
                     config.model_copy(update={"enable_multi_party": deep}),
                     store=store,
@@ -786,7 +791,7 @@ def create_app(
                     multi_party_judge=mp_judge if deep else None,
                     definition_checker=def_checker,
                     run_id=run_id,
-                    corpus_id=web_corpus_id,
+                    corpus_id=corpus_id,
                 )
             except Exception as exc:
                 _log.exception("Run %s failed: %s", run_id, exc)
@@ -798,10 +803,17 @@ def create_app(
     def post_runs(
         request: Request,
         background_tasks: BackgroundTasks,
+        corpus_id: str = Form(...),
         deep: bool = Form(False),
     ) -> Response:
         store, audit = _open_audit()
         try:
+            # Validate corpus_id exists before starting the run.
+            row = store._conn.execute(
+                "SELECT corpus_id FROM corpora WHERE corpus_id = ?", (corpus_id,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=400, detail=f"corpus_id {corpus_id!r} not found")
             run_id = audit.begin_run(
                 config={
                     "deep": deep,
@@ -811,11 +823,12 @@ def create_app(
                     "judge_model": config.judge_model,
                 },
                 run_status="pending",
+                corpus_id=corpus_id,
             )
         finally:
             store.close()
 
-        background_tasks.add_task(_run_check_in_background, run_id, deep)
+        background_tasks.add_task(_run_check_in_background, run_id, deep, corpus_id)
 
         target = f"/tabs/stats?run_id={run_id}"
         if _is_htmx(request):
@@ -1090,6 +1103,7 @@ def create_app(
                 "saved": [p.name for p in saved],
                 "n_assertions": n_assertions,
                 "is_first_check": is_first_check,
+                "corpus_id": corpus_id,
                 "error": None,
             },
         )
