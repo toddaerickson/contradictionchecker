@@ -20,8 +20,9 @@ downstream code.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -101,6 +102,49 @@ class _ExtractionPayload(BaseModel):
     definitions: list[_DefinitionItem] = Field(default_factory=list)
 
 
+OrgIdentificationReason = Literal["org_found", "no_org", "llm_error", "truncated"]
+
+
+@dataclass(frozen=True, slots=True)
+class OrgIdentification:
+    """Result of a document-level org-identification call."""
+
+    label: str | None
+    reason: OrgIdentificationReason
+
+
+ORG_PROMPT_CHAR_CAP = 2000
+
+ORG_TOOL_SCHEMA: dict[str, Any] = {
+    "name": "identify_org",
+    "description": "Identify the primary issuing organization of a document.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "label": {"type": ["string", "null"]},
+            "reason": {"type": "string", "enum": ["org_found", "no_org"]},
+        },
+        "required": ["label", "reason"],
+    },
+}
+
+
+def _render_org_prompts(title: str | None, text: str) -> tuple[str, str, bool]:
+    """Return (system, user, truncated). truncated is True iff text was clipped."""
+    here = Path(__file__).resolve().parent / "prompts"
+    system = (here / "org_identifier_system.txt").read_text(encoding="utf-8")
+    template = (here / "org_identifier_user.txt").read_text(encoding="utf-8")
+    truncated = len(text) > ORG_PROMPT_CHAR_CAP
+    text_prefix = text[:ORG_PROMPT_CHAR_CAP]
+    user = template.replace("{title}", title or "(none)").replace("{text_prefix}", text_prefix)
+    return system, user, truncated
+
+
+class _OrgIdentificationPayload(BaseModel):
+    label: str | None
+    reason: Literal["org_found", "no_org"]
+
+
 def render_prompt(chunk_text: str) -> str:
     """Substitute ``{chunk_text}`` into the prompt template."""
     template = PROMPT_PATH.read_text(encoding="utf-8")
@@ -155,6 +199,7 @@ class Extractor(Protocol):
     """Anything that turns a Chunk into a list of Assertion records."""
 
     def extract(self, chunk: Chunk) -> list[Assertion]: ...
+    def identify_org(self, *, title: str | None, text: str) -> OrgIdentification: ...
 
 
 class FixtureExtractor:
@@ -171,11 +216,15 @@ class FixtureExtractor:
         *,
         facts: Mapping[str, list[str]] | None = None,
         definitions: Mapping[str, list[Mapping[str, str]]] | None = None,
+        org_fixtures: Mapping[tuple[str | None, str], OrgIdentification] | None = None,
     ) -> None:
         if fixtures is not None and facts is not None:
             raise ValueError("pass either fixtures (legacy) or facts=, not both")
         self._facts: dict[str, list[str]] = dict(fixtures or facts or {})
         self._definitions: dict[str, list[Mapping[str, str]]] = dict(definitions or {})
+        self._org_fixtures: dict[tuple[str | None, str], OrgIdentification] = dict(
+            org_fixtures or {}
+        )
 
     def extract(self, chunk: Chunk) -> list[Assertion]:
         payload = _ExtractionPayload(
@@ -183,6 +232,12 @@ class FixtureExtractor:
             definitions=[_DefinitionItem(**d) for d in self._definitions.get(chunk.chunk_id, [])],
         )
         return _assertions_from_payload(chunk, payload)
+
+    def identify_org(self, *, title: str | None, text: str) -> OrgIdentification:
+        for (k_title, k_prefix), res in self._org_fixtures.items():
+            if k_title == title and text.startswith(k_prefix):
+                return res
+        return OrgIdentification(label=None, reason="no_org")
 
 
 class AnthropicExtractor:
@@ -219,6 +274,38 @@ class AnthropicExtractor:
             _log.warning("Atomic-fact extraction returned no usable payload: %s", exc)
             return []
         return _assertions_from_payload(chunk, payload)
+
+    def identify_org(self, *, title: str | None, text: str) -> OrgIdentification:
+        system, user, truncated = _render_org_prompts(title, text)
+        try:
+            response = self._client.messages.create(
+                model=self._model,
+                max_tokens=200,
+                system=system,
+                tools=[ORG_TOOL_SCHEMA],
+                tool_choice={"type": "tool", "name": "identify_org"},
+                messages=[{"role": "user", "content": user}],
+            )
+        except Exception:
+            return OrgIdentification(label=None, reason="llm_error")
+        for block in getattr(response, "content", []) or []:
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and getattr(block, "name", None) == "identify_org"
+            ):
+                payload = block.input or {}
+                label = payload.get("label")
+                reason = payload.get("reason", "no_org")
+                if reason == "no_org" and truncated:
+                    return OrgIdentification(label=None, reason="truncated")
+                if reason not in ("org_found", "no_org"):
+                    return OrgIdentification(label=None, reason="llm_error")
+                if reason == "org_found" and not (isinstance(label, str) and label.strip()):
+                    return OrgIdentification(label=None, reason="llm_error")
+                return OrgIdentification(
+                    label=label if reason == "org_found" else None, reason=reason
+                )
+        return OrgIdentification(label=None, reason="llm_error")
 
 
 class MoonshotExtractor:
@@ -292,6 +379,31 @@ class MoonshotExtractor:
             return []
         return _assertions_from_payload(chunk, payload)
 
+    def identify_org(self, *, title: str | None, text: str) -> OrgIdentification:
+        system, user, truncated = _render_org_prompts(title, text)
+        try:
+            response = self._client.beta.chat.completions.parse(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                response_format=_OrgIdentificationPayload,
+                max_tokens=200,
+                extra_body=self._extra_body,
+            )
+        except Exception:
+            return OrgIdentification(label=None, reason="llm_error")
+        parsed = response.choices[0].message.parsed if response.choices else None
+        if parsed is None:
+            return OrgIdentification(label=None, reason="llm_error")
+        label, reason = parsed.label, parsed.reason
+        if reason == "no_org" and truncated:
+            return OrgIdentification(label=None, reason="truncated")
+        if reason == "org_found" and not (isinstance(label, str) and label.strip()):
+            return OrgIdentification(label=None, reason="llm_error")
+        return OrgIdentification(label=label if reason == "org_found" else None, reason=reason)
+
 
 class JunkFilteringExtractor:
     """Wraps an :class:`Extractor`, dropping assertions flagged by ``is_junk_assertion``.
@@ -318,3 +430,6 @@ class JunkFilteringExtractor:
                     text=assertion.assertion_text,
                 )
         return kept
+
+    def identify_org(self, *, title: str | None, text: str) -> OrgIdentification:
+        return self._inner.identify_org(title=title, text=text)

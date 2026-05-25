@@ -23,8 +23,14 @@ def _def(doc: str, term: str, text: str) -> Assertion:
     )
 
 
+def _pair(
+    a: Assertion, b: Assertion, *, org_a: str = "", org_b: str = ""
+) -> list[tuple[Assertion, str]]:
+    return [(a, org_a), (b, org_b)]
+
+
 def test_singleton_term_emits_zero_pairs() -> None:
-    defs = [_def("docA", "Borrower", "ABC Corp")]
+    defs = [(_def("docA", "Borrower", "ABC Corp"), "")]
     checker = DefinitionChecker(judge=FixtureDefinitionJudge({}))
     findings = list(checker.find_inconsistencies(defs))
     assert findings == []
@@ -45,7 +51,7 @@ def test_pair_within_term_group_is_judged() -> None:
         {(min(a.assertion_id, b.assertion_id), max(a.assertion_id, b.assertion_id)): verdict}
     )
     checker = DefinitionChecker(judge=judge)
-    findings = list(checker.find_inconsistencies([a, b]))
+    findings = list(checker.find_inconsistencies(_pair(a, b)))
     assert len(findings) == 1
     assert findings[0].verdict.verdict == "definition_divergent"
     assert findings[0].pair.canonical_term == "borrower"
@@ -55,7 +61,7 @@ def test_different_canonical_terms_do_not_pair() -> None:
     a = _def("docA", "Borrower", "ABC Corp")
     b = _def("docB", "Lender", "First Bank")
     checker = DefinitionChecker(judge=FixtureDefinitionJudge({}))
-    findings = list(checker.find_inconsistencies([a, b]))
+    findings = list(checker.find_inconsistencies(_pair(a, b)))
     assert findings == []
 
 
@@ -64,7 +70,7 @@ def test_plurals_and_articles_group_together() -> None:
     b = _def("docB", "the Borrowers", "ABC Corp and its Subsidiaries")
     judge = FixtureDefinitionJudge({})  # uncertain fallback
     checker = DefinitionChecker(judge=judge)
-    findings = list(checker.find_inconsistencies([a, b]))
+    findings = list(checker.find_inconsistencies(_pair(a, b)))
     assert len(findings) == 1
     assert findings[0].verdict.verdict == "uncertain"
     assert findings[0].pair.canonical_term == "borrower"
@@ -75,7 +81,7 @@ def test_non_definition_assertions_ignored() -> None:
     b = _def("docB", "Borrower", "ABC Corp and its Subsidiaries")
     noise = Assertion.build("docC", "Revenue grew 12%.")  # kind="claim"
     checker = DefinitionChecker(judge=FixtureDefinitionJudge({}))
-    findings = list(checker.find_inconsistencies([a, b, noise]))
+    findings = list(checker.find_inconsistencies([(a, ""), (b, ""), (noise, "")]))
     # uncertain because no fixture matches, but the noise assertion must not
     # have caused any extra pair.
     assert len(findings) == 1
@@ -86,7 +92,7 @@ def test_three_definitions_emit_three_pairs() -> None:
     b = _def("docB", "Borrower", "ABC Corp and Subsidiaries")
     c = _def("docC", "Borrower", "ABC Corp, its Subsidiaries, and Affiliates")
     checker = DefinitionChecker(judge=FixtureDefinitionJudge({}))
-    findings = list(checker.find_inconsistencies([a, b, c]))
+    findings = list(checker.find_inconsistencies([(a, ""), (b, ""), (c, "")]))
     assert len(findings) == 3  # combinations(3, 2) == 3
 
 
@@ -101,7 +107,7 @@ def test_identical_definitions_short_circuit_without_judge() -> None:
     a = _def("docA", "Borrower", "ABC Corp")
     b = _def("docB", "Borrower", "ABC Corp")  # identical assertion_text, different doc
     checker = DefinitionChecker(judge=_RaisingJudge())
-    findings = list(checker.find_inconsistencies([a, b]))
+    findings = list(checker.find_inconsistencies(_pair(a, b)))
     assert len(findings) == 1
     assert findings[0].verdict.verdict == DEFINITION_CONSISTENT_AUTO
     assert findings[0].verdict.confidence == 1.0
@@ -112,6 +118,36 @@ def test_divergent_text_still_calls_judge() -> None:
     b = _def("docB", "Borrower", "ABC Corp and its Subsidiaries")  # different text
     judge = FixtureDefinitionJudge({})  # returns uncertain fallback when called
     checker = DefinitionChecker(judge=judge)
-    findings = list(checker.find_inconsistencies([a, b]))
+    findings = list(checker.find_inconsistencies(_pair(a, b)))
     assert len(findings) == 1
     assert findings[0].verdict.verdict == "uncertain"  # proves judge WAS called
+
+
+def test_scope_disabled_groups_across_orgs() -> None:
+    a = _def("docA", "Director", "a member")
+    b = _def("docB", "Director", "an officer")
+    checker = DefinitionChecker(judge=FixtureDefinitionJudge({}), org_scope_enabled=False)
+    findings = list(checker.find_inconsistencies([(a, "acme"), (b, "beta")]))
+    assert len(findings) == 1  # cross-org pair reaches the judge
+
+
+def test_scope_enabled_suppresses_cross_org_pairs() -> None:
+    a = _def("docA", "Director", "a member")
+    b = _def("docB", "Director", "an officer")
+    checker = DefinitionChecker(judge=FixtureDefinitionJudge({}), org_scope_enabled=True)
+    result = checker.run([(a, "acme"), (b, "beta")])
+    assert result.n_judged == 0
+    assert result.n_suppressed == 1
+    assert len(result.findings) == 0
+    assert len(result.suppressed_pairs) == 1
+
+
+def test_scope_enabled_unknown_bucket_pairs_against_all() -> None:
+    a = _def("docA", "Director", "a member")
+    b = _def("docB", "Director", "an officer")
+    c = _def("docC", "Director", "the chair")  # unknown bucket
+    checker = DefinitionChecker(judge=FixtureDefinitionJudge({}), org_scope_enabled=True)
+    result = checker.run([(a, "acme"), (b, "beta"), (c, "")])
+    # c pairs with a and b; a-b is suppressed
+    assert result.n_judged == 2
+    assert result.n_suppressed == 1

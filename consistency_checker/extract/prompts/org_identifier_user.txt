@@ -1,0 +1,8 @@
+Document title (if any): {title}
+
+BEGIN DOCUMENT
+{text_prefix}
+END DOCUMENT
+
+Identify the single primary issuing organization of this document, or
+return no_org per the rules in the system message.

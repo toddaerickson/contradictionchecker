@@ -1,0 +1,10 @@
+{% if corpus_warning %}
+<div class="cc-banner" role="alert">
+  <p>{{ corpus_warning }}</p>
+  {% if fragmentation_warning %}<p>{{ fragmentation_warning }}</p>{% endif %}
+  {% if identification_failure_notice %}<p>{{ identification_failure_notice }}</p>{% endif %}
+  {% if n_definition_pairs_suppressed %}
+    <p>{{ n_definition_pairs_suppressed }} cross-organization definition pair(s) were suppressed in this run.</p>
+  {% endif %}
+</div>
+{% endif %}

@@ -291,5 +291,98 @@ def test_iter_definitions_filters_to_kind_definition(tmp_path: Path) -> None:
     )
     defs = list(s.iter_definitions())
     assert len(defs) == 2
-    assert all(d.kind == "definition" for d in defs)
+    assert all(d.kind == "definition" for d, _ in defs)
+    s.close()
+
+
+def test_iter_definitions_yields_assertion_and_org_key(tmp_path: Path) -> None:
+    s = AssertionStore(tmp_path / "t.db")
+    s.migrate()
+    s.add_document(Document(doc_id="d1", source_path="/a", org_label="Acme Foundation, Inc."))
+    s.add_document(Document(doc_id="d2", source_path="/b", org_label="The Acme Foundation"))
+    s.add_document(Document(doc_id="d3", source_path="/c", org_label=None))
+    for doc_id in ("d1", "d2", "d3"):
+        s.add_assertion(
+            Assertion.build(
+                doc_id,
+                f'"Director" means a member ({doc_id}).',
+                kind="definition",
+                term="Director",
+                definition_text=f"a member ({doc_id})",
+            )
+        )
+
+    rows = list(s.iter_definitions())
+    assert len(rows) == 3
+    keys = sorted(k for _, k in rows)
+    assert keys.count("acme foundation") == 2
+    assert keys.count("") == 1
+    s.close()
+
+
+def test_insert_suppressed_finding_persists_with_suppressed_flag(tmp_path: Path) -> None:
+    from consistency_checker.audit.logger import AuditLogger
+
+    s = AssertionStore(tmp_path / "t.db")
+    s.migrate()
+    doc_a = Document.from_content("A.", source_path="A.txt")
+    doc_b = Document.from_content("B.", source_path="B.txt")
+    s.add_document(doc_a)
+    s.add_document(doc_b)
+    a = Assertion.build(
+        doc_a.doc_id, '"X" means foo.', kind="definition", term="X", definition_text="foo"
+    )
+    b = Assertion.build(
+        doc_b.doc_id, '"X" means bar.', kind="definition", term="X", definition_text="bar"
+    )
+    s.add_assertions([a, b])
+    logger = AuditLogger(s)
+    run_id = logger.begin_run()
+
+    finding_id = s.insert_suppressed_finding(
+        run_id=run_id,
+        assertion_a_id=a.assertion_id,
+        assertion_b_id=b.assertion_id,
+    )
+    row = s._conn.execute(
+        "SELECT suppressed, judge_verdict, detector_type FROM findings WHERE finding_id = ?",
+        (finding_id,),
+    ).fetchone()
+    assert row is not None
+    assert row["suppressed"] == 1
+    assert row["judge_verdict"] is None
+    assert row["detector_type"] == "definition_inconsistency"
+    s.close()
+
+
+def test_add_document_persists_org_label_and_reason(tmp_path: Path) -> None:
+    s = AssertionStore(tmp_path / "test.db")
+    s.migrate()
+    s.add_document(
+        Document(
+            doc_id="d1",
+            source_path="/x.txt",
+            org_label="Acme",
+            org_reason="org_found",
+        )
+    )
+    got = s.get_document("d1")
+    assert got is not None
+    assert got.org_label == "Acme"
+    assert got.org_reason == "org_found"
+    s.close()
+
+
+def test_update_org_label_overwrites_existing(tmp_path: Path) -> None:
+    s = AssertionStore(tmp_path / "test.db")
+    s.migrate()
+    s.add_document(Document(doc_id="d1", source_path="/x.txt"))
+    got = s.get_document("d1")
+    assert got is not None
+    assert got.org_label is None
+    s.update_org_label("d1", "Beta Trust", "org_found")
+    got = s.get_document("d1")
+    assert got is not None
+    assert got.org_label == "Beta Trust"
+    assert got.org_reason == "org_found"
     s.close()

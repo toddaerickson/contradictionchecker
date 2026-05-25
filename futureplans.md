@@ -13,6 +13,10 @@ Real-corpus eval (3 nonprofit-bylaws PDFs + an earlier loan/partnership corpus, 
 3. **The residual divergent noise split into one shipped fix and one still-open corpus problem:**
    - **Definition-judge identical-text precision shipped.** The high-confidence subcase (identical definitions flagged as divergent, e.g. *"the authorized number of directors of the Corporation"* vs itself) is now handled by the deterministic short-circuit recorded under Completed below.
    - **Corpus composition.** Comparing 3 *unrelated organizations'* bylaws makes every shared term ("Director", "Quorum") "diverge" by construction. Meaningful detection needs a *single* entity's governing docs. Worth a UI/doc warning when a corpus spans unrelated sources, and/or entity-grouping (cf. item #7).
+     Implementation: see ADR-0012 (`docs/decisions/0012-corpus-org-warning.md`).
+     Default is advisory-only warning; cross-org suppression is opt-in via
+     `--org-scope`. Backfill via `consistency-check store reidentify-orgs`.
+     §9 measurement (bylaws-corpus divergent-rate delta) pending.
 
 ## v0.4 — precision and provenance
 
@@ -249,6 +253,15 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
 ## Completed
 
 (Move items here as they ship, keep a one-line note on which release.)
+
+- **Corpus-composition warning + opt-in org grouping (item #2, 2026-05-24)**
+  Spec: `docs/superpowers/specs/2026-05-24-corpus-org-warning-design.md`.
+  Plan: `docs/superpowers/plans/2026-05-24-corpus-org-warning.md`.
+  ADR-0012. Default-on advisory warning; `--org-scope` suppression with
+  audit-logged `findings.suppressed=1` rows.
+  Measurement (§9 of the spec): divergent-rate delta on the bylaws corpus =
+  `<fill in after the post-ship rerun>` — placeholder filled by a follow-up
+  commit once the post-ship rerun is collected.
 
 - **Definition-judge identical-text short-circuit + prompt tightening (item #1, 2026-05-21)**
   — deterministic `definitions_equivalent` short-circuit at the checker layer

@@ -31,6 +31,8 @@ class Document:
     doc_type: str | None = None
     metadata_json: str | None = None
     ingested_at: datetime | None = None
+    org_label: str | None = None
+    org_reason: str | None = None
 
     @classmethod
     def from_content(
@@ -42,6 +44,8 @@ class Document:
         doc_date: str | None = None,
         doc_type: str | None = None,
         metadata_json: str | None = None,
+        org_label: str | None = None,
+        org_reason: str | None = None,
     ) -> Document:
         return cls(
             doc_id=hash_id(content),
@@ -50,6 +54,8 @@ class Document:
             doc_date=doc_date,
             doc_type=doc_type,
             metadata_json=metadata_json,
+            org_label=org_label,
+            org_reason=org_reason,
         )
 
 

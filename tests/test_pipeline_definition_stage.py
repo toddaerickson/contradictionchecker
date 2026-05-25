@@ -89,7 +89,7 @@ def test_check_runs_definition_stage_and_logs_findings(
     run_id = logger.begin_run()
 
     definitions = list(stocked_store.iter_definitions())
-    a, b = definitions[0], definitions[1]
+    a, b = definitions[0][0], definitions[1][0]
     key = (min(a.assertion_id, b.assertion_id), max(a.assertion_id, b.assertion_id))
     fixture_verdict = DefinitionJudgeVerdict(
         assertion_a_id=key[0],
@@ -209,3 +209,85 @@ def test_check_counts_definition_short_circuits(tmp_path: Path) -> None:
     ).fetchall()
     assert len(rows) == 1
     assert rows[0]["judge_verdict"] == "definition_consistent_auto"
+
+
+def _ingest_config(tmp_path: Path) -> Config:
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    data = tmp_path / "store"
+    data.mkdir()
+    return Config(
+        corpus_dir=corpus,
+        judge_provider="fixture",
+        judge_model="test",
+        data_dir=data,
+        log_dir=tmp_path / "logs",
+        embedder_model="hash",
+        nli_model="fixture",
+        gate_similarity_threshold=-1.0,
+        junk_filter_enabled=False,
+    )
+
+
+def test_ingest_populates_org_label_via_fixture_extractor(tmp_path: Path) -> None:
+    from consistency_checker.extract.atomic_facts import (
+        FixtureExtractor,
+        OrgIdentification,
+    )
+    from consistency_checker.pipeline import ingest
+    from tests.conftest import HashEmbedder
+
+    cfg = _ingest_config(tmp_path).model_copy(update={"org_grouping_enabled": True})
+    doc_path = cfg.corpus_dir / "acme_bylaws.txt"
+    doc_path.write_text("Bylaws of Acme Foundation, Inc.\n\nArticle I. ...", encoding="utf-8")
+
+    extractor = FixtureExtractor(
+        fixtures={},
+        org_fixtures={
+            ("acme_bylaws", "Bylaws of Acme"): OrgIdentification(
+                label="Acme Foundation, Inc.", reason="org_found"
+            ),
+        },
+    )
+    store = AssertionStore(cfg.data_dir / "ingest.db")
+    store.migrate()
+    embedder = HashEmbedder(dim=64)
+    faiss = FaissStore.open_or_create(
+        index_path=cfg.data_dir / "faiss.idx",
+        id_map_path=cfg.data_dir / "faiss.idmap.json",
+        dim=embedder.dim,
+    )
+
+    ingest(cfg, store=store, faiss_store=faiss, extractor=extractor, embedder=embedder)
+
+    docs = list(store.iter_documents())
+    assert len(docs) == 1
+    assert docs[0].org_label == "Acme Foundation, Inc."
+    assert docs[0].org_reason == "org_found"
+    store.close()
+
+
+def test_ingest_skips_org_identification_when_disabled(tmp_path: Path) -> None:
+    from consistency_checker.extract.atomic_facts import FixtureExtractor
+    from consistency_checker.pipeline import ingest
+    from tests.conftest import HashEmbedder
+
+    cfg = _ingest_config(tmp_path).model_copy(update={"org_grouping_enabled": False})
+    (cfg.corpus_dir / "x.txt").write_text("anything", encoding="utf-8")
+
+    store = AssertionStore(cfg.data_dir / "ingest.db")
+    store.migrate()
+    embedder = HashEmbedder(dim=64)
+    faiss = FaissStore.open_or_create(
+        index_path=cfg.data_dir / "faiss.idx",
+        id_map_path=cfg.data_dir / "faiss.idmap.json",
+        dim=embedder.dim,
+    )
+
+    ingest(cfg, store=store, faiss_store=faiss, extractor=FixtureExtractor({}), embedder=embedder)
+
+    docs = list(store.iter_documents())
+    assert len(docs) == 1
+    assert docs[0].org_label is None
+    assert docs[0].org_reason is None
+    store.close()

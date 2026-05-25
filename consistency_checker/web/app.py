@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import secrets
 import shutil
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from consistency_checker.audit.logger import AuditLogger
+from consistency_checker.cli.warnings import (
+    render_corpus_warning,
+    render_fragmentation_warning,
+    render_identification_failure_notice,
+    summarize_buckets,
+)
 from consistency_checker.config import Config, load_local_env
 from consistency_checker.corpus.chunker import chunk_document
 from consistency_checker.corpus.junk_filter import JunkAudit
@@ -159,6 +166,42 @@ def _live_counters(run: Any, audit: Any = None) -> dict[str, Any]:
         "progress_estimate": _progress_estimate(run),
         "started_at": run.started_at.isoformat(timespec="seconds") if run.started_at else None,
         "finished_at": run.finished_at.isoformat(timespec="seconds") if run.finished_at else None,
+    }
+
+
+def _corpus_banner_context(
+    store: AssertionStore, config: Config, *, run_id: str | None
+) -> dict[str, Any]:
+    """Compute the four corpus-composition warning fields for the Stats banner.
+
+    Mirrors the CLI warnings (see ``cli/warnings.py``) so the web surface emits
+    the same triggers/messages as ``consistency-check check``.
+    """
+    docs = list(store.iter_documents())
+    rows: list[tuple[str, str | None]] = [(d.doc_id, d.org_label) for d in docs]
+    summary = summarize_buckets(rows)
+    corpus_warning = render_corpus_warning(
+        summary.known,
+        summary.unknown_count,
+        scope_enabled=config.org_scope_enabled,
+    )
+    fragmentation_warning = render_fragmentation_warning(summary.known)
+    failures = sum(1 for d in docs if d.org_reason in {"llm_error", "truncated"})
+    identification_failure_notice = render_identification_failure_notice(
+        failures=failures, total=len(rows)
+    )
+    n_suppressed = 0
+    if run_id is not None:
+        row = store._conn.execute(
+            "SELECT COUNT(*) FROM findings WHERE suppressed = 1 AND run_id = ?",
+            (run_id,),
+        ).fetchone()
+        n_suppressed = row[0] if row else 0
+    return {
+        "corpus_warning": corpus_warning,
+        "fragmentation_warning": fragmentation_warning,
+        "identification_failure_notice": identification_failure_notice,
+        "n_definition_pairs_suppressed": n_suppressed,
     }
 
 
@@ -703,7 +746,8 @@ def create_app(
 
                 if definition_judge is not None:
                     def_checker: DefinitionChecker | None = DefinitionChecker(
-                        judge=definition_judge
+                        judge=definition_judge,
+                        org_scope_enabled=config.org_scope_enabled,
                     )
                 else:
                     from consistency_checker.pipeline import make_definition_checker
@@ -767,6 +811,9 @@ def create_app(
             run = audit.most_recent_run()
             status = _infer_run_status(run)
             counters = _live_counters(run, audit) if run is not None else None
+            banner = _corpus_banner_context(
+                store, config, run_id=run.run_id if run is not None else None
+            )
         finally:
             store.close()
         return templates.TemplateResponse(
@@ -777,6 +824,7 @@ def create_app(
                 "active_tab": "stats",
                 "status": status,
                 "counters": counters,
+                **banner,
             },
         )
 
@@ -791,6 +839,7 @@ def create_app(
                 raise HTTPException(status_code=404, detail=f"run {run_id} not found")
             status = _infer_run_status(run)
             counters = _live_counters(run, audit)
+            banner = _corpus_banner_context(store, config, run_id=run.run_id)
         finally:
             store.close()
         if status == "failed":
@@ -802,7 +851,7 @@ def create_app(
         return templates.TemplateResponse(
             request,
             template,
-            {"status": status, "counters": counters},
+            {"status": status, "counters": counters, **banner},
         )
 
     @app.get("/tabs/ingest", response_class=HTMLResponse)
@@ -1048,7 +1097,11 @@ def _ingest_uploaded_paths(
         loaded = load_path(
             path, junk_filter_enabled=config.junk_filter_enabled, junk_audit=junk_audit
         )
-        store.add_document(loaded.document)
+        doc = loaded.document
+        if config.org_grouping_enabled:
+            res = extractor.identify_org(title=doc.title, text=loaded.text)
+            doc = replace(doc, org_label=res.label, org_reason=res.reason)
+        store.add_document(doc)
         for chunk in chunk_document(
             loaded,
             max_chars=config.chunk_max_chars,
