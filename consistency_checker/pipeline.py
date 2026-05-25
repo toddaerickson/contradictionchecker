@@ -20,10 +20,10 @@ from dataclasses import dataclass, replace
 from consistency_checker.audit.logger import AuditLogger
 from consistency_checker.check.definition_checker import (
     DefinitionChecker,
-    _group_by_canonical_term,
 )
 from consistency_checker.check.definition_judge import (
     DefinitionJudge,
+    FixtureDefinitionJudge,
     LLMDefinitionJudge,
 )
 from consistency_checker.check.gate import AnnGate, CandidateGate, CandidatePair
@@ -596,8 +596,14 @@ def estimate_cost(
     """
     n_candidate_pairs = sum(1 for _ in _iter_candidates(config, store, faiss_store, gate=None))
 
-    groups = _group_by_canonical_term(list(store.iter_definitions()))
-    n_definition_pairs = sum(len(v) * (len(v) - 1) // 2 for v in groups.values())
+    # Route through DefinitionChecker so org-scope suppression matches the run.
+    # The judge is a no-op stand-in — count_pairs never invokes it, and we
+    # don't want to require API keys for a cost preview.
+    counter = DefinitionChecker(
+        judge=FixtureDefinitionJudge(fixtures={}),
+        org_scope_enabled=config.org_scope_enabled,
+    )
+    n_definition_pairs = counter.count_pairs(list(store.iter_definitions()))
 
     judge_calls_ceiling = n_candidate_pairs + n_definition_pairs
     return CostEstimate(

@@ -122,6 +122,21 @@ class DefinitionChecker:
                 findings.append(DefinitionFinding(pair=pair, verdict=verdict))
         return DefinitionCheckResult(findings=findings, suppressed_pairs=suppressed)
 
+    def count_pairs(self, definitions: Sequence[tuple[Assertion, str]]) -> int:
+        """Return the number of pairs ``run()`` would actually judge.
+
+        Cross-org pairs suppressed by :attr:`_org_scope_enabled` are excluded.
+        Used by ``estimate_cost`` so the preview matches the real run.
+        """
+        total = 0
+        for entries in self._group(definitions).values():
+            ordered = sorted(entries, key=lambda e: e[0].assertion_id)
+            for (_a, ka), (_b, kb) in combinations(ordered, 2):
+                if self._org_scope_enabled and ka != "" and kb != "" and ka != kb:
+                    continue
+                total += 1
+        return total
+
     def _group(
         self, definitions: Sequence[tuple[Assertion, str]]
     ) -> dict[str, list[tuple[Assertion, str]]]:

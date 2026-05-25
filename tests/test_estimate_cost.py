@@ -184,3 +184,48 @@ def test_estimate_cost_multiple_term_groups(cfg: Config) -> None:
     store.close()
     # C(2,2) + C(3,2) = 1 + 3 = 4
     assert est.n_definition_pairs == 4
+
+
+def test_estimate_cost_excludes_cross_org_pairs_when_scope_enabled(cfg: Config) -> None:
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    embedder = HashEmbedder(dim=64)
+    cfg.data_dir.mkdir(parents=True, exist_ok=True)
+    faiss = FaissStore.open_or_create(
+        index_path=cfg.faiss_path,
+        id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
+        dim=embedder.dim,
+    )
+    doc_a = Document.from_content("A.", source_path="a.md", org_label="Acme")
+    doc_b = Document.from_content("B.", source_path="b.md", org_label="Beta")
+    store.add_document(doc_a)
+    store.add_document(doc_b)
+    store.add_assertions(
+        [
+            Assertion.build(
+                doc_a.doc_id,
+                '"Director" means a member.',
+                kind="definition",
+                term="Director",
+                definition_text="a member",
+            ),
+            Assertion.build(
+                doc_b.doc_id,
+                '"Director" means a manager.',
+                kind="definition",
+                term="Director",
+                definition_text="a manager",
+            ),
+        ]
+    )
+    embed_pending(store, faiss, embedder)
+
+    cfg_off = cfg.model_copy(update={"org_scope_enabled": False})
+    cfg_on = cfg.model_copy(update={"org_scope_enabled": True})
+
+    off = estimate_cost(cfg_off, store=store, faiss_store=faiss)
+    on = estimate_cost(cfg_on, store=store, faiss_store=faiss)
+    store.close()
+
+    assert off.n_definition_pairs == 1
+    assert on.n_definition_pairs == 0
