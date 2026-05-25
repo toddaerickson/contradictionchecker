@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -170,14 +170,21 @@ def _live_counters(run: Any, audit: Any = None) -> dict[str, Any]:
 
 
 def _corpus_banner_context(
-    store: AssertionStore, config: Config, *, run_id: str | None
+    store: AssertionStore,
+    config: Config,
+    *,
+    run_id: str | None,
+    corpus_id: str | None = None,
 ) -> dict[str, Any]:
     """Compute the four corpus-composition warning fields for the Stats banner.
 
     Mirrors the CLI warnings (see ``cli/warnings.py``) so the web surface emits
     the same triggers/messages as ``consistency-check check``.
+
+    When ``corpus_id`` is provided the banner is scoped to that corpus only so
+    that multi-org warnings from other corpora do not bleed into the view.
     """
-    docs = list(store.iter_documents())
+    docs = list(store.iter_documents(corpus_id=corpus_id))
     rows: list[tuple[str, str | None]] = [(d.doc_id, d.org_label) for d in docs]
     summary = summarize_buckets(rows)
     corpus_warning = render_corpus_warning(
@@ -505,10 +512,14 @@ def create_app(
         }
 
     @app.get("/tabs/documents", response_class=HTMLResponse)
-    def tab_documents(request: Request, page: int = 1) -> HTMLResponse:
+    def tab_documents(
+        request: Request,
+        page: int = 1,
+        corpus: str | None = Query(default=None),
+    ) -> HTMLResponse:
         store, _audit = _open_audit()
         try:
-            total = store.stats()["documents"]
+            total = store.stats(corpus_id=corpus)["documents"]
             pag = _pagination(page=page, total=total)
             offset = (pag["page"] - 1) * PAGE_SIZE
             rows = [
@@ -521,7 +532,7 @@ def create_app(
                     else "",
                     "doc_type": d.doc_type or "",
                 }
-                for d in store.iter_documents(limit=PAGE_SIZE, offset=offset)
+                for d in store.iter_documents(limit=PAGE_SIZE, offset=offset, corpus_id=corpus)
             ]
         finally:
             store.close()
@@ -567,13 +578,19 @@ def create_app(
         return templates.TemplateResponse(request, "cc__document_detail.html", context)
 
     @app.get("/tabs/assertions", response_class=HTMLResponse)
-    def tab_assertions(request: Request, page: int = 1) -> HTMLResponse:
+    def tab_assertions(
+        request: Request,
+        page: int = 1,
+        corpus: str | None = Query(default=None),
+    ) -> HTMLResponse:
         store, _audit = _open_audit()
         try:
-            total = store.stats()["assertions"]
+            total = store.stats(corpus_id=corpus)["assertions"]
             pag = _pagination(page=page, total=total)
             offset = (pag["page"] - 1) * PAGE_SIZE
-            page_assertions = list(store.iter_assertions(limit=PAGE_SIZE, offset=offset))
+            page_assertions = list(
+                store.iter_assertions(limit=PAGE_SIZE, offset=offset, corpus_id=corpus)
+            )
             documents = store.get_documents_bulk([a.doc_id for a in page_assertions])
             rows = [
                 {
@@ -811,14 +828,20 @@ def create_app(
         )
 
     @app.get("/tabs/stats", response_class=HTMLResponse)
-    def tab_stats(request: Request) -> HTMLResponse:
+    def tab_stats(
+        request: Request,
+        corpus: str | None = Query(default=None),
+    ) -> HTMLResponse:
         store, audit = _open_audit()
         try:
             run = audit.most_recent_run()
             status = _infer_run_status(run)
             counters = _live_counters(run, audit) if run is not None else None
             banner = _corpus_banner_context(
-                store, config, run_id=run.run_id if run is not None else None
+                store,
+                config,
+                run_id=run.run_id if run is not None else None,
+                corpus_id=corpus,
             )
         finally:
             store.close()
@@ -835,7 +858,11 @@ def create_app(
         )
 
     @app.get("/runs/{run_id}/stats", response_class=HTMLResponse)
-    def run_stats_fragment(request: Request, run_id: str) -> HTMLResponse:
+    def run_stats_fragment(
+        request: Request,
+        run_id: str,
+        corpus: str | None = Query(default=None),
+    ) -> HTMLResponse:
         # Returning the final fragment (no polling attrs) is how the
         # self-polling loop stops once the run terminates.
         store, audit = _open_audit()
@@ -845,7 +872,7 @@ def create_app(
                 raise HTTPException(status_code=404, detail=f"run {run_id} not found")
             status = _infer_run_status(run)
             counters = _live_counters(run, audit)
-            banner = _corpus_banner_context(store, config, run_id=run.run_id)
+            banner = _corpus_banner_context(store, config, run_id=run.run_id, corpus_id=corpus)
         finally:
             store.close()
         if status == "failed":
@@ -988,7 +1015,13 @@ def create_app(
     async def post_uploads(
         request: Request,
         files: list[UploadFile],
+        corpus_id: str | None = Form(default=None),
     ) -> HTMLResponse:
+        if not corpus_id:
+            raise HTTPException(
+                status_code=400,
+                detail="corpus_id is required; select a corpus before uploading.",
+            )
         upload_id = _generate_upload_id()
         upload_dir = config.data_dir / "uploads" / upload_id
         upload_dir.mkdir(parents=True, exist_ok=False)
@@ -1024,6 +1057,8 @@ def create_app(
                 status_code=400,
             )
 
+        # corpus_id is guaranteed non-empty by the guard above; assert for mypy.
+        assert corpus_id is not None
         store, faiss_store, embedder_inst = _open_stores()
         try:
             extractor = _make_extractor()
@@ -1034,6 +1069,7 @@ def create_app(
                 embedder=embedder_inst,
                 extractor=extractor,
                 config=config,
+                corpus_id=corpus_id,
             )
             audit = AuditLogger(store)
             is_first_check = audit.most_recent_run() is None
@@ -1088,6 +1124,7 @@ def _ingest_uploaded_paths(
     embedder: Embedder,
     extractor: Extractor,
     config: Config,
+    corpus_id: str,
 ) -> int:
     """Run loader → chunker → extractor → embedder on a list of file paths.
 
@@ -1095,9 +1132,6 @@ def _ingest_uploaded_paths(
     a directory — the web upload doesn't have a single corpus_dir, just a
     handful of just-saved files. Returns the number of assertions added.
     """
-    # Task 4 scaffold: Task 10 replaces this with the user-selected corpus_id
-    # from the web upload form. For now resolve a stable "default" corpus.
-    corpus_id = store.get_or_create_corpus("default", str(config.corpus_dir), "moonshot")
     junk_audit = (
         JunkAudit(config.data_dir / "junk_drops.jsonl") if config.junk_filter_enabled else None
     )

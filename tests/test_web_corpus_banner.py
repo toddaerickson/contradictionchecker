@@ -169,6 +169,11 @@ def test_upload_route_persists_org_label_and_banner_renders(tmp_path: Path) -> N
     )
     client = TestClient(app)
 
+    store_pre = AssertionStore(cfg.db_path)
+    store_pre.migrate()
+    cid = store_pre.get_or_create_corpus("test", str(cfg.corpus_dir), "moonshot")
+    store_pre.close()
+
     files = [
         ("files", ("acme.md", b"Acme Corp is a company. It does things.", "text/markdown")),
         (
@@ -176,7 +181,7 @@ def test_upload_route_persists_org_label_and_banner_renders(tmp_path: Path) -> N
             ("globex.md", b"Globex Inc is a company. It does other things.", "text/markdown"),
         ),
     ]
-    r = client.post("/uploads", files=files)
+    r = client.post("/uploads", data={"corpus_id": cid}, files=files)
     assert r.status_code == 200, r.text
 
     store = AssertionStore(cfg.db_path)

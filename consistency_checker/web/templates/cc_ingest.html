@@ -283,6 +283,7 @@
       if (filesInput && filesInput.files && filesInput.files.length > 0) {
         var fd = new FormData();
         Array.from(filesInput.files).forEach(function (f) { fd.append('files', f); });
+        fd.append('corpus_id', corpusId);
         if (status) status.textContent = 'Uploading files…';
         var uploadResp = await fetch('/uploads', { method: 'POST', body: fd });
         if (!uploadResp.ok) {

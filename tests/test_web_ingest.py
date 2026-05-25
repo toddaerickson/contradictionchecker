@@ -92,7 +92,8 @@ def test_ingest_tab_htmx_request_omits_base_chrome(tmp_path: Path) -> None:
 
 
 @pytest.fixture
-def configured_client(tmp_path: Path) -> TestClient:
+def configured_client(tmp_path: Path) -> tuple[TestClient, str]:
+    """Returns (client, corpus_id) — tests must pass corpus_id in upload POSTs."""
     cfg = _config(tmp_path)
 
     # Fixture extractor needs to be keyed by chunk_id, but the chunk_id depends
@@ -108,18 +109,27 @@ def configured_client(tmp_path: Path) -> TestClient:
     fixtures = {c.chunk_id: [f"fact-{i}"] for i, c in enumerate(chunks)}
     sample.unlink()
 
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    corpus_id = store.get_or_create_corpus("test", str(tmp_path), "moonshot")
+    store.close()
+
     app = create_app(
         cfg,
         extractor=FixtureExtractor(fixtures),
         embedder=HashEmbedder(dim=64),
     )
-    return TestClient(app)
+    return TestClient(app), corpus_id
 
 
-def test_upload_saves_file_and_runs_ingest(configured_client: TestClient, tmp_path: Path) -> None:
-    cfg: Config = configured_client.app.state.config  # type: ignore[attr-defined]
-    response = configured_client.post(
+def test_upload_saves_file_and_runs_ingest(
+    configured_client: tuple[TestClient, str], tmp_path: Path
+) -> None:
+    client, corpus_id = configured_client
+    cfg: Config = client.app.state.config  # type: ignore[attr-defined]
+    response = client.post(
         "/uploads",
+        data={"corpus_id": corpus_id},
         files={"files": ("doc.txt", b"Revenue grew. Customer satisfaction held.", "text/plain")},
     )
     assert response.status_code == 200, response.text
@@ -140,11 +150,13 @@ def test_upload_saves_file_and_runs_ingest(configured_client: TestClient, tmp_pa
 
 
 def test_upload_success_card_includes_run_button(
-    configured_client: TestClient,
+    configured_client: tuple[TestClient, str],
 ) -> None:
     """G5 enables the Run / Check now button — it now POSTs to /runs."""
-    response = configured_client.post(
+    client, corpus_id = configured_client
+    response = client.post(
         "/uploads",
+        data={"corpus_id": corpus_id},
         files={"files": ("doc.txt", b"Anything.", "text/plain")},
     )
     assert response.status_code == 200
@@ -167,10 +179,15 @@ def test_upload_with_no_file_part_rejected(tmp_path: Path) -> None:
 def test_upload_with_empty_filename_returns_error_card(tmp_path: Path) -> None:
     """An empty filename slips past the framework but our route catches it."""
     cfg = _config(tmp_path)
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    corpus_id = store.get_or_create_corpus("test", str(tmp_path), "moonshot")
+    store.close()
     app = create_app(cfg, extractor=FixtureExtractor({}), embedder=HashEmbedder(dim=64))
     client = TestClient(app)
     response = client.post(
         "/uploads",
+        data={"corpus_id": corpus_id},
         files={"files": ("blank.txt", b"", "application/octet-stream")},
     )
     # blank file content is fine — we still save it; "no files" only fires when
@@ -181,35 +198,51 @@ def test_upload_with_empty_filename_returns_error_card(tmp_path: Path) -> None:
 # --- prior uploads listing --------------------------------------------------
 
 
-def test_ingest_tab_renders_corpus_selector(configured_client: TestClient) -> None:
+def test_ingest_tab_renders_corpus_selector(
+    configured_client: tuple[TestClient, str],
+) -> None:
     """The Ingest tab always shows the corpus section (with HTMX load trigger)."""
-    response = configured_client.get("/tabs/ingest")
+    client, _corpus_id = configured_client
+    response = client.get("/tabs/ingest")
     assert response.status_code == 200
     body = response.text
     assert "cc-corpus-selector" in body
     assert "/api/corpora" in body
 
 
-def test_upload_rejects_oversized_file(configured_client: TestClient, tmp_path: Path) -> None:
+def test_upload_rejects_oversized_file(
+    configured_client: tuple[TestClient, str], tmp_path: Path
+) -> None:
+    client, corpus_id = configured_client
     big = tmp_path / "big.txt"
     big.write_bytes(b"x" * (MAX_UPLOAD_BYTES + 1))
     with open(big, "rb") as f:
-        resp = configured_client.post("/uploads", files=[("files", ("big.txt", f, "text/plain"))])
+        resp = client.post(
+            "/uploads",
+            data={"corpus_id": corpus_id},
+            files=[("files", ("big.txt", f, "text/plain"))],
+        )
     assert resp.status_code == 413
 
 
-def test_upload_rejects_bad_extension(configured_client: TestClient, tmp_path: Path) -> None:
+def test_upload_rejects_bad_extension(configured_client: tuple[TestClient, str]) -> None:
+    client, corpus_id = configured_client
     with io.BytesIO(b"MZ") as f:
-        resp = configured_client.post(
-            "/uploads", files=[("files", ("bad.exe", f, "application/octet-stream"))]
+        resp = client.post(
+            "/uploads",
+            data={"corpus_id": corpus_id},
+            files=[("files", ("bad.exe", f, "application/octet-stream"))],
         )
     assert resp.status_code == 400
 
 
-def test_upload_rejects_no_extension(configured_client: TestClient) -> None:
+def test_upload_rejects_no_extension(configured_client: tuple[TestClient, str]) -> None:
+    client, corpus_id = configured_client
     with io.BytesIO(b"content") as f:
-        resp = configured_client.post(
-            "/uploads", files=[("files", ("noext", f, "application/octet-stream"))]
+        resp = client.post(
+            "/uploads",
+            data={"corpus_id": corpus_id},
+            files=[("files", ("noext", f, "application/octet-stream"))],
         )
     assert resp.status_code == 400
     assert (
