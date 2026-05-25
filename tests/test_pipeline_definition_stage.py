@@ -63,6 +63,7 @@ def test_check_skips_definition_stage_when_checker_is_none(
     )
     logger = AuditLogger(stocked_store)
     run_id = logger.begin_run()
+    _cid = stocked_store.get_or_create_corpus("test", "/test", "moonshot")
     result = check(
         config,
         store=stocked_store,
@@ -71,6 +72,7 @@ def test_check_skips_definition_stage_when_checker_is_none(
         judge=FixtureJudge({}),
         audit_logger=logger,
         run_id=run_id,
+        corpus_id=_cid,
     )
     assert result.n_definition_pairs_judged == 0
     assert result.n_definition_findings == 0
@@ -88,6 +90,7 @@ def test_check_runs_definition_stage_and_logs_findings(
     )
     logger = AuditLogger(stocked_store)
     run_id = logger.begin_run()
+    _cid = stocked_store.get_or_create_corpus("test", "/test", "moonshot")
 
     definitions = list(stocked_store.iter_definitions())
     a, b = definitions[0][0], definitions[1][0]
@@ -111,6 +114,7 @@ def test_check_runs_definition_stage_and_logs_findings(
         audit_logger=logger,
         run_id=run_id,
         definition_checker=definition_checker,
+        corpus_id=_cid,
     )
 
     assert result.n_definition_pairs_judged == 1
@@ -137,6 +141,7 @@ def test_check_uncertain_definition_does_not_increment_findings(
     )
     logger = AuditLogger(stocked_store)
     run_id = logger.begin_run()
+    _cid = stocked_store.get_or_create_corpus("test", "/test", "moonshot")
     definition_checker = DefinitionChecker(judge=FixtureDefinitionJudge({}))
 
     result = check(
@@ -148,6 +153,7 @@ def test_check_uncertain_definition_does_not_increment_findings(
         audit_logger=logger,
         run_id=run_id,
         definition_checker=definition_checker,
+        corpus_id=_cid,
     )
 
     assert result.n_definition_pairs_judged == 1
@@ -185,6 +191,7 @@ def test_check_counts_definition_short_circuits(tmp_path: Path) -> None:
     )
     logger = AuditLogger(store)
     run_id = logger.begin_run()
+    _cid2 = store.get_or_create_corpus("test", "/test", "moonshot")
 
     class _RaisingJudge:
         def judge(self, a, b):  # type: ignore[no-untyped-def]
@@ -199,6 +206,7 @@ def test_check_counts_definition_short_circuits(tmp_path: Path) -> None:
         audit_logger=logger,
         run_id=run_id,
         definition_checker=DefinitionChecker(judge=_RaisingJudge()),
+        corpus_id=_cid2,
     )
 
     assert result.n_definition_short_circuited == 1

@@ -262,6 +262,7 @@ def test_end_to_end_mixed_format_corpus(
         judge=FixtureJudge({}),
         audit_logger=audit_logger,
         run_id=run_id,
+        corpus_id=_cid,
     )
     # No fixtures wired for any pair → FixtureJudge falls back to "uncertain",
     # so the mixed-format corpus must produce zero contradictions but every
@@ -314,6 +315,7 @@ def test_end_to_end_pipeline_fixture(tmp_path: Path) -> None:
         judge=FixtureJudge(judge_fixtures),
         audit_logger=audit_logger,
         run_id=run_id,
+        corpus_id=_cid,
     )
 
     # The planted contradiction must surface; the near-contradiction must not
@@ -410,6 +412,7 @@ def test_end_to_end_pipeline_live(tmp_path: Path) -> None:
         judge=LLMJudge(AnthropicProvider(model=cfg.judge_model)),
         audit_logger=audit_logger,
         run_id=run_id,
+        corpus_id=_cid,
     )
     assert check_result.n_findings >= 1
     contradictions = list(

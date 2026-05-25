@@ -79,6 +79,7 @@ def test_check_without_multi_party_judge_skips_triangle_pass(
     cfg, store, fs, _ = three_doc_store
     audit_logger = AuditLogger(store)
     run_id = audit_logger.begin_run()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     result = run_check(
         cfg,
         store=store,
@@ -88,6 +89,7 @@ def test_check_without_multi_party_judge_skips_triangle_pass(
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         run_id=run_id,
+        corpus_id=_cid,
     )
     assert result.n_triangles_judged == 0
     assert result.n_multi_party_findings == 0
@@ -119,6 +121,7 @@ def test_check_with_multi_party_judge_records_finding(
     )
 
     run_id = audit_logger.begin_run()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     result = run_check(
         cfg,
         store=store,
@@ -129,6 +132,7 @@ def test_check_with_multi_party_judge_records_finding(
         gate=AllPairsGate(),
         multi_party_judge=multi_party_judge,
         run_id=run_id,
+        corpus_id=_cid,
     )
 
     assert result.n_triangles_judged == 1
@@ -155,6 +159,7 @@ def test_check_with_multi_party_judge_returns_uncertain_does_not_count_finding(
     multi_party_judge = FixtureMultiPartyJudge({})
 
     run_id = audit_logger.begin_run()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     result = run_check(
         cfg,
         store=store,
@@ -165,6 +170,7 @@ def test_check_with_multi_party_judge_returns_uncertain_does_not_count_finding(
         gate=AllPairsGate(),
         multi_party_judge=multi_party_judge,
         run_id=run_id,
+        corpus_id=_cid,
     )
     assert result.n_triangles_judged == 1
     assert result.n_multi_party_findings == 0
@@ -221,6 +227,7 @@ def test_check_respects_max_triangles_per_run(tmp_path: Path) -> None:
         gate=AllPairsGate(),
         multi_party_judge=FixtureMultiPartyJudge({}),
         run_id=run_id,
+        corpus_id=_cid,
     )
     assert result.n_triangles_judged == 0
     assert result.n_multi_party_findings == 0

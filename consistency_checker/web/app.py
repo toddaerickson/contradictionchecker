@@ -754,6 +754,11 @@ def create_app(
 
                     def_checker = make_definition_checker(config)
 
+                # Task 5 scaffold: Task 10 wires corpus selection from the UI.
+                # For now, default to a corpus named "default".
+                web_corpus_id = store.get_or_create_corpus(
+                    "default", str(config.corpus_dir), "moonshot"
+                )
                 run_check(
                     config.model_copy(update={"enable_multi_party": deep}),
                     store=store,
@@ -764,6 +769,7 @@ def create_app(
                     multi_party_judge=mp_judge if deep else None,
                     definition_checker=def_checker,
                     run_id=run_id,
+                    corpus_id=web_corpus_id,
                 )
             except Exception as exc:
                 _log.exception("Run %s failed: %s", run_id, exc)

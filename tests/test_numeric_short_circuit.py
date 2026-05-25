@@ -143,6 +143,7 @@ def test_pipeline_short_circuits_revenue_flip_pair(tmp_path: Path) -> None:
     judge = _TrackingFixtureJudge(FixtureJudge({}))
 
     run_id = audit_logger.begin_run()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     result = run_check(
         cfg,
         store=store,
@@ -152,6 +153,7 @@ def test_pipeline_short_circuits_revenue_flip_pair(tmp_path: Path) -> None:
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         run_id=run_id,
+        corpus_id=_cid,
     )
 
     assert result.n_findings == 1, (
@@ -206,6 +208,7 @@ def test_pipeline_falls_through_to_judge_when_no_short_circuit(tmp_path: Path) -
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         run_id=run_id,
+        corpus_id=_cid,
     )
 
     assert judge.call_count >= 1, "Judge must be called when no short-circuit applies"
@@ -233,6 +236,7 @@ def test_short_circuit_finding_appears_in_report(tmp_path: Path) -> None:
     )
     audit_logger = AuditLogger(store)
     run_id = audit_logger.begin_run()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     result = run_check(
         cfg,
         store=store,
@@ -242,6 +246,7 @@ def test_short_circuit_finding_appears_in_report(tmp_path: Path) -> None:
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         run_id=run_id,
+        corpus_id=_cid,
     )
 
     report = render_report(store, audit_logger, run_id=result.run_id)
@@ -332,6 +337,7 @@ def test_pipeline_passes_numeric_context_when_values_disagree(tmp_path: Path) ->
     )
     audit_logger = AuditLogger(store)
     judge = _RecordingJudge()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
 
     run_check(
         cfg,
@@ -342,6 +348,7 @@ def test_pipeline_passes_numeric_context_when_values_disagree(tmp_path: Path) ->
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         run_id=audit_logger.begin_run(),
+        corpus_id=_cid,
     )
 
     assert judge.call_count == 1
@@ -371,6 +378,7 @@ def test_pipeline_passes_no_numeric_context_for_prose_pair(tmp_path: Path) -> No
     )
     audit_logger = AuditLogger(store)
     judge = _RecordingJudge()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
 
     run_check(
         cfg,
@@ -381,6 +389,7 @@ def test_pipeline_passes_no_numeric_context_for_prose_pair(tmp_path: Path) -> No
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         run_id=audit_logger.begin_run(),
+        corpus_id=_cid,
     )
 
     assert judge.call_count == 1
@@ -423,6 +432,7 @@ numeric_disagreement_threshold: 0.5
     )
     audit_logger = AuditLogger(store)
     judge = _RecordingJudge()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
 
     run_check(
         cfg,
@@ -433,6 +443,7 @@ numeric_disagreement_threshold: 0.5
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         run_id=audit_logger.begin_run(),
+        corpus_id=_cid,
     )
 
     assert judge.call_count == 1

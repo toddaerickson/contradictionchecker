@@ -52,7 +52,8 @@ def _seed_existing_store(cfg: Config) -> None:
 
     store = AssertionStore(cfg.db_path)
     store.migrate()
-    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
+    # Use "default" to match the Task-5 scaffold in cli/main.py check command.
+    _cid = store.get_or_create_corpus("default", str(cfg.corpus_dir), "moonshot")
     doc_a = Document.from_content("Alpha body.", source_path="alpha.md", title="Alpha")
     doc_b = Document.from_content("Beta body.", source_path="beta.txt", title="Beta")
     store.add_document(doc_a, corpus_id=_cid)
@@ -234,7 +235,8 @@ def test_check_deep_flag_enables_multi_party(
 
     store = AssertionStore(cfg.db_path)
     store.migrate()
-    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
+    # Use "default" to match the Task-5 scaffold corpus_id in cli/main.py check.
+    _cid = store.get_or_create_corpus("default", str(cfg.corpus_dir), "moonshot")
     docs = [
         Document.from_content("Policy A.", source_path="a.md", title="A"),
         Document.from_content("Policy B.", source_path="b.md", title="B"),

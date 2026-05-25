@@ -89,6 +89,7 @@ def test_mae_divergence_detected_by_real_judge(tmp_path: Path) -> None:
         audit_logger=audit_logger,
         definition_checker=make_definition_checker(cfg),
         run_id=run_id,
+        corpus_id=_cid,
     )
     store.close()
 

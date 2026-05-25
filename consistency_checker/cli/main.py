@@ -258,6 +258,10 @@ def check(
     multi_party = make_multi_party_judge(cfg) if cfg.enable_multi_party else None
     definition_checker = None if no_definitions else make_definition_checker(cfg)
 
+    # Task 5 scaffold: Task 7 wires --corpus from the CLI. For now, default to
+    # a corpus named "default" (judge_provider clamped to moonshot to satisfy
+    # the corpora CHECK constraint).
+    corpus_id = store.get_or_create_corpus("default", str(cfg.corpus_dir), "moonshot")
     run_id = audit_logger.begin_run(
         config={
             "embedder_model": cfg.embedder_model,
@@ -282,6 +286,7 @@ def check(
         multi_party_judge=multi_party,
         definition_checker=definition_checker,
         run_id=run_id,
+        corpus_id=corpus_id,
     )
     store.close()
     deep_suffix = (
@@ -339,12 +344,17 @@ def estimate_cost(
         raise typer.BadParameter(
             f"{exc} Run `consistency-check ingest <corpus_dir>` first."
         ) from exc
+    # Task 5 scaffold: Task 7 wires --corpus from the CLI. For now, default to
+    # a corpus named "default" (judge_provider clamped to moonshot to satisfy
+    # the corpora CHECK constraint).
+    corpus_id = store.get_or_create_corpus("default", str(cfg.corpus_dir), "moonshot")
     est = run_estimate_cost(
         cfg,
         store=store,
         faiss_store=faiss_store,
         per_call_low=per_call_low,
         per_call_high=per_call_high,
+        corpus_id=corpus_id,
     )
     store.close()
     typer.echo(

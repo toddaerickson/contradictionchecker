@@ -189,6 +189,54 @@ def test_estimate_cost_multiple_term_groups(cfg: Config) -> None:
     assert est.n_definition_pairs == 4
 
 
+def test_estimate_cost_does_not_count_cross_corpus_pairs(tmp_path: Path) -> None:
+    """estimate_cost with corpus_id=a excludes the cross-corpus FAISS pair."""
+    store = AssertionStore(tmp_path / "store.db")
+    store.migrate()
+    embedder = HashEmbedder(dim=64)
+    (tmp_path / "store").mkdir(parents=True, exist_ok=True)
+    faiss = FaissStore.open_or_create(
+        index_path=tmp_path / "store" / "faiss.idx",
+        id_map_path=tmp_path / "store" / "faiss.idmap.json",
+        dim=embedder.dim,
+    )
+    cid_a = store.get_or_create_corpus("corp_a", "/a", "moonshot")
+    cid_b = store.get_or_create_corpus("corp_b", "/b", "moonshot")
+
+    doc_a = Document(doc_id="dA", source_path="/a/doc.txt")
+    doc_b = Document(doc_id="dB", source_path="/b/doc.txt")
+    store.add_document(doc_a, corpus_id=cid_a)
+    store.add_document(doc_b, corpus_id=cid_b)
+
+    text = "Revenue grew 12% in 2023."
+    aa = Assertion.build("dA", text)
+    ab = Assertion.build("dB", text)
+    store.add_assertion(aa)
+    store.add_assertion(ab)
+    embed_pending(store, faiss, embedder)
+
+    cfg_obj = Config(
+        corpus_dir=tmp_path,
+        judge_provider="fixture",
+        judge_model="test",
+        data_dir=tmp_path / "store",
+        log_dir=tmp_path / "logs",
+        embedder_model="hash",
+        nli_model="fixture",
+        gate_similarity_threshold=-1.0,
+    )
+
+    est_no_filter = estimate_cost(cfg_obj, store=store, faiss_store=faiss)
+    est_corpus_a = estimate_cost(cfg_obj, store=store, faiss_store=faiss, corpus_id=cid_a)
+
+    # Without corpus filter the cross-corpus pair is counted.
+    assert est_no_filter.n_candidate_pairs >= 1
+    # With corpus_a filter the cross-corpus pair is excluded (corpus_a has
+    # only one assertion, so no intra-corpus pairs).
+    assert est_corpus_a.n_candidate_pairs == 0
+    store.close()
+
+
 def test_estimate_cost_excludes_cross_org_pairs_when_scope_enabled(cfg: Config) -> None:
     store = AssertionStore(cfg.db_path)
     store.migrate()

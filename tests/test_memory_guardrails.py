@@ -183,6 +183,7 @@ def test_check_calls_nli_release_after_pair_loop(cfg: Config, tmp_path: Path) ->
         judge=FixtureJudge({}),
         audit_logger=audit_logger,
         run_id=run_id,
+        corpus_id=_cid,
     )
     assert spy.release_count == 1
     store.close()
