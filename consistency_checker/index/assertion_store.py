@@ -62,7 +62,6 @@ def _parse_timestamp(value: Any) -> datetime | None:
 
 
 def _row_to_document(row: sqlite3.Row) -> Document:
-    keys = row.keys()
     return Document(
         doc_id=row["doc_id"],
         source_path=row["source_path"],
@@ -71,8 +70,8 @@ def _row_to_document(row: sqlite3.Row) -> Document:
         doc_type=row["doc_type"],
         metadata_json=row["metadata_json"],
         ingested_at=_parse_timestamp(row["ingested_at"]),
-        org_label=row["org_label"] if "org_label" in keys else None,
-        org_reason=row["org_reason"] if "org_reason" in keys else None,
+        org_label=row["org_label"],
+        org_reason=row["org_reason"],
     )
 
 
@@ -174,8 +173,7 @@ class AssertionStore:
                 ),
             )
 
-    def update_org_label(self, doc_id: str, org_label: str | None, org_reason: str) -> None:
-        """Backfill or refresh org identification on an existing document row."""
+    def update_org_label(self, doc_id: str, org_label: str | None, org_reason: str | None) -> None:
         with self._conn:
             self._conn.execute(
                 "UPDATE documents SET org_label = ?, org_reason = ? WHERE doc_id = ?",
