@@ -50,8 +50,16 @@ def definitions_equivalent(a_text: str, b_text: str) -> bool:
 
 
 _LEGAL_SUFFIXES: tuple[str, ...] = (
-    "limited", "ltd", "company", "co",
-    "corporation", "corp", "lp", "l.p.", "llc", "inc",
+    "limited",
+    "ltd",
+    "company",
+    "co",
+    "corporation",
+    "corp",
+    "lp",
+    "l.p.",
+    "llc",
+    "inc",
 )
 
 

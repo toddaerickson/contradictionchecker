@@ -14,8 +14,18 @@ def test_does_not_strip_internal_the():
 
 
 def test_strips_trailing_legal_suffixes():
-    for suffix in ["Inc", "LLC", "L.P.", "LP", "Corporation", "Corp",
-                   "Company", "Co", "Ltd", "Limited"]:
+    for suffix in [
+        "Inc",
+        "LLC",
+        "L.P.",
+        "LP",
+        "Corporation",
+        "Corp",
+        "Company",
+        "Co",
+        "Ltd",
+        "Limited",
+    ]:
         full = f"Acme {suffix}"
         got = normalize_org(full)
         assert got == "acme", f"{full!r} -> {got!r}"
