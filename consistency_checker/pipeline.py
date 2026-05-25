@@ -15,7 +15,7 @@ from __future__ import annotations
 import gc
 import itertools
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from consistency_checker.audit.logger import AuditLogger
 from consistency_checker.check.definition_checker import (
@@ -217,7 +217,11 @@ def ingest(
         junk_filter_enabled=config.junk_filter_enabled,
         junk_audit=junk_audit,
     ):
-        store.add_document(loaded.document)
+        doc = loaded.document
+        if config.org_grouping_enabled:
+            res = extractor.identify_org(title=doc.title, text=loaded.text)
+            doc = replace(doc, org_label=res.label, org_reason=res.reason)
+        store.add_document(doc)
         n_docs += 1
         chunks = chunk_document(
             loaded,
