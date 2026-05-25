@@ -533,6 +533,46 @@ def serve(
     uvicorn.run(web_app, host=host, port=port, log_level="info")
 
 
+@store_app.command(
+    "reidentify-orgs",
+    help="Backfill or refresh document.org_label / org_reason via the LLM identifier.",
+)
+def store_reidentify_orgs(
+    db: Path = typer.Option(..., "--db", help="Path to the SQLite DB."),
+    all_docs: bool = typer.Option(False, "--all", help="Reidentify every document."),
+    null_only: bool = typer.Option(
+        True,
+        "--null-only",
+        help="Only documents whose org_label IS NULL. Overridden by --all.",
+    ),
+    config: Path = typer.Option(
+        Path("config.yml"),
+        "--config",
+        "-c",
+        help="Config used to construct the extractor; falls back to a minimal default.",
+    ),
+) -> None:
+    cfg = Config.from_yaml(config) if config.exists() else Config(corpus_dir=Path("."))
+    extractor = make_extractor(cfg)
+    store = AssertionStore(db)
+    try:
+        store.migrate()
+        walk_all = all_docs
+        for doc in store.iter_documents():
+            if not walk_all and null_only and doc.org_label is not None:
+                continue
+            try:
+                content = Path(doc.source_path).read_text(encoding="utf-8", errors="ignore")
+            except OSError as exc:
+                typer.echo(f"{doc.doc_id}: SKIP (source unreadable: {exc})")
+                continue
+            res = extractor.identify_org(title=doc.title, text=content)
+            store.update_org_label(doc.doc_id, res.label, res.reason)
+            typer.echo(f"{doc.doc_id}: {res.reason} -> {res.label!r}")
+    finally:
+        store.close()
+
+
 @store_app.command("rebuild-index", help="Regenerate the FAISS index from SQLite.")
 def store_rebuild_index(
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
