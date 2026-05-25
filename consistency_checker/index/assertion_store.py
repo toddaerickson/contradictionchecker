@@ -438,32 +438,58 @@ class AssertionStore:
     # --- export -------------------------------------------------------------
 
     def export_csv(
-        self, path: Path | str, *, columns: Sequence[str] = DEFAULT_EXPORT_COLUMNS
+        self,
+        path: Path | str,
+        *,
+        columns: Sequence[str] = DEFAULT_EXPORT_COLUMNS,
+        corpus_id: str | None = None,
     ) -> None:
         """Export assertions to CSV. Default columns: ``(doc_id, assertion_id, assertion_text)``."""
         unknown = [c for c in columns if c not in _ALL_ASSERTION_COLUMNS]
         if unknown:
             raise ValueError(f"Unknown export columns: {unknown}")
-        column_sql = ", ".join(columns)
+        column_sql = ", ".join(f"a.{c}" for c in columns)
         out_path = Path(path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        if corpus_id is not None:
+            sql = (
+                f"SELECT {column_sql} FROM assertions a "
+                "JOIN documents d ON d.doc_id = a.doc_id "
+                "WHERE d.corpus_id = ? "
+                "ORDER BY a.doc_id, a.created_at, a.assertion_id"
+            )
+            params: tuple[str, ...] = (corpus_id,)
+        else:
+            sql = (
+                f"SELECT {column_sql} FROM assertions a "
+                "ORDER BY a.doc_id, a.created_at, a.assertion_id"
+            )
+            params = ()
         with out_path.open("w", encoding="utf-8", newline="") as fh:
             writer = csv.writer(fh)
             writer.writerow(columns)
-            for row in self._conn.execute(
-                f"SELECT {column_sql} FROM assertions ORDER BY doc_id, created_at, assertion_id"
-            ):
+            for row in self._conn.execute(sql, params):
                 writer.writerow([row[c] for c in columns])
 
-    def export_jsonl(self, path: Path | str) -> None:
+    def export_jsonl(self, path: Path | str, *, corpus_id: str | None = None) -> None:
         """Export assertions as JSONL, one assertion per line, with all columns + source path."""
         out_path = Path(path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        sql = (
-            "SELECT a.*, d.source_path, d.doc_date FROM assertions a "
-            "JOIN documents d ON d.doc_id = a.doc_id "
-            "ORDER BY a.doc_id, a.created_at, a.assertion_id"
-        )
+        if corpus_id is not None:
+            sql = (
+                "SELECT a.*, d.source_path, d.doc_date FROM assertions a "
+                "JOIN documents d ON d.doc_id = a.doc_id "
+                "WHERE d.corpus_id = ? "
+                "ORDER BY a.doc_id, a.created_at, a.assertion_id"
+            )
+            params: tuple[str, ...] = (corpus_id,)
+        else:
+            sql = (
+                "SELECT a.*, d.source_path, d.doc_date FROM assertions a "
+                "JOIN documents d ON d.doc_id = a.doc_id "
+                "ORDER BY a.doc_id, a.created_at, a.assertion_id"
+            )
+            params = ()
         with out_path.open("w", encoding="utf-8") as fh:
-            for row in self._conn.execute(sql):
+            for row in self._conn.execute(sql, params):
                 fh.write(json.dumps(dict(row), ensure_ascii=False) + "\n")

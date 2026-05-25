@@ -34,6 +34,7 @@ from consistency_checker.audit.naming import (
     report_filename,
 )
 from consistency_checker.audit.report import render_report
+from consistency_checker.cli.corpus_prompt import resolve_corpus
 from consistency_checker.cli.warnings import (
     render_corpus_warning,
     render_fragmentation_warning,
@@ -204,8 +205,6 @@ def ingest(
     provider_for_corpus = (
         cfg.judge_provider if cfg.judge_provider in ("moonshot", "anthropic") else "moonshot"
     )
-    from consistency_checker.cli.corpus_prompt import resolve_corpus
-
     corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
     result = run_ingest(
         cfg,
@@ -229,6 +228,11 @@ def ingest(
 @app.command(help="Run the Stage A + Stage B contradiction scan against the indexed corpus.")
 def check(
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
+    corpus: str | None = typer.Option(
+        None,
+        "--corpus",
+        help="Corpus name. Required (interactive picker on TTY).",
+    ),
     deep: bool = typer.Option(
         False,
         "--deep",
@@ -253,6 +257,10 @@ def check(
     _preflight_memory(cfg)
     embedder = make_embedder(cfg)
     store = _open_store(cfg)
+    provider_for_corpus = (
+        cfg.judge_provider if cfg.judge_provider in ("moonshot", "anthropic") else "moonshot"
+    )
+    corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
     faiss_store = _open_faiss(cfg, dim=embedder.dim)
     _emit_corpus_warnings(store, cfg)
     audit_logger = AuditLogger(store)
@@ -266,11 +274,8 @@ def check(
     multi_party = make_multi_party_judge(cfg) if cfg.enable_multi_party else None
     definition_checker = None if no_definitions else make_definition_checker(cfg)
 
-    # Task 5 scaffold: Task 7 wires --corpus from the CLI. For now, default to
-    # a corpus named "default" (judge_provider clamped to moonshot to satisfy
-    # the corpora CHECK constraint).
-    corpus_id = store.get_or_create_corpus("default", str(cfg.corpus_dir), "moonshot")
     run_id = audit_logger.begin_run(
+        corpus_id=corpus_id,
         config={
             "embedder_model": cfg.embedder_model,
             "nli_model": cfg.nli_model,
@@ -282,7 +287,7 @@ def check(
             "enable_multi_party": cfg.enable_multi_party,
             "max_triangles_per_run": cfg.max_triangles_per_run,
             "definitions_enabled": not no_definitions,
-        }
+        },
     )
     result = run_check(
         cfg,
@@ -324,6 +329,11 @@ def check(
 )
 def estimate_cost(
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
+    corpus: str | None = typer.Option(
+        None,
+        "--corpus",
+        help="Corpus name. Required (interactive picker on TTY).",
+    ),
     per_call_low: float = typer.Option(
         0.003,
         "--per-call-low",
@@ -352,10 +362,10 @@ def estimate_cost(
         raise typer.BadParameter(
             f"{exc} Run `consistency-check ingest <corpus_dir>` first."
         ) from exc
-    # Task 5 scaffold: Task 7 wires --corpus from the CLI. For now, default to
-    # a corpus named "default" (judge_provider clamped to moonshot to satisfy
-    # the corpora CHECK constraint).
-    corpus_id = store.get_or_create_corpus("default", str(cfg.corpus_dir), "moonshot")
+    provider_for_corpus = (
+        cfg.judge_provider if cfg.judge_provider in ("moonshot", "anthropic") else "moonshot"
+    )
+    corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
     est = run_estimate_cost(
         cfg,
         store=store,
@@ -396,6 +406,14 @@ def report(
     ),
     run_id: str | None = typer.Option(None, "--run", help="Run id; default: most recent."),
     min_confidence: float = typer.Option(0.0, "--min-confidence", min=0.0, max=1.0),
+    corpus: str | None = typer.Option(
+        None,
+        "--corpus",
+        help=(
+            "Optional corpus name. When omitted, inferred from the run's corpus_id. "
+            "Providing a name that does not match the run's corpus is an error."
+        ),
+    ),
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
 ) -> None:
     cfg = _load_config(config)
@@ -410,10 +428,30 @@ def report(
             raise typer.Exit(code=2)
         target_run = recent.run_id
 
+    run_row = audit_logger.get_run(target_run)
+    run_corpus_id: str | None = run_row.corpus_id if run_row is not None else None
+
+    if corpus is not None:
+        # Resolve the explicitly-supplied corpus name to an id and validate.
+        existing = store.list_corpora()
+        match = next((c for c in existing if c.corpus_name == corpus), None)
+        if match is None:
+            store.close()
+            available = ", ".join(c.corpus_name for c in existing) or "<none>"
+            raise typer.BadParameter(f"--corpus {corpus!r} not found (available: {available})")
+        if run_corpus_id is not None and match.corpus_id != run_corpus_id:
+            run_corpus_name = next(
+                (c.corpus_name for c in existing if c.corpus_id == run_corpus_id), run_corpus_id
+            )
+            store.close()
+            raise typer.BadParameter(
+                f"--corpus mismatch: run {target_run!r} belongs to corpus "
+                f"{run_corpus_name!r} but --corpus {corpus!r} was supplied."
+            )
+
     text = render_report(store, audit_logger, run_id=target_run, min_confidence=min_confidence)
     if out is None:
-        run = audit_logger.get_run(target_run)
-        started = run.started_at if run is not None else None
+        started = run_row.started_at if run_row is not None else None
         out = cfg.data_dir / "reports" / report_filename(target_run, started_at=started)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding="utf-8")
@@ -433,18 +471,27 @@ def export(
         "-o",
         help=("Output path. Omit to write to <data_dir>/reports/cc_assertions_<timestamp>.<ext>."),
     ),
+    corpus: str | None = typer.Option(
+        None,
+        "--corpus",
+        help="Corpus name. Required (interactive picker on TTY).",
+    ),
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
 ) -> None:
     cfg = _load_config(config)
     store = _open_store(cfg)
+    provider_for_corpus = (
+        cfg.judge_provider if cfg.judge_provider in ("moonshot", "anthropic") else "moonshot"
+    )
+    corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
     if fmt == "csv":
         if out is None:
             out = cfg.data_dir / "reports" / export_csv_filename()
-        store.export_csv(out)
+        store.export_csv(out, corpus_id=corpus_id)
     elif fmt == "jsonl":
         if out is None:
             out = cfg.data_dir / "reports" / export_jsonl_filename()
-        store.export_jsonl(out)
+        store.export_jsonl(out, corpus_id=corpus_id)
     else:
         store.close()
         raise typer.BadParameter("FORMAT must be 'csv' or 'jsonl'")
@@ -573,6 +620,11 @@ def store_reidentify_orgs(
         "--null-only",
         help="Only documents whose org_label IS NULL. Overridden by --all.",
     ),
+    corpus: str | None = typer.Option(
+        None,
+        "--corpus",
+        help="Corpus name. Required (interactive picker on TTY).",
+    ),
     config: Path = typer.Option(
         Path("config.yml"),
         "--config",
@@ -585,8 +637,12 @@ def store_reidentify_orgs(
     store = AssertionStore(db)
     try:
         store.migrate()
+        provider_for_corpus = (
+            cfg.judge_provider if cfg.judge_provider in ("moonshot", "anthropic") else "moonshot"
+        )
+        corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
         walk_all = all_docs
-        for doc in store.iter_documents():
+        for doc in store.iter_documents(corpus_id=corpus_id):
             if not walk_all and null_only and doc.org_label is not None:
                 continue
             try:

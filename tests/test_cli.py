@@ -200,7 +200,7 @@ def test_check_runs_with_fake_nli_and_judge(
         "consistency_checker.check.nli_checker.TransformerNliChecker", _FakeNliFactory
     )
 
-    result = runner.invoke(app, ["check", "--config", str(cfg_path)])
+    result = runner.invoke(app, ["check", "--corpus", "default", "--config", str(cfg_path)])
     assert result.exit_code == 0, result.stdout
     assert "contradictions" in result.stdout
 
@@ -300,7 +300,9 @@ def test_check_deep_flag_enables_multi_party(
         "consistency_checker.check.nli_checker.TransformerNliChecker", _FakeNliFactory
     )
 
-    result = runner.invoke(app, ["check", "--deep", "--config", str(cfg_path)])
+    result = runner.invoke(
+        app, ["check", "--deep", "--corpus", "default", "--config", str(cfg_path)]
+    )
     assert result.exit_code == 0, result.stdout
     assert "multi-party" in result.stdout
     assert "triangles" in result.stdout
@@ -349,7 +351,7 @@ def test_check_without_deep_flag_skips_multi_party_factory(
         "consistency_checker.check.nli_checker.TransformerNliChecker", _FakeNliFactory
     )
 
-    result = runner.invoke(app, ["check", "--config", str(cfg_path)])
+    result = runner.invoke(app, ["check", "--corpus", "default", "--config", str(cfg_path)])
     assert result.exit_code == 0, result.stdout
     assert multi_party_calls == []
     assert "multi-party" not in result.stdout
@@ -418,7 +420,9 @@ def test_export_csv(runner: CliRunner, tmp_path: Path) -> None:
     _seed_existing_store(cfg)
 
     out = tmp_path / "assertions.csv"
-    result = runner.invoke(app, ["export", "csv", "--out", str(out), "--config", str(cfg_path)])
+    result = runner.invoke(
+        app, ["export", "csv", "--out", str(out), "--corpus", "default", "--config", str(cfg_path)]
+    )
     assert result.exit_code == 0, result.stdout
     text = out.read_text()
     assert "doc_id,assertion_id,assertion_text" in text
@@ -430,7 +434,10 @@ def test_export_jsonl(runner: CliRunner, tmp_path: Path) -> None:
     _seed_existing_store(cfg)
 
     out = tmp_path / "assertions.jsonl"
-    result = runner.invoke(app, ["export", "jsonl", "--out", str(out), "--config", str(cfg_path)])
+    result = runner.invoke(
+        app,
+        ["export", "jsonl", "--out", str(out), "--corpus", "default", "--config", str(cfg_path)],
+    )
     assert result.exit_code == 0, result.stdout
     lines = out.read_text().splitlines()
     assert lines
@@ -442,7 +449,17 @@ def test_export_bad_format_errors(runner: CliRunner, tmp_path: Path) -> None:
     cfg = Config.from_yaml(cfg_path)
     _seed_existing_store(cfg)
     result = runner.invoke(
-        app, ["export", "xml", "--out", str(tmp_path / "x.xml"), "--config", str(cfg_path)]
+        app,
+        [
+            "export",
+            "xml",
+            "--out",
+            str(tmp_path / "x.xml"),
+            "--corpus",
+            "default",
+            "--config",
+            str(cfg_path),
+        ],
     )
     assert result.exit_code != 0
 
@@ -492,7 +509,7 @@ def test_export_csv_without_out_writes_to_default_reports_dir(
     cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
     cfg = Config.from_yaml(cfg_path)
     _seed_existing_store(cfg)
-    result = runner.invoke(app, ["export", "csv", "--config", str(cfg_path)])
+    result = runner.invoke(app, ["export", "csv", "--corpus", "default", "--config", str(cfg_path)])
     assert result.exit_code == 0, result.stdout
     generated = list((cfg.data_dir / "reports").glob("cc_assertions_*.csv"))
     assert len(generated) == 1
@@ -505,7 +522,9 @@ def test_export_jsonl_without_out_writes_to_default_reports_dir(
     cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
     cfg = Config.from_yaml(cfg_path)
     _seed_existing_store(cfg)
-    result = runner.invoke(app, ["export", "jsonl", "--config", str(cfg_path)])
+    result = runner.invoke(
+        app, ["export", "jsonl", "--corpus", "default", "--config", str(cfg_path)]
+    )
     assert result.exit_code == 0, result.stdout
     generated = list((cfg.data_dir / "reports").glob("cc_assertions_*.jsonl"))
     assert len(generated) == 1
@@ -562,7 +581,7 @@ def test_estimate_cost_command_prints_ceiling(
 
     monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
 
-    result = runner.invoke(app, ["estimate-cost", "--config", str(cfg_path)])
+    result = runner.invoke(app, ["estimate-cost", "--corpus", "default", "--config", str(cfg_path)])
     assert result.exit_code == 0, result.stdout
     assert "Run cost estimate" in result.stdout
     assert "Assertions in store:" in result.stdout
@@ -602,6 +621,8 @@ def test_estimate_cost_per_call_flags_flow_through(
         app,
         [
             "estimate-cost",
+            "--corpus",
+            "default",
             "--config",
             str(cfg_path),
             "--per-call-low",
@@ -664,7 +685,9 @@ def test_check_accepts_org_scope_flag(
         "consistency_checker.check.nli_checker.TransformerNliChecker", _FakeNliFactory
     )
 
-    result = runner.invoke(app, ["check", "--org-scope", "--config", str(cfg_path)])
+    result = runner.invoke(
+        app, ["check", "--org-scope", "--corpus", "default", "--config", str(cfg_path)]
+    )
     assert result.exit_code == 0, result.stdout
     assert captured.get("org_scope_enabled") is True
 
@@ -899,3 +922,208 @@ def test_ingest_with_corpus_persists(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     rows = store._conn.execute("SELECT corpus_id FROM documents").fetchall()
     assert rows and all(r[0] == atkins_id for r in rows)
     store.close()
+
+
+# --- Task 8: --corpus required on check / estimate-cost / export / report ----
+
+
+def test_check_without_corpus_errors_in_non_tty(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = tmp_path / "config.yml"
+    cfg.write_text(f"corpus_dir: {tmp_path}\ndata_dir: {tmp_path}\n", encoding="utf-8")
+    runner = CliRunner()
+    res = runner.invoke(app, ["check", "--config", str(cfg)])
+    assert res.exit_code != 0
+    out = (res.output or "") + str(res.exception or "")
+    assert "--corpus is required" in out
+
+
+def test_check_with_corpus_passes_corpus_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """--corpus atkins flows through to pipeline.check as corpus_id."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    # Re-seed under "atkins" so the corpus exists.
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    atkins_id = store.get_or_create_corpus("atkins", str(cfg.corpus_dir), "moonshot")
+    store.close()
+
+    captured: dict[str, Any] = {}
+
+    def fake_check(_cfg: Any, *, store: Any, faiss_store: Any, corpus_id: str, **kw: Any) -> Any:
+        captured["corpus_id"] = corpus_id
+        from consistency_checker.pipeline import CheckResult
+
+        return CheckResult(
+            run_id="fake-run",
+            n_assertions=0,
+            n_pairs_gated=0,
+            n_pairs_judged=0,
+            n_findings=0,
+        )
+
+    monkeypatch.setattr("consistency_checker.cli.main.run_check", fake_check)
+
+    def fake_embedder(_cfg: Any) -> Any:
+        return HashEmbedder(dim=64)
+
+    def fake_judge(_cfg: Any) -> Any:
+        return FixtureJudge({})
+
+    class _FakeNliFactory:
+        def __init__(self, model_name: str) -> None:
+            pass
+
+        def score(self, premise: str, hypothesis: str) -> Any:
+            from consistency_checker.check.nli_checker import NliResult
+
+            return NliResult.from_scores(p_contradiction=0.0, p_entailment=1.0, p_neutral=0.0)
+
+        def release(self) -> None:
+            pass
+
+    monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
+    monkeypatch.setattr("consistency_checker.cli.main.make_judge", fake_judge)
+    monkeypatch.setattr(
+        "consistency_checker.check.nli_checker.TransformerNliChecker", _FakeNliFactory
+    )
+
+    runner = CliRunner()
+    res = runner.invoke(app, ["check", "--config", str(cfg_path), "--corpus", "atkins"])
+    assert res.exit_code == 0, res.output
+    assert captured["corpus_id"] == atkins_id
+
+
+def test_estimate_cost_without_corpus_errors_in_non_tty(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from consistency_checker.index.faiss_store import FaissStore
+
+    cfg = tmp_path / "config.yml"
+    cfg.write_text(f"corpus_dir: {tmp_path}\ndata_dir: {tmp_path}\n", encoding="utf-8")
+    # Seed the FAISS store so estimate-cost doesn't fail on the missing-index error first.
+    # data_dir defaults to tmp_path, so faiss_path is tmp_path/assertions.faiss.
+    store = AssertionStore(tmp_path / "assertions.db")
+    store.migrate()
+    store.close()
+    fs = FaissStore.open_or_create(
+        index_path=tmp_path / "assertions.faiss",
+        id_map_path=tmp_path / "assertions.idmap.json",
+        dim=64,
+    )
+    fs.save()
+    runner = CliRunner()
+    res = runner.invoke(app, ["estimate-cost", "--config", str(cfg)])
+    assert res.exit_code != 0
+    out = (res.output or "") + str(res.exception or "")
+    assert "--corpus is required" in out
+
+
+def test_export_without_corpus_errors_in_non_tty(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = tmp_path / "config.yml"
+    cfg.write_text(f"corpus_dir: {tmp_path}\ndata_dir: {tmp_path}\n", encoding="utf-8")
+    # data_dir defaults to tmp_path; db_path is tmp_path/assertions.db.
+    store = AssertionStore(tmp_path / "assertions.db")
+    store.migrate()
+    store.close()
+    runner = CliRunner()
+    res = runner.invoke(app, ["export", "csv", "--config", str(cfg)])
+    assert res.exit_code != 0
+    out = (res.output or "") + str(res.exception or "")
+    assert "--corpus is required" in out
+
+
+def test_export_with_corpus_scopes_output(tmp_path: Path) -> None:
+    """export csv with --corpus only writes assertions from that corpus."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    cid_a = store.get_or_create_corpus("corp_a", str(tmp_path), "moonshot")
+    store.get_or_create_corpus("corp_b", str(tmp_path), "moonshot")
+    doc_a = Document.from_content("Alpha text.", source_path="a.txt", title="A")
+    store.add_document(doc_a, corpus_id=cid_a)
+    from consistency_checker.extract.schema import Assertion
+
+    store.add_assertions([Assertion.build(doc_a.doc_id, "Alpha assertion.")])
+    store.close()
+
+    out = tmp_path / "out.csv"
+    runner = CliRunner()
+    res = runner.invoke(
+        app,
+        ["export", "csv", "--out", str(out), "--config", str(cfg_path), "--corpus", "corp_a"],
+    )
+    assert res.exit_code == 0, res.output
+    text = out.read_text()
+    assert "Alpha assertion." in text
+
+
+def test_report_infers_corpus_from_run_when_not_specified(tmp_path: Path) -> None:
+    """report --run <id> without --corpus infers corpus from pipeline_runs.corpus_id."""
+    from consistency_checker.audit.logger import AuditLogger
+
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    cid = store.get_or_create_corpus("myrun", str(tmp_path), "moonshot")
+    logger = AuditLogger(store)
+    rid = logger.begin_run(run_id="rpt_infer_test", corpus_id=cid)
+    logger.end_run(rid, n_assertions=0, n_pairs_gated=0, n_pairs_judged=0)
+    store.close()
+
+    out = tmp_path / "report_inferred.md"
+    runner = CliRunner()
+    res = runner.invoke(
+        app,
+        ["report", "--run", rid, "--out", str(out), "--config", str(cfg_path)],
+    )
+    assert res.exit_code == 0, res.output
+    assert out.exists()
+
+
+def test_report_errors_when_corpus_mismatches_run(tmp_path: Path) -> None:
+    """report --corpus <other> that differs from run's corpus_id must error."""
+    from consistency_checker.audit.logger import AuditLogger
+
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    cid_a = store.get_or_create_corpus("corp_a", str(tmp_path), "moonshot")
+    store.get_or_create_corpus("corp_b", str(tmp_path), "moonshot")
+    logger = AuditLogger(store)
+    rid = logger.begin_run(run_id="rpt_mismatch_test", corpus_id=cid_a)
+    logger.end_run(rid, n_assertions=0, n_pairs_gated=0, n_pairs_judged=0)
+    store.close()
+
+    out = tmp_path / "report_mismatch.md"
+    runner = CliRunner()
+    res = runner.invoke(
+        app,
+        [
+            "report",
+            "--run",
+            rid,
+            "--out",
+            str(out),
+            "--config",
+            str(cfg_path),
+            "--corpus",
+            "corp_b",
+        ],
+    )
+    assert res.exit_code != 0
+    out_text = (res.output or "") + str(res.exception or "")
+    assert "mismatch" in out_text.lower() or "corpus" in out_text.lower()

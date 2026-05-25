@@ -281,3 +281,87 @@ def test_estimate_cost_excludes_cross_org_pairs_when_scope_enabled(cfg: Config) 
 
     assert off.n_definition_pairs == 1
     assert on.n_definition_pairs == 0
+
+
+# --- Task 8: estimate-cost CLI --corpus required ----------------------------
+
+
+def test_estimate_cost_cli_without_corpus_errors_in_non_tty(tmp_path: Path) -> None:
+    """estimate-cost without --corpus fails with '--corpus is required' when not a TTY."""
+    from typer.testing import CliRunner
+
+    from consistency_checker.cli.main import app
+    from consistency_checker.index.assertion_store import AssertionStore
+    from consistency_checker.index.faiss_store import FaissStore
+
+    cfg = tmp_path / "config.yml"
+    cfg.write_text(f"corpus_dir: {tmp_path}\ndata_dir: {tmp_path}\n", encoding="utf-8")
+
+    # Seed a minimal FAISS index so the command doesn't fail with the missing-index error.
+    # With data_dir=tmp_path, faiss_path is tmp_path/assertions.faiss.
+    store = AssertionStore(tmp_path / "assertions.db")
+    store.migrate()
+    store.close()
+    fs = FaissStore.open_or_create(
+        index_path=tmp_path / "assertions.faiss",
+        id_map_path=tmp_path / "assertions.idmap.json",
+        dim=64,
+    )
+    fs.save()
+
+    runner = CliRunner()
+    res = runner.invoke(app, ["estimate-cost", "--config", str(cfg)])
+    assert res.exit_code != 0
+    out = (res.output or "") + str(res.exception or "")
+    assert "--corpus is required" in out
+
+
+def test_estimate_cost_cli_with_corpus_passes_corpus_id(tmp_path: Path) -> None:
+    """estimate-cost --corpus <name> passes corpus_id to the pipeline function."""
+    from typing import Any
+
+    from typer.testing import CliRunner
+
+    from consistency_checker.cli.main import app
+    from consistency_checker.config import Config
+
+    cfg_path = tmp_path / "config.yml"
+    cfg_path.write_text(
+        f"corpus_dir: {tmp_path}\ndata_dir: {tmp_path}\n"
+        "embedder_model: hash\nnli_model: fixture\ngate_similarity_threshold: -1.0\n",
+        encoding="utf-8",
+    )
+    cfg_obj = Config.from_yaml(cfg_path)
+
+    # Seed store + FAISS.
+
+    store_s, _faiss_s = _seed_store(cfg_obj)
+    atkins_id = store_s.get_or_create_corpus("atkins", str(tmp_path), "moonshot")
+    store_s.close()
+
+    captured: dict[str, Any] = {}
+
+    def fake_estimate_cost(_cfg: Any, **kwargs: Any) -> Any:
+        captured["corpus_id"] = kwargs.get("corpus_id")
+        from consistency_checker.pipeline import CostEstimate
+
+        return CostEstimate(
+            n_assertions=0,
+            n_candidate_pairs=0,
+            n_definition_pairs=0,
+            judge_calls_ceiling=0,
+            est_cost_low=0.0,
+            est_cost_high=0.0,
+            per_call_low=0.003,
+            per_call_high=0.010,
+        )
+
+    import consistency_checker.cli.main as cli_main
+
+    runner = CliRunner()
+    from unittest.mock import patch
+
+    with patch.object(cli_main, "run_estimate_cost", fake_estimate_cost):
+        res = runner.invoke(app, ["estimate-cost", "--config", str(cfg_path), "--corpus", "atkins"])
+    assert res.exit_code == 0, res.output
+    assert captured["corpus_id"] == atkins_id

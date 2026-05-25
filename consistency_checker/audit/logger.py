@@ -52,6 +52,7 @@ class PipelineRun:
     notes: str | None
     run_status: RunStatus = "pending"
     error_message: str | None = None
+    corpus_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +106,7 @@ def _parse_ts(value: Any) -> datetime | None:
 
 
 def _row_to_run(row: sqlite3.Row) -> PipelineRun:
+    keys = row.keys()
     return PipelineRun(
         run_id=row["run_id"],
         started_at=_parse_ts(row["started_at"]),
@@ -117,6 +119,7 @@ def _row_to_run(row: sqlite3.Row) -> PipelineRun:
         notes=row["notes"],
         run_status=row["run_status"],
         error_message=row["error_message"],
+        corpus_id=row["corpus_id"] if "corpus_id" in keys else None,
     )
 
 
@@ -189,14 +192,15 @@ class AuditLogger:
         config: dict[str, Any] | None = None,
         notes: str | None = None,
         run_status: RunStatus = "running",
+        corpus_id: str | None = None,
     ) -> str:
         rid = run_id or uuid.uuid4().hex
         config_json = json.dumps(config, default=str) if config is not None else None
         with self._conn:
             self._conn.execute(
-                "INSERT INTO pipeline_runs (run_id, config_json, notes, run_status) "
-                "VALUES (?, ?, ?, ?)",
-                (rid, config_json, notes, run_status),
+                "INSERT INTO pipeline_runs (run_id, config_json, notes, run_status, corpus_id) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (rid, config_json, notes, run_status, corpus_id),
             )
         return rid
 
