@@ -60,6 +60,16 @@ class Document:
 
 
 @dataclass(frozen=True, slots=True)
+class Corpus:
+    corpus_id: str
+    corpus_name: str
+    corpus_path: str
+    judge_provider: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Assertion:
     """An atomic, decontextualised claim or definition extracted from a document."""
 

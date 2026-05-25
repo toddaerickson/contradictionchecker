@@ -15,6 +15,7 @@ import csv
 import json
 import re
 import sqlite3
+import uuid
 from collections.abc import Iterable, Iterator, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +23,7 @@ from types import TracebackType
 from typing import Any
 
 from consistency_checker.check.definition_terms import normalize_org
-from consistency_checker.extract.schema import Assertion, Document, hash_id
+from consistency_checker.extract.schema import Assertion, Corpus, Document, hash_id
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 _MIGRATION_NAME = re.compile(r"^(\d{4})_.*\.sql$")
@@ -155,13 +156,13 @@ class AssertionStore:
 
     # --- writes -------------------------------------------------------------
 
-    def add_document(self, doc: Document) -> None:
+    def add_document(self, doc: Document, *, corpus_id: str | None = None) -> None:
         with self._conn:
             self._conn.execute(
                 "INSERT OR IGNORE INTO documents"
                 "(doc_id, source_path, title, doc_date, doc_type, metadata_json, "
-                "org_label, org_reason) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "org_label, org_reason, corpus_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     doc.doc_id,
                     doc.source_path,
@@ -171,8 +172,53 @@ class AssertionStore:
                     doc.metadata_json,
                     doc.org_label,
                     doc.org_reason,
+                    corpus_id,
                 ),
             )
+
+    def get_or_create_corpus(self, name: str, path: str, judge_provider: str) -> str:
+        """Return the corpus_id for ``name``, creating the row if needed.
+
+        Why: ingest must resolve a stable id from the user-facing name; if the name
+        already exists we return its id unchanged (subsequent ingests append to it).
+        Path / judge_provider mismatches are logged elsewhere as warnings, not errors.
+        """
+        row = self._conn.execute(
+            "SELECT corpus_id FROM corpora WHERE corpus_name = ?", (name,)
+        ).fetchone()
+        if row:
+            return str(row["corpus_id"])
+        new_id = uuid.uuid4().hex
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO corpora (corpus_id, corpus_name, corpus_path, judge_provider) "
+                "VALUES (?, ?, ?, ?)",
+                (new_id, name, path, judge_provider),
+            )
+        return new_id
+
+    def list_corpora(self) -> list[Corpus]:
+        rows = self._conn.execute(
+            "SELECT * FROM corpora ORDER BY created_at, corpus_name"
+        ).fetchall()
+        return [
+            Corpus(
+                corpus_id=r["corpus_id"],
+                corpus_name=r["corpus_name"],
+                corpus_path=r["corpus_path"],
+                judge_provider=r["judge_provider"],
+                created_at=_parse_timestamp(r["created_at"]),
+                updated_at=_parse_timestamp(r["updated_at"]),
+            )
+            for r in rows
+        ]
+
+    def delete_corpus(self, corpus_id: str) -> None:
+        """Delete a corpus and CASCADE to documents/pipeline_runs/runs (and their
+        descendants). reviewer_verdicts may be left as orphans — v1 accepts this."""
+        self._conn.execute("PRAGMA foreign_keys = ON")
+        with self._conn:
+            self._conn.execute("DELETE FROM corpora WHERE corpus_id = ?", (corpus_id,))
 
     def update_org_label(self, doc_id: str, org_label: str | None, org_reason: str | None) -> None:
         with self._conn:
