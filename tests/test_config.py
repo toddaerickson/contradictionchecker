@@ -189,3 +189,27 @@ def test_junk_filter_enabled_can_disable(tmp_path: Path) -> None:
     )
     cfg = Config.from_yaml(yml, env={})
     assert cfg.junk_filter_enabled is False
+
+
+def test_org_grouping_enabled_defaults_true(tmp_path: Path) -> None:
+    yml = write_yaml(tmp_path / "c.yml", {"corpus_dir": str(tmp_path / "corpus")})
+    cfg = Config.from_yaml(yml, env={})
+    assert cfg.org_grouping_enabled is True
+
+
+def test_org_scope_enabled_defaults_false(tmp_path: Path) -> None:
+    yml = write_yaml(tmp_path / "c.yml", {"corpus_dir": str(tmp_path / "corpus")})
+    cfg = Config.from_yaml(yml, env={})
+    assert cfg.org_scope_enabled is False
+
+
+def test_org_grouping_env_override(tmp_path: Path) -> None:
+    yml = write_yaml(tmp_path / "c.yml", {"corpus_dir": str(tmp_path / "corpus")})
+    cfg = Config.from_yaml(yml, env={"CC_ORG_GROUPING_ENABLED": "false"})
+    assert cfg.org_grouping_enabled is False
+
+
+def test_org_scope_env_override(tmp_path: Path) -> None:
+    yml = write_yaml(tmp_path / "c.yml", {"corpus_dir": str(tmp_path / "corpus")})
+    cfg = Config.from_yaml(yml, env={"CC_ORG_SCOPE_ENABLED": "true"})
+    assert cfg.org_scope_enabled is True

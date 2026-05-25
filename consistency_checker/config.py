@@ -74,6 +74,20 @@ class Config(BaseModel):
         description="Drop structural junk (TOC dot-leaders, page numbers, "
         "cross-reference 'definitions') during ingest. See junk_filter.py.",
     )
+    org_grouping_enabled: bool = Field(
+        default=True,
+        description=(
+            "If True, identify each document's primary org at ingest and emit "
+            "corpus-composition warnings."
+        ),
+    )
+    org_scope_enabled: bool = Field(
+        default=False,
+        description=(
+            "If True, the definition detector suppresses cross-org pairs (and "
+            "writes them to the suppressed audit trail)."
+        ),
+    )
 
     data_dir: Path = Field(default_factory=default_data_dir)
     log_dir: Path = Field(default_factory=default_log_dir)
