@@ -101,7 +101,7 @@ class AssertionStore:
 
         >>> with AssertionStore(db_path) as store:
         ...     store.migrate()
-        ...     store.add_document(doc)
+        ...     store.add_document(doc, corpus_id=cid)
     """
 
     def __init__(self, db_path: Path | str) -> None:
@@ -156,7 +156,9 @@ class AssertionStore:
 
     # --- writes -------------------------------------------------------------
 
-    def add_document(self, doc: Document, *, corpus_id: str | None = None) -> None:
+    def add_document(self, doc: Document, *, corpus_id: str | None) -> None:
+        if corpus_id is None:
+            raise ValueError("corpus_id is required; pass --corpus <name> at the CLI")
         with self._conn:
             self._conn.execute(
                 "INSERT OR IGNORE INTO documents"

@@ -40,10 +40,11 @@ def store(tmp_path: Path) -> AssertionStore:
 
 
 def _seed_two_assertions(store: AssertionStore) -> tuple[Assertion, Assertion]:
+    cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("Body A.", source_path="a.txt")
     doc_b = Document.from_content("Body B.", source_path="b.txt")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=cid)
+    store.add_document(doc_b, corpus_id=cid)
     a = Assertion.build(doc_a.doc_id, "Revenue grew 12% in fiscal 2025.")
     b = Assertion.build(doc_b.doc_id, "Revenue declined 5% in fiscal 2025.")
     store.add_assertions([a, b])
@@ -51,11 +52,12 @@ def _seed_two_assertions(store: AssertionStore) -> tuple[Assertion, Assertion]:
 
 
 def _seed_three_assertions(store: AssertionStore) -> tuple[Assertion, Assertion, Assertion]:
+    cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("Body A.", source_path="a.txt")
     doc_b = Document.from_content("Body B.", source_path="b.txt")
     doc_c = Document.from_content("Body C.", source_path="c.txt")
     for d in (doc_a, doc_b, doc_c):
-        store.add_document(d)
+        store.add_document(d, corpus_id=cid)
     a = Assertion.build(doc_a.doc_id, "Alpha.")
     b = Assertion.build(doc_b.doc_id, "Beta.")
     c = Assertion.build(doc_c.doc_id, "Gamma.")
@@ -129,10 +131,11 @@ def test_iter_pair_eval_rows_matches_definition_detector(store: AssertionStore) 
     )
     from consistency_checker.check.definition_judge import DefinitionJudgeVerdict
 
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("A", source_path="a.txt")
     doc_b = Document.from_content("B", source_path="b.txt")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=_cid)
+    store.add_document(doc_b, corpus_id=_cid)
     a = Assertion.build(
         doc_a.doc_id, '"X" means foo.', kind="definition", term="X", definition_text="foo"
     )

@@ -46,13 +46,14 @@ def three_doc_store(tmp_path: Path) -> tuple[Config, AssertionStore, FaissStore,
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     docs = [
         Document.from_content("Policy A.", source_path="policy_a.md", title="Policy A"),
         Document.from_content("Policy B.", source_path="policy_b.md", title="Policy B"),
         Document.from_content("Policy C.", source_path="policy_c.md", title="Policy C"),
     ]
     for d in docs:
-        store.add_document(d)
+        store.add_document(d, corpus_id=_cid)
     assertions = [
         Assertion.build(docs[0].doc_id, "All employees get four weeks vacation."),
         Assertion.build(docs[1].doc_id, "Engineers are employees."),
@@ -194,9 +195,10 @@ def test_check_respects_max_triangles_per_run(tmp_path: Path) -> None:
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     docs = [Document.from_content(f"Body {i}.", source_path=f"d{i}.md") for i in range(3)]
     for d in docs:
-        store.add_document(d)
+        store.add_document(d, corpus_id=_cid)
     assertions = [Assertion.build(d.doc_id, f"text {i}") for i, d in enumerate(docs)]
     store.add_assertions(assertions)
     embedder = HashEmbedder(dim=64)

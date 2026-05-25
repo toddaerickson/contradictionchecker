@@ -37,11 +37,12 @@ def _seed(tmp_path: Path, *, n_docs: int, assertions_per_doc: int) -> Config:
     cfg = _config(tmp_path)
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     for i in range(n_docs):
         doc = Document.from_content(
             f"Body of doc {i}.", source_path=f"doc_{i:03d}.md", title=f"Doc {i:03d}"
         )
-        store.add_document(doc)
+        store.add_document(doc, corpus_id=_cid)
         for j in range(assertions_per_doc):
             store.add_assertion(
                 Assertion.build(
@@ -166,8 +167,9 @@ def test_assertions_tab_truncates_long_text(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc = Document.from_content("Body.", source_path="d.md", title="D")
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=_cid)
     long_text = "A" * 250
     store.add_assertion(Assertion.build(doc.doc_id, long_text))
     store.close()

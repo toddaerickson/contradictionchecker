@@ -33,6 +33,7 @@ def _config(tmp_path: Path) -> Config:
 def _seed(cfg: Config, *, org_labels: list[str | None]) -> str:
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     for i, label in enumerate(org_labels):
         doc = Document.from_content(
             f"Doc {i} content.",
@@ -41,7 +42,7 @@ def _seed(cfg: Config, *, org_labels: list[str | None]) -> str:
             org_label=label,
             org_reason="llm" if label else None,
         )
-        store.add_document(doc)
+        store.add_document(doc, corpus_id=_cid)
     logger = AuditLogger(store)
     run_id = logger.begin_run()
     logger.end_run(run_id, n_assertions=0, n_pairs_gated=0, n_pairs_judged=0)
@@ -105,14 +106,15 @@ def test_run_stats_fragment_shows_suppressed_pair_count(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content(
         "A.", source_path="a.md", title="Doc A", org_label="Acme Corp", org_reason="llm"
     )
     doc_b = Document.from_content(
         "B.", source_path="b.md", title="Doc B", org_label="Globex Inc", org_reason="llm"
     )
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=_cid)
+    store.add_document(doc_b, corpus_id=_cid)
     a1 = Assertion.build(
         doc_a.doc_id, '"X" means A.', kind="definition", term="X", definition_text="A"
     )

@@ -215,6 +215,15 @@ def ingest(
     junk_audit = (
         JunkAudit(config.data_dir / "junk_drops.jsonl") if config.junk_filter_enabled else None
     )
+    # Task 2 stub: Task 4 makes corpus_id a required kwarg on ingest(). For now
+    # derive a stable "default" corpus so existing call sites keep working until
+    # Task 4 ships. Clamp provider to a valid DB value; "fixture" is test-only.
+    _stub_provider = (
+        config.judge_provider if config.judge_provider in ("moonshot", "anthropic") else "moonshot"
+    )
+    _default_corpus_id = store.get_or_create_corpus(
+        "default", str(config.corpus_dir), _stub_provider
+    )
     n_docs = n_chunks = n_assertions = 0
     for loaded in load_corpus(
         config.corpus_dir,
@@ -225,7 +234,7 @@ def ingest(
         if config.org_grouping_enabled:
             res = extractor.identify_org(title=doc.title, text=loaded.text)
             doc = replace(doc, org_label=res.label, org_reason=res.reason)
-        store.add_document(doc)
+        store.add_document(doc, corpus_id=_default_corpus_id)
         n_docs += 1
         chunks = chunk_document(
             loaded,

@@ -52,10 +52,11 @@ def _seed_existing_store(cfg: Config) -> None:
 
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("Alpha body.", source_path="alpha.md", title="Alpha")
     doc_b = Document.from_content("Beta body.", source_path="beta.txt", title="Beta")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=_cid)
+    store.add_document(doc_b, corpus_id=_cid)
     a = Assertion.build(doc_a.doc_id, "Revenue grew 12%.")
     b = Assertion.build(doc_b.doc_id, "Revenue declined 5%.")
     store.add_assertions([a, b])
@@ -233,13 +234,14 @@ def test_check_deep_flag_enables_multi_party(
 
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     docs = [
         Document.from_content("Policy A.", source_path="a.md", title="A"),
         Document.from_content("Policy B.", source_path="b.md", title="B"),
         Document.from_content("Policy C.", source_path="c.md", title="C"),
     ]
     for d in docs:
-        store.add_document(d)
+        store.add_document(d, corpus_id=_cid)
     assertions = [
         Assertion.build(docs[0].doc_id, "All employees get four weeks vacation."),
         Assertion.build(docs[1].doc_id, "Engineers are employees."),
@@ -758,10 +760,11 @@ def _seed_reviewed_finding(cfg: Config) -> None:
 
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("A body.", source_path="a.txt", title="A")
     doc_b = Document.from_content("B body.", source_path="b.txt", title="B")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=_cid)
+    store.add_document(doc_b, corpus_id=_cid)
     a = Assertion.build(doc_a.doc_id, "Revenue grew 12%.")
     b = Assertion.build(doc_b.doc_id, "Revenue declined 5%.")
     store.add_assertions([a, b])

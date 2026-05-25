@@ -59,10 +59,11 @@ def test_end_run_marks_status_done(store: AssertionStore) -> None:
 
 
 def _seed_two_docs(store: AssertionStore) -> tuple[Document, Document]:
+    cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("Body A.", source_path="a.txt")
     doc_b = Document.from_content("Body B.", source_path="b.txt")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=cid)
+    store.add_document(doc_b, corpus_id=cid)
     a1 = Assertion.build(doc_a.doc_id, "Revenue grew 12% in fiscal 2025.")
     b1 = Assertion.build(doc_b.doc_id, "Revenue declined 5% in fiscal 2025.")
     store.add_assertions([a1, b1])
@@ -412,8 +413,9 @@ def test_record_definition_finding_writes_detector_type(tmp_path: Path) -> None:
 
     store = AssertionStore(tmp_path / "test.db")
     store.migrate()
-    store.add_document(Document(doc_id="docA", source_path="/A.txt"))
-    store.add_document(Document(doc_id="docB", source_path="/B.txt"))
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
+    store.add_document(Document(doc_id="docA", source_path="/A.txt"), corpus_id=_cid)
+    store.add_document(Document(doc_id="docB", source_path="/B.txt"), corpus_id=_cid)
     a = Assertion.build(
         "docA", '"X" means foo.', kind="definition", term="X", definition_text="foo"
     )
@@ -461,8 +463,9 @@ def test_record_definition_finding_idempotent(tmp_path: Path) -> None:
 
     store = AssertionStore(tmp_path / "test.db")
     store.migrate()
-    store.add_document(Document(doc_id="docA", source_path="/A.txt"))
-    store.add_document(Document(doc_id="docB", source_path="/B.txt"))
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
+    store.add_document(Document(doc_id="docA", source_path="/A.txt"), corpus_id=_cid)
+    store.add_document(Document(doc_id="docB", source_path="/B.txt"), corpus_id=_cid)
     a = Assertion.build(
         "docA", '"X" means foo.', kind="definition", term="X", definition_text="foo"
     )

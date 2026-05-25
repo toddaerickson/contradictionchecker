@@ -217,10 +217,11 @@ def _seed_pair_contradiction(cfg: Config) -> tuple[str, str]:
 
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("A body.", source_path="a.md", title="Doc A")
     doc_b = Document.from_content("B body.", source_path="b.md", title="Doc B")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=_cid)
+    store.add_document(doc_b, corpus_id=_cid)
     a = Assertion.build(doc_a.doc_id, "Revenue grew 12%.")
     b = Assertion.build(doc_b.doc_id, "Revenue declined 5%.")
     store.add_assertions([a, b])
@@ -316,10 +317,11 @@ def _seed_definition_finding(cfg: Config) -> tuple[str, str]:
 
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("A.", source_path="a.md", title="Doc A")
     doc_b = Document.from_content("B.", source_path="b.md", title="Doc B")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=_cid)
+    store.add_document(doc_b, corpus_id=_cid)
     a = Assertion.build(
         doc_a.doc_id,
         '"MAE" means A.',

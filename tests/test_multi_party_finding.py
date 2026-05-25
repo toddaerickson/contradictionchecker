@@ -20,9 +20,10 @@ def store(tmp_path: Path) -> AssertionStore:
 
 
 def _seed_three_docs(store: AssertionStore) -> list[Assertion]:
+    cid = store.get_or_create_corpus("test", "/test", "moonshot")
     docs = [Document.from_content(f"Body {i}.", source_path=f"d{i}.txt") for i in range(3)]
     for d in docs:
-        store.add_document(d)
+        store.add_document(d, corpus_id=cid)
     assertions = [
         Assertion.build(docs[0].doc_id, "All employees get four weeks vacation."),
         Assertion.build(docs[1].doc_id, "Engineers are employees."),
@@ -151,8 +152,9 @@ def test_record_multi_party_rejects_single_document_triangle(
     store: AssertionStore,
 ) -> None:
     """A triangle whose three assertions all come from one doc is not multi-party."""
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc = Document.from_content("Body.", source_path="d.txt")
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=_cid)
     a = Assertion.build(doc.doc_id, "alpha")
     b = Assertion.build(doc.doc_id, "beta")
     c = Assertion.build(doc.doc_id, "gamma")

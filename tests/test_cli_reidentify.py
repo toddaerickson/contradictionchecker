@@ -17,14 +17,16 @@ def test_reidentify_orgs_null_only_updates_null_rows(monkeypatch, tmp_path):
     db = tmp_path / "t.db"
     store = AssertionStore(db)
     store.migrate()
-    store.add_document(Document(doc_id="d1", source_path=str(doc_path)))  # NULL
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
+    store.add_document(Document(doc_id="d1", source_path=str(doc_path)), corpus_id=_cid)
     store.add_document(
         Document(
             doc_id="d2",
             source_path=str(doc_path),
             org_label="Existing",
             org_reason="org_found",
-        )
+        ),
+        corpus_id=_cid,
     )
     store.close()
 
@@ -65,13 +67,15 @@ def test_reidentify_orgs_all_overwrites_existing(monkeypatch, tmp_path):
     db = tmp_path / "t.db"
     store = AssertionStore(db)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     store.add_document(
         Document(
             doc_id="d2",
             source_path=str(doc_path),
             org_label="Existing",
             org_reason="org_found",
-        )
+        ),
+        corpus_id=_cid,
     )
     store.close()
 

@@ -25,8 +25,9 @@ from consistency_checker.pipeline import check
 def stocked_store(tmp_path: Path) -> AssertionStore:
     store = AssertionStore(tmp_path / "store.db")
     store.migrate()
-    store.add_document(Document(doc_id="docA", source_path="/A.txt"))
-    store.add_document(Document(doc_id="docB", source_path="/B.txt"))
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
+    store.add_document(Document(doc_id="docA", source_path="/A.txt"), corpus_id=_cid)
+    store.add_document(Document(doc_id="docB", source_path="/B.txt"), corpus_id=_cid)
     a = Assertion.build(
         "docA", '"MAE" means A.', kind="definition", term="MAE", definition_text="A"
     )
@@ -165,8 +166,9 @@ def test_check_counts_definition_short_circuits(tmp_path: Path) -> None:
     config.data_dir.mkdir(parents=True, exist_ok=True)
     store = AssertionStore(tmp_path / "store.db")
     store.migrate()
-    store.add_document(Document(doc_id="docA", source_path="/A.txt"))
-    store.add_document(Document(doc_id="docB", source_path="/B.txt"))
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
+    store.add_document(Document(doc_id="docA", source_path="/A.txt"), corpus_id=_cid)
+    store.add_document(Document(doc_id="docB", source_path="/B.txt"), corpus_id=_cid)
     text = "the board of directors of the Corporation"
     a = Assertion.build(
         "docA", f'"Board" means {text}.', kind="definition", term="Board", definition_text=text

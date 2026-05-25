@@ -15,10 +15,10 @@ from consistency_checker.index.faiss_store import FaissStore
 from tests.conftest import HashEmbedder
 
 
-def _add_doc(store: AssertionStore, source_path: str, *texts: str) -> Document:
+def _add_doc(store: AssertionStore, source_path: str, *texts: str, corpus_id: str) -> Document:
     body = " ".join(texts) or source_path
     doc = Document.from_content(body, source_path=source_path)
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=corpus_id)
     for text in texts:
         store.add_assertion(Assertion.build(doc.doc_id, text))
     return doc
@@ -27,12 +27,14 @@ def _add_doc(store: AssertionStore, source_path: str, *texts: str) -> Document:
 def _build_indexed_store(tmp_path: Path) -> tuple[AssertionStore, FaissStore]:
     store = AssertionStore(tmp_path / "store.db")
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     _add_doc(
         store,
         "alpha.md",
         "Revenue from Alpha grew 12% in fiscal 2025.",
         "The Alpha team shipped in Q1 2025.",
         "Alpha customers are enterprises.",
+        corpus_id=_cid,
     )
     _add_doc(
         store,
@@ -40,6 +42,7 @@ def _build_indexed_store(tmp_path: Path) -> tuple[AssertionStore, FaissStore]:
         "Revenue from Alpha declined 5% in fiscal 2025.",
         "The Beta initiative began in 2024.",
         "Customer satisfaction held at 4.7.",
+        corpus_id=_cid,
     )
     embedder = HashEmbedder(dim=64)
     fs = FaissStore.open_or_create(
@@ -57,8 +60,9 @@ def _build_indexed_store(tmp_path: Path) -> tuple[AssertionStore, FaissStore]:
 def test_all_pairs_gate_returns_exact_count_across_documents(tmp_path: Path) -> None:
     store = AssertionStore(tmp_path / "s.db")
     store.migrate()
-    _add_doc(store, "a.txt", "Claim a1.", "Claim a2.")
-    _add_doc(store, "b.txt", "Claim b1.", "Claim b2.")
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
+    _add_doc(store, "a.txt", "Claim a1.", "Claim a2.", corpus_id=_cid)
+    _add_doc(store, "b.txt", "Claim b1.", "Claim b2.", corpus_id=_cid)
     pairs = list(AllPairsGate().candidates(store))
     # 4 assertions, 2 per doc — same-document pairs excluded by default → 2*2 = 4 pairs.
     assert len(pairs) == 4
@@ -70,8 +74,9 @@ def test_all_pairs_gate_returns_exact_count_across_documents(tmp_path: Path) -> 
 def test_all_pairs_gate_includes_same_doc_when_allowed(tmp_path: Path) -> None:
     store = AssertionStore(tmp_path / "s.db")
     store.migrate()
-    _add_doc(store, "a.txt", "Claim a1.", "Claim a2.", "Claim a3.")
-    _add_doc(store, "b.txt", "Claim b1.", "Claim b2.")
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
+    _add_doc(store, "a.txt", "Claim a1.", "Claim a2.", "Claim a3.", corpus_id=_cid)
+    _add_doc(store, "b.txt", "Claim b1.", "Claim b2.", corpus_id=_cid)
     pairs = list(AllPairsGate(allow_same_document=True).candidates(store))
     # 5 assertions total → C(5, 2) = 10 pairs when same-doc is allowed.
     assert len(pairs) == comb(5, 2)
@@ -80,8 +85,9 @@ def test_all_pairs_gate_includes_same_doc_when_allowed(tmp_path: Path) -> None:
 def test_all_pairs_gate_canonical_order(tmp_path: Path) -> None:
     store = AssertionStore(tmp_path / "s.db")
     store.migrate()
-    _add_doc(store, "a.txt", "x.")
-    _add_doc(store, "b.txt", "y.")
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
+    _add_doc(store, "a.txt", "x.", corpus_id=_cid)
+    _add_doc(store, "b.txt", "y.", corpus_id=_cid)
     [pair] = AllPairsGate().candidates(store)
     assert pair.a.assertion_id < pair.b.assertion_id
 
@@ -89,8 +95,9 @@ def test_all_pairs_gate_canonical_order(tmp_path: Path) -> None:
 def test_all_pairs_gate_score_constant(tmp_path: Path) -> None:
     store = AssertionStore(tmp_path / "s.db")
     store.migrate()
-    _add_doc(store, "a.txt", "x.")
-    _add_doc(store, "b.txt", "y.")
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
+    _add_doc(store, "a.txt", "x.", corpus_id=_cid)
+    _add_doc(store, "b.txt", "y.", corpus_id=_cid)
     [pair] = AllPairsGate().candidates(store)
     assert pair.score == 1.0
 
@@ -168,8 +175,9 @@ def test_ann_gate_skips_unembedded_assertions(tmp_path: Path) -> None:
     """Assertions without faiss_row must be skipped, not crash."""
     store = AssertionStore(tmp_path / "s.db")
     store.migrate()
-    _add_doc(store, "a.txt", "Claim a1.")
-    _add_doc(store, "b.txt", "Claim b1.")
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
+    _add_doc(store, "a.txt", "Claim a1.", corpus_id=_cid)
+    _add_doc(store, "b.txt", "Claim b1.", corpus_id=_cid)
     # No embedding pass — faiss_row is None for everything.
     embedder = HashEmbedder(dim=64)
     fs = FaissStore.open_or_create(

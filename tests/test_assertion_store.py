@@ -31,6 +31,12 @@ def store(tmp_path: Path) -> AssertionStore:
     return s
 
 
+@pytest.fixture
+def cid(store: AssertionStore) -> str:
+    """Default corpus_id for tests that need to call add_document."""
+    return store.get_or_create_corpus("test", "/test", "moonshot")
+
+
 def test_hash_id_is_deterministic() -> None:
     assert hash_id("alpha") == hash_id("alpha")
     assert hash_id("alpha") != hash_id("beta")
@@ -56,14 +62,14 @@ def test_migrate_is_idempotent(tmp_path: Path) -> None:
     assert versions == first
 
 
-def test_document_round_trip(store: AssertionStore) -> None:
+def test_document_round_trip(store: AssertionStore, cid: str) -> None:
     doc = Document.from_content(
         "Hello world.",
         source_path="hello.txt",
         title="Greeting",
         doc_date="2025-09-30",
     )
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=cid)
     fetched = store.get_document(doc.doc_id)
     assert fetched is not None
     assert fetched.doc_id == doc.doc_id
@@ -72,9 +78,9 @@ def test_document_round_trip(store: AssertionStore) -> None:
     assert fetched.ingested_at is not None
 
 
-def test_assertion_round_trip_preserves_char_spans(store: AssertionStore) -> None:
+def test_assertion_round_trip_preserves_char_spans(store: AssertionStore, cid: str) -> None:
     doc = make_doc("The cat sat on the mat.")
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=cid)
     a = make_assertion(doc, "The cat sat on the mat.", start=0, end=23)
     store.add_assertion(a)
 
@@ -87,16 +93,16 @@ def test_assertion_round_trip_preserves_char_spans(store: AssertionStore) -> Non
     assert fetched.embedded_at is None
 
 
-def test_add_document_is_idempotent(store: AssertionStore) -> None:
+def test_add_document_is_idempotent(store: AssertionStore, cid: str) -> None:
     doc = make_doc()
-    store.add_document(doc)
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=cid)
+    store.add_document(doc, corpus_id=cid)
     assert store.stats()["documents"] == 1
 
 
-def test_add_assertion_is_idempotent(store: AssertionStore) -> None:
+def test_add_assertion_is_idempotent(store: AssertionStore, cid: str) -> None:
     doc = make_doc()
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=cid)
     a = make_assertion(doc, "Hello.")
     store.add_assertion(a)
     store.add_assertion(a)
@@ -110,11 +116,11 @@ def test_assertion_requires_existing_document(store: AssertionStore) -> None:
         store.add_assertion(a)
 
 
-def test_iter_assertions_filters_by_doc(store: AssertionStore) -> None:
+def test_iter_assertions_filters_by_doc(store: AssertionStore, cid: str) -> None:
     doc_a = make_doc("Doc A content.", source="a.txt")
     doc_b = make_doc("Doc B content.", source="b.txt")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=cid)
+    store.add_document(doc_b, corpus_id=cid)
     a1 = make_assertion(doc_a, "Claim one in A.")
     a2 = make_assertion(doc_a, "Claim two in A.")
     b1 = make_assertion(doc_b, "Claim one in B.")
@@ -127,9 +133,9 @@ def test_iter_assertions_filters_by_doc(store: AssertionStore) -> None:
     assert len(all_three) == 3
 
 
-def test_attach_embeddings(store: AssertionStore) -> None:
+def test_attach_embeddings(store: AssertionStore, cid: str) -> None:
     doc = make_doc()
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=cid)
     a = make_assertion(doc, "Embedding target.")
     store.add_assertion(a)
 
@@ -141,10 +147,10 @@ def test_attach_embeddings(store: AssertionStore) -> None:
     assert store.stats()["embedded_assertions"] == 1
 
 
-def test_export_csv_default_columns(store: AssertionStore, tmp_path: Path) -> None:
+def test_export_csv_default_columns(store: AssertionStore, tmp_path: Path, cid: str) -> None:
     """User-facing export: ``(doc_id, assertion_id, assertion_text)`` by default."""
     doc = make_doc()
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=cid)
     a = make_assertion(doc, "Exported claim.")
     store.add_assertion(a)
 
@@ -155,9 +161,9 @@ def test_export_csv_default_columns(store: AssertionStore, tmp_path: Path) -> No
     assert rows[1] == [doc.doc_id, a.assertion_id, "Exported claim."]
 
 
-def test_export_csv_custom_columns(store: AssertionStore, tmp_path: Path) -> None:
+def test_export_csv_custom_columns(store: AssertionStore, tmp_path: Path, cid: str) -> None:
     doc = make_doc()
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=cid)
     store.add_assertion(make_assertion(doc, "x", start=3, end=4))
     out = tmp_path / "c.csv"
     store.export_csv(out, columns=("assertion_id", "char_start", "char_end"))
@@ -171,9 +177,9 @@ def test_export_csv_rejects_unknown_column(store: AssertionStore, tmp_path: Path
         store.export_csv(tmp_path / "x.csv", columns=("doc_id", "bogus"))
 
 
-def test_export_jsonl_includes_metadata(store: AssertionStore, tmp_path: Path) -> None:
+def test_export_jsonl_includes_metadata(store: AssertionStore, tmp_path: Path, cid: str) -> None:
     doc = Document.from_content("Hello.", source_path="hello.txt", doc_date="2025-09-30")
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=cid)
     store.add_assertion(make_assertion(doc, "Hello.", start=0, end=6))
 
     out = tmp_path / "out.jsonl"
@@ -187,11 +193,11 @@ def test_export_jsonl_includes_metadata(store: AssertionStore, tmp_path: Path) -
     assert row["char_start"] == 0
 
 
-def test_get_documents_bulk_returns_subset(store: AssertionStore) -> None:
+def test_get_documents_bulk_returns_subset(store: AssertionStore, cid: str) -> None:
     doc_a = make_doc("Body A.", "a.txt")
     doc_b = make_doc("Body B.", "b.txt")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=cid)
+    store.add_document(doc_b, corpus_id=cid)
     result = store.get_documents_bulk([doc_a.doc_id, doc_b.doc_id, "nonexistent"])
     assert set(result.keys()) == {doc_a.doc_id, doc_b.doc_id}
     assert result[doc_a.doc_id].source_path == "a.txt"
@@ -201,9 +207,9 @@ def test_get_documents_bulk_empty_ids_returns_empty(store: AssertionStore) -> No
     assert store.get_documents_bulk([]) == {}
 
 
-def test_get_assertions_bulk_returns_subset(store: AssertionStore) -> None:
+def test_get_assertions_bulk_returns_subset(store: AssertionStore, cid: str) -> None:
     doc = make_doc()
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=cid)
     a1 = make_assertion(doc, "Revenue grew 10%.")
     a2 = make_assertion(doc, "Revenue declined 5%.")
     store.add_assertions([a1, a2])
@@ -220,8 +226,9 @@ def test_context_manager(tmp_path: Path) -> None:
     db_path = tmp_path / "ctx.db"
     with AssertionStore(db_path) as store:
         store.migrate()
+        cid = store.get_or_create_corpus("test", "/test", "moonshot")
         doc = make_doc()
-        store.add_document(doc)
+        store.add_document(doc, corpus_id=cid)
     # After exit the connection is closed; opening a new store should still work.
     with AssertionStore(db_path) as reopened:
         assert reopened.get_document(doc.doc_id) is not None
@@ -230,8 +237,9 @@ def test_context_manager(tmp_path: Path) -> None:
 def test_definition_assertion_round_trips(tmp_path: Path) -> None:
     s = AssertionStore(tmp_path / "test.db")
     s.migrate()
+    cid = s.get_or_create_corpus("test", "/test", "moonshot")
     doc = make_doc()
-    s.add_document(doc)
+    s.add_document(doc, corpus_id=cid)
     a = Assertion.build(
         doc.doc_id,
         '"Borrower" means ABC Corp and its Subsidiaries.',
@@ -251,8 +259,9 @@ def test_definition_assertion_round_trips(tmp_path: Path) -> None:
 def test_claim_assertion_unaffected_by_kind_columns(tmp_path: Path) -> None:
     s = AssertionStore(tmp_path / "test.db")
     s.migrate()
+    cid = s.get_or_create_corpus("test", "/test", "moonshot")
     doc = make_doc()
-    s.add_document(doc)
+    s.add_document(doc, corpus_id=cid)
     a = Assertion.build(doc.doc_id, "Revenue grew 12 percent.")
     s.add_assertion(a)
     fetched = s.get_assertion(a.assertion_id)
@@ -266,10 +275,11 @@ def test_claim_assertion_unaffected_by_kind_columns(tmp_path: Path) -> None:
 def test_iter_definitions_filters_to_kind_definition(tmp_path: Path) -> None:
     s = AssertionStore(tmp_path / "test.db")
     s.migrate()
+    cid = s.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("A.", source_path="A.txt")
     doc_b = Document.from_content("B.", source_path="B.txt")
-    s.add_document(doc_a)
-    s.add_document(doc_b)
+    s.add_document(doc_a, corpus_id=cid)
+    s.add_document(doc_b, corpus_id=cid)
     s.add_assertion(Assertion.build(doc_a.doc_id, "Revenue grew 12%."))
     s.add_assertion(
         Assertion.build(
@@ -298,9 +308,14 @@ def test_iter_definitions_filters_to_kind_definition(tmp_path: Path) -> None:
 def test_iter_definitions_yields_assertion_and_org_key(tmp_path: Path) -> None:
     s = AssertionStore(tmp_path / "t.db")
     s.migrate()
-    s.add_document(Document(doc_id="d1", source_path="/a", org_label="Acme Foundation, Inc."))
-    s.add_document(Document(doc_id="d2", source_path="/b", org_label="The Acme Foundation"))
-    s.add_document(Document(doc_id="d3", source_path="/c", org_label=None))
+    cid = s.get_or_create_corpus("test", "/test", "moonshot")
+    s.add_document(
+        Document(doc_id="d1", source_path="/a", org_label="Acme Foundation, Inc."), corpus_id=cid
+    )
+    s.add_document(
+        Document(doc_id="d2", source_path="/b", org_label="The Acme Foundation"), corpus_id=cid
+    )
+    s.add_document(Document(doc_id="d3", source_path="/c", org_label=None), corpus_id=cid)
     for doc_id in ("d1", "d2", "d3"):
         s.add_assertion(
             Assertion.build(
@@ -325,10 +340,11 @@ def test_insert_suppressed_finding_persists_with_suppressed_flag(tmp_path: Path)
 
     s = AssertionStore(tmp_path / "t.db")
     s.migrate()
+    cid = s.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("A.", source_path="A.txt")
     doc_b = Document.from_content("B.", source_path="B.txt")
-    s.add_document(doc_a)
-    s.add_document(doc_b)
+    s.add_document(doc_a, corpus_id=cid)
+    s.add_document(doc_b, corpus_id=cid)
     a = Assertion.build(
         doc_a.doc_id, '"X" means foo.', kind="definition", term="X", definition_text="foo"
     )
@@ -358,13 +374,15 @@ def test_insert_suppressed_finding_persists_with_suppressed_flag(tmp_path: Path)
 def test_add_document_persists_org_label_and_reason(tmp_path: Path) -> None:
     s = AssertionStore(tmp_path / "test.db")
     s.migrate()
+    cid = s.get_or_create_corpus("test", "/test", "moonshot")
     s.add_document(
         Document(
             doc_id="d1",
             source_path="/x.txt",
             org_label="Acme",
             org_reason="org_found",
-        )
+        ),
+        corpus_id=cid,
     )
     got = s.get_document("d1")
     assert got is not None
@@ -373,10 +391,32 @@ def test_add_document_persists_org_label_and_reason(tmp_path: Path) -> None:
     s.close()
 
 
+def test_add_document_requires_corpus_id(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "t.db")
+    store.migrate()
+    with pytest.raises(ValueError, match="corpus_id is required"):
+        store.add_document(Document(doc_id="d1", source_path="/x.txt"), corpus_id=None)
+    # Also reject when corpus_id kwarg is OMITTED (Python raises TypeError for missing required kwarg)
+    with pytest.raises(TypeError):
+        store.add_document(Document(doc_id="d2", source_path="/y.txt"))  # type: ignore[call-arg]
+    store.close()
+
+
+def test_add_document_persists_corpus_id_for_real(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "t.db")
+    store.migrate()
+    cid = store.get_or_create_corpus("atkins", "/data/atkins", "moonshot")
+    store.add_document(Document(doc_id="d1", source_path="/x.txt"), corpus_id=cid)
+    row = store._conn.execute("SELECT corpus_id FROM documents WHERE doc_id='d1'").fetchone()
+    assert row[0] == cid
+    store.close()
+
+
 def test_update_org_label_overwrites_existing(tmp_path: Path) -> None:
     s = AssertionStore(tmp_path / "test.db")
     s.migrate()
-    s.add_document(Document(doc_id="d1", source_path="/x.txt"))
+    cid = s.get_or_create_corpus("test", "/test", "moonshot")
+    s.add_document(Document(doc_id="d1", source_path="/x.txt"), corpus_id=cid)
     got = s.get_document("d1")
     assert got is not None
     assert got.org_label is None

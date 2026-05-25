@@ -42,10 +42,11 @@ def _config(tmp_path: Path) -> Config:
 def _seed_store(cfg: Config) -> None:
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("Alpha body.", source_path="alpha.md", title="Alpha")
     doc_b = Document.from_content("Beta body.", source_path="beta.txt", title="Beta")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=_cid)
+    store.add_document(doc_b, corpus_id=_cid)
     store.add_assertions(
         [
             Assertion.build(doc_a.doc_id, "Revenue grew 12%."),

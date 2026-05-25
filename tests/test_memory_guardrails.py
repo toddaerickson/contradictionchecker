@@ -111,10 +111,11 @@ def test_iter_candidates_returns_iterator_not_list(cfg: Config, tmp_path: Path) 
         id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
         dim=embedder.dim,
     )
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("A.", source_path="a.md")
     doc_b = Document.from_content("B.", source_path="b.md")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=_cid)
+    store.add_document(doc_b, corpus_id=_cid)
     store.add_assertions(
         [
             Assertion.build(doc_a.doc_id, "Revenue grew 12%."),
@@ -159,10 +160,11 @@ def test_check_calls_nli_release_after_pair_loop(cfg: Config, tmp_path: Path) ->
         id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
         dim=embedder.dim,
     )
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("A.", source_path="a.md")
     doc_b = Document.from_content("B.", source_path="b.md")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=_cid)
+    store.add_document(doc_b, corpus_id=_cid)
     store.add_assertions(
         [
             Assertion.build(doc_a.doc_id, "Revenue grew 12%."),

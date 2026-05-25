@@ -39,10 +39,11 @@ def _seed_store(cfg: Config) -> tuple[AssertionStore, FaissStore]:
         id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
         dim=embedder.dim,
     )
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("A.", source_path="a.md")
     doc_b = Document.from_content("B.", source_path="b.md")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=_cid)
+    store.add_document(doc_b, corpus_id=_cid)
     a1 = Assertion.build(doc_a.doc_id, "Revenue grew 12%.")
     a2 = Assertion.build(doc_b.doc_id, "Revenue declined 5%.")
     d1 = Assertion.build(
@@ -86,8 +87,9 @@ def test_estimate_cost_singleton_definitions_contribute_zero(cfg: Config) -> Non
         id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
         dim=embedder.dim,
     )
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc = Document.from_content("A.", source_path="a.md")
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=_cid)
     store.add_assertion(
         Assertion.build(
             doc.doc_id,
@@ -146,8 +148,9 @@ def test_estimate_cost_multiple_term_groups(cfg: Config) -> None:
         id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
         dim=embedder.dim,
     )
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc = Document.from_content("Body.", source_path="doc.md")
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=_cid)
     store.add_assertions(
         [
             Assertion.build(
@@ -196,10 +199,11 @@ def test_estimate_cost_excludes_cross_org_pairs_when_scope_enabled(cfg: Config) 
         id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
         dim=embedder.dim,
     )
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("A.", source_path="a.md", org_label="Acme")
     doc_b = Document.from_content("B.", source_path="b.md", org_label="Beta")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=_cid)
+    store.add_document(doc_b, corpus_id=_cid)
     store.add_assertions(
         [
             Assertion.build(
