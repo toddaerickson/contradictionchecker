@@ -274,10 +274,20 @@ class AssertionStore:
         row = self._conn.execute("SELECT * FROM documents WHERE doc_id = ?", (doc_id,)).fetchone()
         return _row_to_document(row) if row else None
 
-    def iter_documents(self, *, limit: int | None = None, offset: int = 0) -> Iterator[Document]:
+    def iter_documents(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        corpus_id: str | None = None,
+    ) -> Iterator[Document]:
         """Iterate documents ordered by ingested_at desc, then doc_id desc."""
-        sql = "SELECT * FROM documents ORDER BY ingested_at DESC, doc_id DESC"
+        sql = "SELECT * FROM documents"
         params: list[Any] = []
+        if corpus_id is not None:
+            sql += " WHERE corpus_id = ?"
+            params.append(corpus_id)
+        sql += " ORDER BY ingested_at DESC, doc_id DESC"
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
@@ -310,19 +320,24 @@ class AssertionStore:
         ).fetchone()
         return _row_to_assertion(row) if row else None
 
-    def iter_definitions(self) -> Iterator[tuple[Assertion, str]]:
+    def iter_definitions(self, *, corpus_id: str | None = None) -> Iterator[tuple[Assertion, str]]:
         """Yield ``(definition_assertion, org_key)`` ordered by created_at.
 
         ``org_key`` is :func:`normalize_org` of the joined ``documents.org_label``,
         or ``""`` for documents whose org_label is NULL (the unknown bucket).
         """
-        cursor = self._conn.execute(
-            "SELECT a.*, d.org_label FROM assertions a "
+        sql = (
+            "SELECT a.*, d.org_label "
+            "FROM assertions a "
             "LEFT JOIN documents d ON d.doc_id = a.doc_id "
-            "WHERE a.kind = 'definition' "
-            "ORDER BY a.created_at, a.assertion_id"
+            "WHERE a.kind = 'definition'"
         )
-        for row in cursor:
+        params: list[Any] = []
+        if corpus_id is not None:
+            sql += " AND d.corpus_id = ?"
+            params.append(corpus_id)
+        sql += " ORDER BY a.created_at, a.assertion_id"
+        for row in self._conn.execute(sql, params):
             org_label = row["org_label"]
             org_key = normalize_org(org_label) if org_label else ""
             yield _row_to_assertion(row), org_key
@@ -356,24 +371,63 @@ class AssertionStore:
         *,
         limit: int | None = None,
         offset: int = 0,
+        corpus_id: str | None = None,
     ) -> Iterator[Assertion]:
-        if doc_id is None:
-            sql = "SELECT * FROM assertions ORDER BY created_at, assertion_id"
-            params: list[Any] = []
-        else:
-            sql = "SELECT * FROM assertions WHERE doc_id = ? ORDER BY created_at, assertion_id"
-            params = [doc_id]
+        sql = "SELECT a.* FROM assertions a"
+        where: list[str] = []
+        params: list[Any] = []
+        if corpus_id is not None:
+            sql += " JOIN documents d ON d.doc_id = a.doc_id"
+            where.append("d.corpus_id = ?")
+            params.append(corpus_id)
+        if doc_id is not None:
+            where.append("a.doc_id = ?")
+            params.append(doc_id)
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY a.created_at, a.assertion_id"
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
         for row in self._conn.execute(sql, params):
             yield _row_to_assertion(row)
 
-    def stats(self) -> dict[str, int]:
-        doc_count = self._conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-        assertion_count = self._conn.execute("SELECT COUNT(*) FROM assertions").fetchone()[0]
+    def iter_assertion_ids(self, *, corpus_id: str | None = None) -> Iterator[str]:
+        """Stream assertion ids; used by the FAISS gate post-filter in pipeline.check (Task 5)."""
+        sql = "SELECT a.assertion_id FROM assertions a"
+        params: list[Any] = []
+        if corpus_id is not None:
+            sql += " JOIN documents d ON d.doc_id = a.doc_id WHERE d.corpus_id = ?"
+            params.append(corpus_id)
+        for row in self._conn.execute(sql, params):
+            yield row["assertion_id"]
+
+    def stats(self, *, corpus_id: str | None = None) -> dict[str, int]:
+        if corpus_id is not None:
+            where_docs = " WHERE corpus_id = ?"
+            params_docs: list[Any] = [corpus_id]
+            where_asserts = " WHERE doc_id IN (SELECT doc_id FROM documents WHERE corpus_id = ?)"
+            params_asserts: list[Any] = [corpus_id]
+        else:
+            where_docs = ""
+            params_docs = []
+            where_asserts = ""
+            params_asserts = []
+        doc_count = self._conn.execute(
+            f"SELECT COUNT(*) FROM documents{where_docs}", params_docs
+        ).fetchone()[0]
+        assertion_count = self._conn.execute(
+            f"SELECT COUNT(*) FROM assertions{where_asserts}", params_asserts
+        ).fetchone()[0]
+        embedded_where = (
+            " AND doc_id IN (SELECT doc_id FROM documents WHERE corpus_id = ?)"
+            if corpus_id is not None
+            else ""
+        )
+        embedded_params: list[Any] = [corpus_id] if corpus_id is not None else []
         embedded = self._conn.execute(
-            "SELECT COUNT(*) FROM assertions WHERE faiss_row IS NOT NULL"
+            f"SELECT COUNT(*) FROM assertions WHERE faiss_row IS NOT NULL{embedded_where}",
+            embedded_params,
         ).fetchone()[0]
         return {
             "documents": int(doc_count),

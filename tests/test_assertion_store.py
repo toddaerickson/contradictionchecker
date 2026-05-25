@@ -426,3 +426,83 @@ def test_update_org_label_overwrites_existing(tmp_path: Path) -> None:
     assert got.org_label == "Beta Trust"
     assert got.org_reason == "org_found"
     s.close()
+
+
+def test_iter_documents_filters_by_corpus_id(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "t.db")
+    store.migrate()
+    a = store.get_or_create_corpus("atkins", "/atkins", "moonshot")
+    b = store.get_or_create_corpus("beta", "/beta", "moonshot")
+    store.add_document(Document(doc_id="d1", source_path="/x"), corpus_id=a)
+    store.add_document(Document(doc_id="d2", source_path="/y"), corpus_id=b)
+    assert {d.doc_id for d in store.iter_documents()} == {"d1", "d2"}
+    assert {d.doc_id for d in store.iter_documents(corpus_id=a)} == {"d1"}
+    assert {d.doc_id for d in store.iter_documents(corpus_id=b)} == {"d2"}
+    store.close()
+
+
+def test_iter_definitions_filters_by_corpus_id(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "t.db")
+    store.migrate()
+    a = store.get_or_create_corpus("atkins", "/atkins", "moonshot")
+    b = store.get_or_create_corpus("beta", "/beta", "moonshot")
+    store.add_document(Document(doc_id="d1", source_path="/x"), corpus_id=a)
+    store.add_document(Document(doc_id="d2", source_path="/y"), corpus_id=b)
+    for d in ("d1", "d2"):
+        store.add_assertion(
+            Assertion.build(
+                d, '"Term" means foo.', kind="definition", term="Term", definition_text="foo"
+            )
+        )
+    rows_all = list(store.iter_definitions())
+    rows_a = list(store.iter_definitions(corpus_id=a))
+    assert len(rows_all) == 2
+    assert len(rows_a) == 1
+    assert rows_a[0][0].doc_id == "d1"
+    store.close()
+
+
+def test_iter_assertions_filters_by_corpus_id(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "t.db")
+    store.migrate()
+    a = store.get_or_create_corpus("a", "/a", "moonshot")
+    b = store.get_or_create_corpus("b", "/b", "moonshot")
+    store.add_document(Document(doc_id="d1", source_path="/x"), corpus_id=a)
+    store.add_document(Document(doc_id="d2", source_path="/y"), corpus_id=b)
+    store.add_assertion(Assertion.build("d1", "claim a", kind="claim"))
+    store.add_assertion(Assertion.build("d2", "claim b", kind="claim"))
+    assert {ast.assertion_text for ast in store.iter_assertions(corpus_id=a)} == {"claim a"}
+    assert {ast.assertion_text for ast in store.iter_assertions()} == {"claim a", "claim b"}
+    store.close()
+
+
+def test_iter_assertion_ids_filters_by_corpus_id(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "t.db")
+    store.migrate()
+    a = store.get_or_create_corpus("a", "/a", "moonshot")
+    b = store.get_or_create_corpus("b", "/b", "moonshot")
+    store.add_document(Document(doc_id="d1", source_path="/x"), corpus_id=a)
+    store.add_document(Document(doc_id="d2", source_path="/y"), corpus_id=b)
+    a1 = Assertion.build("d1", "claim a", kind="claim")
+    a2 = Assertion.build("d2", "claim b", kind="claim")
+    store.add_assertion(a1)
+    store.add_assertion(a2)
+    assert set(store.iter_assertion_ids(corpus_id=a)) == {a1.assertion_id}
+    assert set(store.iter_assertion_ids()) == {a1.assertion_id, a2.assertion_id}
+    store.close()
+
+
+def test_stats_filters_by_corpus_id(tmp_path: Path) -> None:
+    store = AssertionStore(tmp_path / "t.db")
+    store.migrate()
+    a = store.get_or_create_corpus("a", "/a", "moonshot")
+    b = store.get_or_create_corpus("b", "/b", "moonshot")
+    store.add_document(Document(doc_id="d1", source_path="/x"), corpus_id=a)
+    store.add_document(Document(doc_id="d2", source_path="/y"), corpus_id=b)
+    store.add_assertion(Assertion.build("d1", "claim a", kind="claim"))
+    store.add_assertion(Assertion.build("d2", "claim b", kind="claim"))
+    assert store.stats(corpus_id=a)["documents"] == 1
+    assert store.stats(corpus_id=a)["assertions"] == 1
+    assert store.stats()["documents"] == 2
+    assert store.stats()["assertions"] == 2
+    store.close()
