@@ -25,11 +25,14 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
-# Force a wide terminal width for the test process so Click's BadParameter
-# error box doesn't wrap long messages (e.g. "--corpus is required (available: ...)")
-# across lines. CI runners default to width 80, which splits the canonical
-# phrase that several CLI tests assert against.
+# Keep Click/Typer error output stable across local and CI environments:
+#  - COLUMNS=200 stops the BadParameter box from wrapping
+#    "--corpus is required (available: ...)" across lines.
+#  - NO_COLOR=1 stops Typer from injecting ANSI bold codes inside option
+#    names (e.g. "\x1b[1m--corpus\x1b[0m is required"), which would otherwise
+#    split the canonical phrase tests assert against.
 os.environ.setdefault("COLUMNS", "200")
+os.environ.setdefault("NO_COLOR", "1")
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient

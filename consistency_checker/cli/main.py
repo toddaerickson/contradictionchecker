@@ -639,14 +639,17 @@ def store_reidentify_orgs(
     ),
 ) -> None:
     cfg = Config.from_yaml(config) if config.exists() else Config(corpus_dir=Path("."))
-    extractor = make_extractor(cfg)
     store = AssertionStore(db)
     try:
         store.migrate()
+        # Resolve --corpus before building the extractor so a missing
+        # --corpus surfaces immediately, even when no judge API key is set
+        # in the environment (e.g. CI without MOONSHOT_API_KEY).
         provider_for_corpus = _provider_for_corpus(cfg.judge_provider)
         corpus_id = resolve_corpus(
             store, corpus, str(cfg.corpus_dir), provider_for_corpus, allow_create=False
         )
+        extractor = make_extractor(cfg)
         walk_all = all_docs
         for doc in store.iter_documents(corpus_id=corpus_id):
             if not walk_all and null_only and doc.org_label is not None:
