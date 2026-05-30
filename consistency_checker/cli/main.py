@@ -43,7 +43,7 @@ from consistency_checker.cli.warnings import (
 )
 from consistency_checker.config import Config, load_local_env
 from consistency_checker.corpus.loader import load_path
-from consistency_checker.index.assertion_store import AssertionStore
+from consistency_checker.index.assertion_store import AssertionStore, CrossCorpusDocumentError
 from consistency_checker.index.faiss_store import FaissStore
 from consistency_checker.logging_setup import configure as configure_logging
 from consistency_checker.pipeline import (
@@ -219,14 +219,30 @@ def ingest(
     extractor = make_extractor(cfg)
     embedder = make_embedder(cfg)
     faiss_store = _open_faiss(cfg, dim=embedder.dim)
-    result = run_ingest(
-        cfg,
-        store=store,
-        faiss_store=faiss_store,
-        extractor=extractor,
-        embedder=embedder,
-        corpus_id=corpus_id,
-    )
+    try:
+        result = run_ingest(
+            cfg,
+            store=store,
+            faiss_store=faiss_store,
+            extractor=extractor,
+            embedder=embedder,
+            corpus_id=corpus_id,
+        )
+    except CrossCorpusDocumentError as err:
+        names_by_id = {c.corpus_id: c.corpus_name for c in store.list_corpora()}
+        existing_name = names_by_id.get(err.existing_corpus_id, err.existing_corpus_id)
+        requested_name = names_by_id.get(err.requested_corpus_id, err.requested_corpus_id)
+        store.close()
+        typer.echo(
+            f"Error: document {err.doc_id} already exists under corpus "
+            f"'{existing_name}' and cannot be re-ingested into corpus "
+            f"'{requested_name}'. Either edit the source file so the content "
+            f"hash changes, or move the existing doc with "
+            f"`consistency-check corpus reassign` (note: that only relabels "
+            f"the doc, it does not re-extract its assertions).",
+            err=True,
+        )
+        raise typer.Exit(code=2) from err
     _emit_corpus_warnings(store, cfg)
     store.close()
     typer.echo(

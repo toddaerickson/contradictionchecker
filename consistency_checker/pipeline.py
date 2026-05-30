@@ -536,14 +536,26 @@ def check(
             top_k=config.triangle_weak_top_k,
             similarity_threshold=config.triangle_weak_threshold,
         )
-        # Re-iterate the strong gate (FAISS top-k is cheap) and chain weak
-        # pairs lazily. itertools.chain avoids materialising either stream.
+        # Re-iterate the strong gate — calling .candidates(store) a second
+        # time triggers a fresh FAISS top-k scan (the gate does not memoise);
+        # cheap enough not to cache. itertools.chain keeps both streams lazy.
+        # Both streams must be corpus-filtered for the same reason the strong
+        # pairwise loop above filters: FAISS is shared across corpora, so the
+        # gate can return cross-corpus neighbours that would otherwise leak
+        # triangles between corpora. See ADR-0013 and PR #65 follow-up.
+        strong_pairs_iter = (
+            p
+            for p in strong_gate.candidates(store)
+            if p.a.assertion_id in corpus_assertion_ids and p.b.assertion_id in corpus_assertion_ids
+        )
         weak_pairs_iter = (
             p
             for p in weak_gate.candidates(store)
-            if (p.a.assertion_id, p.b.assertion_id) not in strong_keys
+            if p.a.assertion_id in corpus_assertion_ids
+            and p.b.assertion_id in corpus_assertion_ids
+            and (p.a.assertion_id, p.b.assertion_id) not in strong_keys
         )
-        triangle_pairs = itertools.chain(strong_gate.candidates(store), weak_pairs_iter)
+        triangle_pairs = itertools.chain(strong_pairs_iter, weak_pairs_iter)
         n_triangles_judged, n_multi_party_findings = _run_multi_party_pass(
             triangle_pairs,
             strong_keys=strong_keys,
@@ -636,15 +648,17 @@ def estimate_cost(
         set(store.iter_assertion_ids(corpus_id=corpus_id)) if corpus_id is not None else None
     )
 
-    raw_pairs = list(_iter_candidates(config, store, faiss_store, gate=None))
-    if corpus_assertion_ids is not None:
-        kept, _ = _filter_pairs_by_corpus(
-            [(p.a.assertion_id, p.b.assertion_id) for p in raw_pairs],
-            corpus_assertion_ids,
-        )
-        n_candidate_pairs = len(kept)
-    else:
-        n_candidate_pairs = len(raw_pairs)
+    # Stream the candidates: PR #58 made _iter_candidates an iterator for
+    # OOM protection on large corpora; materialising it here would regress
+    # that. Apply the corpus filter inline as we count.
+    n_candidate_pairs = 0
+    for pair in _iter_candidates(config, store, faiss_store, gate=None):
+        if corpus_assertion_ids is not None and (
+            pair.a.assertion_id not in corpus_assertion_ids
+            or pair.b.assertion_id not in corpus_assertion_ids
+        ):
+            continue
+        n_candidate_pairs += 1
 
     # Route through DefinitionChecker so org-scope suppression matches the run.
     # The judge is a no-op stand-in — count_pairs never invokes it, and we
