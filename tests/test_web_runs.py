@@ -39,13 +39,15 @@ def _config(tmp_path: Path) -> Config:
     )
 
 
-def _seed_store(cfg: Config) -> None:
+def _seed_store(cfg: Config) -> str:
+    """Seed the store with two docs and return the corpus_id."""
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("Alpha body.", source_path="alpha.md", title="Alpha")
     doc_b = Document.from_content("Beta body.", source_path="beta.txt", title="Beta")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=cid)
+    store.add_document(doc_b, corpus_id=cid)
     store.add_assertions(
         [
             Assertion.build(doc_a.doc_id, "Revenue grew 12%."),
@@ -60,12 +62,13 @@ def _seed_store(cfg: Config) -> None:
     )
     embed_pending(store, fs, embedder)
     store.close()
+    return cid
 
 
 @pytest.fixture
-def hermetic_client(tmp_path: Path) -> tuple[TestClient, Config]:
+def hermetic_client(tmp_path: Path) -> tuple[TestClient, Config, str]:
     cfg = _config(tmp_path)
-    _seed_store(cfg)
+    corpus_id = _seed_store(cfg)
     app = create_app(
         cfg,
         extractor=FixtureExtractor({}),
@@ -73,40 +76,48 @@ def hermetic_client(tmp_path: Path) -> tuple[TestClient, Config]:
         nli_checker=FixtureNliChecker({}),
         judge=FixtureJudge({}),
     )
-    return TestClient(app), cfg
+    return TestClient(app), cfg, corpus_id
 
 
 # --- POST /runs + background task ----------------------------------------
 
 
 def test_post_runs_redirects_non_htmx_caller(
-    hermetic_client: tuple[TestClient, Config],
+    hermetic_client: tuple[TestClient, Config, str],
 ) -> None:
     """Direct (non-HTMX) callers get a 303 to /tabs/stats?run_id=..."""
-    client, _cfg = hermetic_client
-    response = client.post("/runs", data={"deep": "false"}, follow_redirects=False)
+    client, _cfg, corpus_id = hermetic_client
+    response = client.post(
+        "/runs", data={"deep": "false", "corpus_id": corpus_id}, follow_redirects=False
+    )
     assert response.status_code == 303
     location = response.headers["location"]
     assert location.startswith("/tabs/stats?run_id=")
 
 
 def test_post_runs_returns_hx_redirect_for_htmx_caller(
-    hermetic_client: tuple[TestClient, Config],
+    hermetic_client: tuple[TestClient, Config, str],
 ) -> None:
-    client, _cfg = hermetic_client
-    response = client.post("/runs", data={"deep": "false"}, headers={"HX-Request": "true"})
+    client, _cfg, corpus_id = hermetic_client
+    response = client.post(
+        "/runs",
+        data={"deep": "false", "corpus_id": corpus_id},
+        headers={"HX-Request": "true"},
+    )
     assert response.status_code == 202
     assert "HX-Redirect" in response.headers
     assert response.headers["HX-Redirect"].startswith("/tabs/stats?run_id=")
 
 
 def test_post_runs_creates_pending_row_immediately(
-    hermetic_client: tuple[TestClient, Config],
+    hermetic_client: tuple[TestClient, Config, str],
 ) -> None:
     """The HTTP response returns before pipeline.check would have time to run
     on a real corpus. The polled Stats fragment must already find the row."""
-    client, cfg = hermetic_client
-    response = client.post("/runs", data={"deep": "false"}, follow_redirects=False)
+    client, cfg, corpus_id = hermetic_client
+    response = client.post(
+        "/runs", data={"deep": "false", "corpus_id": corpus_id}, follow_redirects=False
+    )
     run_id = response.headers["location"].rsplit("=", 1)[1]
     store = AssertionStore(cfg.db_path)
     logger = AuditLogger(store)
@@ -119,10 +130,12 @@ def test_post_runs_creates_pending_row_immediately(
 
 
 def test_post_runs_background_task_marks_done_after_completion(
-    hermetic_client: tuple[TestClient, Config],
+    hermetic_client: tuple[TestClient, Config, str],
 ) -> None:
-    client, _cfg = hermetic_client
-    response = client.post("/runs", data={"deep": "false"}, follow_redirects=False)
+    client, _cfg, corpus_id = hermetic_client
+    response = client.post(
+        "/runs", data={"deep": "false", "corpus_id": corpus_id}, follow_redirects=False
+    )
     run_id = response.headers["location"].rsplit("=", 1)[1]
     # Stats polling endpoint should reflect a terminal state.
     stats = client.get(f"/runs/{run_id}/stats")
@@ -132,13 +145,15 @@ def test_post_runs_background_task_marks_done_after_completion(
 
 
 def test_post_runs_deep_propagates_to_pipeline(
-    hermetic_client: tuple[TestClient, Config],
+    hermetic_client: tuple[TestClient, Config, str],
 ) -> None:
     """When deep=true is posted, the background task should call
     pipeline.check with multi_party_judge enabled. We assert via the
     config_json recorded on the run row."""
-    client, cfg = hermetic_client
-    response = client.post("/runs", data={"deep": "true"}, follow_redirects=False)
+    client, cfg, corpus_id = hermetic_client
+    response = client.post(
+        "/runs", data={"deep": "true", "corpus_id": corpus_id}, follow_redirects=False
+    )
     run_id = response.headers["location"].rsplit("=", 1)[1]
     store = AssertionStore(cfg.db_path)
     logger = AuditLogger(store)

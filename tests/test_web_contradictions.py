@@ -49,11 +49,12 @@ def seeded(tmp_path: Path) -> tuple[Config, TestClient, AssertionStore, str]:
     store = AssertionStore(cfg.db_path)
     store.migrate()
 
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("Alpha body.", source_path="alpha.md", title="Alpha")
     doc_b = Document.from_content("Beta body.", source_path="beta.txt", title="Beta")
     doc_c = Document.from_content("Gamma body.", source_path="gamma.md", title="Gamma")
     for d in (doc_a, doc_b, doc_c):
-        store.add_document(d)
+        store.add_document(d, corpus_id=_cid)
     a1 = Assertion.build(doc_a.doc_id, "Revenue grew 12% in fiscal 2025.")
     b1 = Assertion.build(doc_b.doc_id, "Revenue declined 5% in fiscal 2025.")
     a2 = Assertion.build(doc_a.doc_id, "All employees get four weeks vacation.")

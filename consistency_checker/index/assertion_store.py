@@ -15,6 +15,7 @@ import csv
 import json
 import re
 import sqlite3
+import uuid
 from collections.abc import Iterable, Iterator, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +23,7 @@ from types import TracebackType
 from typing import Any
 
 from consistency_checker.check.definition_terms import normalize_org
-from consistency_checker.extract.schema import Assertion, Document, hash_id
+from consistency_checker.extract.schema import Assertion, Corpus, Document, hash_id
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 _MIGRATION_NAME = re.compile(r"^(\d{4})_.*\.sql$")
@@ -100,7 +101,7 @@ class AssertionStore:
 
         >>> with AssertionStore(db_path) as store:
         ...     store.migrate()
-        ...     store.add_document(doc)
+        ...     store.add_document(doc, corpus_id=cid)
     """
 
     def __init__(self, db_path: Path | str) -> None:
@@ -155,13 +156,15 @@ class AssertionStore:
 
     # --- writes -------------------------------------------------------------
 
-    def add_document(self, doc: Document) -> None:
+    def add_document(self, doc: Document, *, corpus_id: str | None) -> None:
+        if corpus_id is None:
+            raise ValueError("corpus_id is required; pass --corpus <name> at the CLI")
         with self._conn:
             self._conn.execute(
                 "INSERT OR IGNORE INTO documents"
                 "(doc_id, source_path, title, doc_date, doc_type, metadata_json, "
-                "org_label, org_reason) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "org_label, org_reason, corpus_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     doc.doc_id,
                     doc.source_path,
@@ -171,8 +174,52 @@ class AssertionStore:
                     doc.metadata_json,
                     doc.org_label,
                     doc.org_reason,
+                    corpus_id,
                 ),
             )
+
+    def get_or_create_corpus(self, name: str, path: str, judge_provider: str) -> str:
+        """Return the corpus_id for ``name``, creating the row if needed.
+
+        Why: ingest must resolve a stable id from the user-facing name; if the name
+        already exists we return its id unchanged (subsequent ingests append to it).
+        Path / judge_provider mismatches are logged elsewhere as warnings, not errors.
+        """
+        row = self._conn.execute(
+            "SELECT corpus_id FROM corpora WHERE corpus_name = ?", (name,)
+        ).fetchone()
+        if row:
+            return str(row["corpus_id"])
+        new_id = uuid.uuid4().hex
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO corpora (corpus_id, corpus_name, corpus_path, judge_provider) "
+                "VALUES (?, ?, ?, ?)",
+                (new_id, name, path, judge_provider),
+            )
+        return new_id
+
+    def list_corpora(self) -> list[Corpus]:
+        rows = self._conn.execute(
+            "SELECT * FROM corpora ORDER BY created_at, corpus_name"
+        ).fetchall()
+        return [
+            Corpus(
+                corpus_id=r["corpus_id"],
+                corpus_name=r["corpus_name"],
+                corpus_path=r["corpus_path"],
+                judge_provider=r["judge_provider"],
+                created_at=_parse_timestamp(r["created_at"]),
+                updated_at=_parse_timestamp(r["updated_at"]),
+            )
+            for r in rows
+        ]
+
+    def delete_corpus(self, corpus_id: str) -> None:
+        """Delete a corpus and CASCADE to documents/pipeline_runs/runs (and their
+        descendants). reviewer_verdicts may be left as orphans — v1 accepts this."""
+        with self._conn:
+            self._conn.execute("DELETE FROM corpora WHERE corpus_id = ?", (corpus_id,))
 
     def update_org_label(self, doc_id: str, org_label: str | None, org_reason: str | None) -> None:
         with self._conn:
@@ -227,10 +274,20 @@ class AssertionStore:
         row = self._conn.execute("SELECT * FROM documents WHERE doc_id = ?", (doc_id,)).fetchone()
         return _row_to_document(row) if row else None
 
-    def iter_documents(self, *, limit: int | None = None, offset: int = 0) -> Iterator[Document]:
+    def iter_documents(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        corpus_id: str | None = None,
+    ) -> Iterator[Document]:
         """Iterate documents ordered by ingested_at desc, then doc_id desc."""
-        sql = "SELECT * FROM documents ORDER BY ingested_at DESC, doc_id DESC"
+        sql = "SELECT * FROM documents"
         params: list[Any] = []
+        if corpus_id is not None:
+            sql += " WHERE corpus_id = ?"
+            params.append(corpus_id)
+        sql += " ORDER BY ingested_at DESC, doc_id DESC"
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
@@ -263,19 +320,24 @@ class AssertionStore:
         ).fetchone()
         return _row_to_assertion(row) if row else None
 
-    def iter_definitions(self) -> Iterator[tuple[Assertion, str]]:
+    def iter_definitions(self, *, corpus_id: str | None = None) -> Iterator[tuple[Assertion, str]]:
         """Yield ``(definition_assertion, org_key)`` ordered by created_at.
 
         ``org_key`` is :func:`normalize_org` of the joined ``documents.org_label``,
         or ``""`` for documents whose org_label is NULL (the unknown bucket).
         """
-        cursor = self._conn.execute(
-            "SELECT a.*, d.org_label FROM assertions a "
+        sql = (
+            "SELECT a.*, d.org_label "
+            "FROM assertions a "
             "LEFT JOIN documents d ON d.doc_id = a.doc_id "
-            "WHERE a.kind = 'definition' "
-            "ORDER BY a.created_at, a.assertion_id"
+            "WHERE a.kind = 'definition'"
         )
-        for row in cursor:
+        params: list[Any] = []
+        if corpus_id is not None:
+            sql += " AND d.corpus_id = ?"
+            params.append(corpus_id)
+        sql += " ORDER BY a.created_at, a.assertion_id"
+        for row in self._conn.execute(sql, params):
             org_label = row["org_label"]
             org_key = normalize_org(org_label) if org_label else ""
             yield _row_to_assertion(row), org_key
@@ -309,24 +371,63 @@ class AssertionStore:
         *,
         limit: int | None = None,
         offset: int = 0,
+        corpus_id: str | None = None,
     ) -> Iterator[Assertion]:
-        if doc_id is None:
-            sql = "SELECT * FROM assertions ORDER BY created_at, assertion_id"
-            params: list[Any] = []
-        else:
-            sql = "SELECT * FROM assertions WHERE doc_id = ? ORDER BY created_at, assertion_id"
-            params = [doc_id]
+        sql = "SELECT a.* FROM assertions a"
+        where: list[str] = []
+        params: list[Any] = []
+        if corpus_id is not None:
+            sql += " JOIN documents d ON d.doc_id = a.doc_id"
+            where.append("d.corpus_id = ?")
+            params.append(corpus_id)
+        if doc_id is not None:
+            where.append("a.doc_id = ?")
+            params.append(doc_id)
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY a.created_at, a.assertion_id"
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
         for row in self._conn.execute(sql, params):
             yield _row_to_assertion(row)
 
-    def stats(self) -> dict[str, int]:
-        doc_count = self._conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-        assertion_count = self._conn.execute("SELECT COUNT(*) FROM assertions").fetchone()[0]
+    def iter_assertion_ids(self, *, corpus_id: str | None = None) -> Iterator[str]:
+        """Stream assertion ids; used by the FAISS gate post-filter in pipeline.check (Task 5)."""
+        sql = "SELECT a.assertion_id FROM assertions a"
+        params: list[Any] = []
+        if corpus_id is not None:
+            sql += " JOIN documents d ON d.doc_id = a.doc_id WHERE d.corpus_id = ?"
+            params.append(corpus_id)
+        for row in self._conn.execute(sql, params):
+            yield row["assertion_id"]
+
+    def stats(self, *, corpus_id: str | None = None) -> dict[str, int]:
+        if corpus_id is not None:
+            where_docs = " WHERE corpus_id = ?"
+            params_docs: list[Any] = [corpus_id]
+            where_asserts = " WHERE doc_id IN (SELECT doc_id FROM documents WHERE corpus_id = ?)"
+            params_asserts: list[Any] = [corpus_id]
+        else:
+            where_docs = ""
+            params_docs = []
+            where_asserts = ""
+            params_asserts = []
+        doc_count = self._conn.execute(
+            f"SELECT COUNT(*) FROM documents{where_docs}", params_docs
+        ).fetchone()[0]
+        assertion_count = self._conn.execute(
+            f"SELECT COUNT(*) FROM assertions{where_asserts}", params_asserts
+        ).fetchone()[0]
+        embedded_where = (
+            " AND doc_id IN (SELECT doc_id FROM documents WHERE corpus_id = ?)"
+            if corpus_id is not None
+            else ""
+        )
+        embedded_params: list[Any] = [corpus_id] if corpus_id is not None else []
         embedded = self._conn.execute(
-            "SELECT COUNT(*) FROM assertions WHERE faiss_row IS NOT NULL"
+            f"SELECT COUNT(*) FROM assertions WHERE faiss_row IS NOT NULL{embedded_where}",
+            embedded_params,
         ).fetchone()[0]
         return {
             "documents": int(doc_count),
@@ -337,32 +438,58 @@ class AssertionStore:
     # --- export -------------------------------------------------------------
 
     def export_csv(
-        self, path: Path | str, *, columns: Sequence[str] = DEFAULT_EXPORT_COLUMNS
+        self,
+        path: Path | str,
+        *,
+        columns: Sequence[str] = DEFAULT_EXPORT_COLUMNS,
+        corpus_id: str | None = None,
     ) -> None:
         """Export assertions to CSV. Default columns: ``(doc_id, assertion_id, assertion_text)``."""
         unknown = [c for c in columns if c not in _ALL_ASSERTION_COLUMNS]
         if unknown:
             raise ValueError(f"Unknown export columns: {unknown}")
-        column_sql = ", ".join(columns)
+        column_sql = ", ".join(f"a.{c}" for c in columns)
         out_path = Path(path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        if corpus_id is not None:
+            sql = (
+                f"SELECT {column_sql} FROM assertions a "
+                "JOIN documents d ON d.doc_id = a.doc_id "
+                "WHERE d.corpus_id = ? "
+                "ORDER BY a.doc_id, a.created_at, a.assertion_id"
+            )
+            params: tuple[str, ...] = (corpus_id,)
+        else:
+            sql = (
+                f"SELECT {column_sql} FROM assertions a "
+                "ORDER BY a.doc_id, a.created_at, a.assertion_id"
+            )
+            params = ()
         with out_path.open("w", encoding="utf-8", newline="") as fh:
             writer = csv.writer(fh)
             writer.writerow(columns)
-            for row in self._conn.execute(
-                f"SELECT {column_sql} FROM assertions ORDER BY doc_id, created_at, assertion_id"
-            ):
+            for row in self._conn.execute(sql, params):
                 writer.writerow([row[c] for c in columns])
 
-    def export_jsonl(self, path: Path | str) -> None:
+    def export_jsonl(self, path: Path | str, *, corpus_id: str | None = None) -> None:
         """Export assertions as JSONL, one assertion per line, with all columns + source path."""
         out_path = Path(path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        sql = (
-            "SELECT a.*, d.source_path, d.doc_date FROM assertions a "
-            "JOIN documents d ON d.doc_id = a.doc_id "
-            "ORDER BY a.doc_id, a.created_at, a.assertion_id"
-        )
+        if corpus_id is not None:
+            sql = (
+                "SELECT a.*, d.source_path, d.doc_date FROM assertions a "
+                "JOIN documents d ON d.doc_id = a.doc_id "
+                "WHERE d.corpus_id = ? "
+                "ORDER BY a.doc_id, a.created_at, a.assertion_id"
+            )
+            params: tuple[str, ...] = (corpus_id,)
+        else:
+            sql = (
+                "SELECT a.*, d.source_path, d.doc_date FROM assertions a "
+                "JOIN documents d ON d.doc_id = a.doc_id "
+                "ORDER BY a.doc_id, a.created_at, a.assertion_id"
+            )
+            params = ()
         with out_path.open("w", encoding="utf-8") as fh:
-            for row in self._conn.execute(sql):
+            for row in self._conn.execute(sql, params):
                 fh.write(json.dumps(dict(row), ensure_ascii=False) + "\n")

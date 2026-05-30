@@ -54,6 +54,16 @@ Parked from the v0.4 Phase A build (item #9, shipped). Three pieces:
 
 ## v0.4+ — operational
 
+### Corpus archive (deferred)
+
+Bundle a corpus + its runs + verdicts into a portable artifact (tarball +
+manifest, optional cloud upload) for review and off-machine retention.
+Companion to ADR-0013; will be drafted post-isolation-merge. Once a corpus
+is a real isolation unit, the export artifact is well-defined: all
+`corpora`, `documents`, `assertions`, `pipeline_runs`, `findings`, and
+`reviewer_verdicts` rows for the corpus, plus the FAISS sub-index sliced
+to that corpus's assertion-id set.
+
 ### 10. Incremental scans
 Today every `check` invocation re-scans the whole corpus. If only one new document was added since last run, only its assertions need to be paired against pre-existing ones. Use the `documents.ingested_at` timestamp to compute a "new assertions" set, then gate against the old set without re-pairing the old set with itself. Audit logger gains a `prior_run_id` link so report can show "new vs. carry-forward findings."
 
@@ -253,6 +263,15 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
 ## Completed
 
 (Move items here as they ship, keep a one-line note on which release.)
+
+- **Corpus isolation (item: retention gap, 2026-05-25)**
+  Spec: `docs/superpowers/specs/2026-05-25-corpus-isolation-design.md`.
+  Plan: `docs/superpowers/plans/2026-05-25-corpus-isolation.md`.
+  ADR-0013. Migration 0014 (additive). --corpus required on ingest /
+  check / estimate-cost / export / store reidentify-orgs (interactive
+  picker on TTY, hard error in scripts). FAISS gate post-filter so
+  the shared index can't leak cross-corpus pairs. Companion archive
+  spec deferred (see below).
 
 - **Corpus-composition warning + opt-in org grouping (item #2, 2026-05-24)**
   Spec: `docs/superpowers/specs/2026-05-24-corpus-org-warning-design.md`.

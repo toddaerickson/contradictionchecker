@@ -59,7 +59,15 @@ def test_mae_divergence_detected_by_real_judge(tmp_path: Path) -> None:
         dim=embedder.dim,
     )
     extractor = make_extractor(cfg)
-    run_ingest(cfg, store=store, faiss_store=faiss_store, extractor=extractor, embedder=embedder)
+    _cid = store.get_or_create_corpus("default", str(cfg.corpus_dir), "moonshot")
+    run_ingest(
+        cfg,
+        store=store,
+        faiss_store=faiss_store,
+        extractor=extractor,
+        embedder=embedder,
+        corpus_id=_cid,
+    )
 
     # Sanity: at least the two MAE definitions must have been extracted.
     definitions = list(store.iter_definitions())
@@ -81,6 +89,7 @@ def test_mae_divergence_detected_by_real_judge(tmp_path: Path) -> None:
         audit_logger=audit_logger,
         definition_checker=make_definition_checker(cfg),
         run_id=run_id,
+        corpus_id=_cid,
     )
     store.close()
 

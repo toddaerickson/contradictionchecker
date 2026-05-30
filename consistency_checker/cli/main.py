@@ -34,6 +34,7 @@ from consistency_checker.audit.naming import (
     report_filename,
 )
 from consistency_checker.audit.report import render_report
+from consistency_checker.cli.corpus_prompt import resolve_corpus
 from consistency_checker.cli.warnings import (
     render_corpus_warning,
     render_fragmentation_warning,
@@ -66,6 +67,8 @@ from consistency_checker.pipeline import (
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Consistency checker CLI.")
 store_app = typer.Typer(help="Assertion-store maintenance commands.")
 app.add_typer(store_app, name="store")
+corpus_app = typer.Typer(help="Inspect or maintain corpora.")
+app.add_typer(corpus_app, name="corpus")
 
 
 @app.callback()
@@ -93,6 +96,17 @@ def _open_faiss(config: Config, dim: int) -> FaissStore:
         id_map_path=config.faiss_path.with_suffix(".idmap.json"),
         dim=dim,
     )
+
+
+_CORPUS_PROVIDER_CHECK_ALLOWED = ("moonshot", "anthropic")
+
+
+def _provider_for_corpus(judge_provider: str) -> str:
+    """Clamp config.judge_provider to a value the corpora.judge_provider CHECK
+    constraint accepts. Why: schema allows only ('moonshot', 'anthropic'); see
+    ADR-0013 'Consequences' — future spec may widen the CHECK.
+    """
+    return judge_provider if judge_provider in _CORPUS_PROVIDER_CHECK_ALLOWED else "moonshot"
 
 
 def _warn_if_model_download_needed(model_name: str) -> None:
@@ -182,6 +196,11 @@ def _emit_corpus_warnings(store: AssertionStore, cfg: Config) -> None:
 def ingest(
     corpus_dir: Path = typer.Argument(..., exists=True, file_okay=False, dir_okay=True),
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
+    corpus: str | None = typer.Option(
+        None,
+        "--corpus",
+        help="Corpus name. Required (interactive picker on TTY).",
+    ),
     org_scope: bool = typer.Option(
         False,
         "--org-scope/--no-org-scope",
@@ -191,12 +210,22 @@ def ingest(
     cfg = _load_config(config)
     cfg = cfg.model_copy(update={"corpus_dir": corpus_dir, "org_scope_enabled": org_scope})
     configure_logging(cfg.log_dir)
+    # Resolve --corpus first so a missing flag fails fast without doing the
+    # expensive extractor/embedder bootstrap (sentence-transformers download,
+    # Moonshot key check, etc.).
+    store = _open_store(cfg)
+    provider_for_corpus = _provider_for_corpus(cfg.judge_provider)
+    corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
     extractor = make_extractor(cfg)
     embedder = make_embedder(cfg)
-    store = _open_store(cfg)
     faiss_store = _open_faiss(cfg, dim=embedder.dim)
     result = run_ingest(
-        cfg, store=store, faiss_store=faiss_store, extractor=extractor, embedder=embedder
+        cfg,
+        store=store,
+        faiss_store=faiss_store,
+        extractor=extractor,
+        embedder=embedder,
+        corpus_id=corpus_id,
     )
     _emit_corpus_warnings(store, cfg)
     store.close()
@@ -212,6 +241,11 @@ def ingest(
 @app.command(help="Run the Stage A + Stage B contradiction scan against the indexed corpus.")
 def check(
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
+    corpus: str | None = typer.Option(
+        None,
+        "--corpus",
+        help="Corpus name. Required (interactive picker on TTY).",
+    ),
     deep: bool = typer.Option(
         False,
         "--deep",
@@ -233,9 +267,13 @@ def check(
         cfg = cfg.model_copy(update={"enable_multi_party": True})
     cfg = cfg.model_copy(update={"org_scope_enabled": org_scope})
     configure_logging(cfg.log_dir)
+    # Resolve --corpus first so a missing flag fails fast without the
+    # sentence-transformers model load and OOM pre-flight.
+    store = _open_store(cfg)
+    provider_for_corpus = _provider_for_corpus(cfg.judge_provider)
+    corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
     _preflight_memory(cfg)
     embedder = make_embedder(cfg)
-    store = _open_store(cfg)
     faiss_store = _open_faiss(cfg, dim=embedder.dim)
     _emit_corpus_warnings(store, cfg)
     audit_logger = AuditLogger(store)
@@ -250,6 +288,7 @@ def check(
     definition_checker = None if no_definitions else make_definition_checker(cfg)
 
     run_id = audit_logger.begin_run(
+        corpus_id=corpus_id,
         config={
             "embedder_model": cfg.embedder_model,
             "nli_model": cfg.nli_model,
@@ -261,7 +300,7 @@ def check(
             "enable_multi_party": cfg.enable_multi_party,
             "max_triangles_per_run": cfg.max_triangles_per_run,
             "definitions_enabled": not no_definitions,
-        }
+        },
     )
     result = run_check(
         cfg,
@@ -273,6 +312,7 @@ def check(
         multi_party_judge=multi_party,
         definition_checker=definition_checker,
         run_id=run_id,
+        corpus_id=corpus_id,
     )
     store.close()
     deep_suffix = (
@@ -302,6 +342,11 @@ def check(
 )
 def estimate_cost(
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
+    corpus: str | None = typer.Option(
+        None,
+        "--corpus",
+        help="Corpus name. Required (interactive picker on TTY).",
+    ),
     per_call_low: float = typer.Option(
         0.003,
         "--per-call-low",
@@ -330,12 +375,15 @@ def estimate_cost(
         raise typer.BadParameter(
             f"{exc} Run `consistency-check ingest <corpus_dir>` first."
         ) from exc
+    provider_for_corpus = _provider_for_corpus(cfg.judge_provider)
+    corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
     est = run_estimate_cost(
         cfg,
         store=store,
         faiss_store=faiss_store,
         per_call_low=per_call_low,
         per_call_high=per_call_high,
+        corpus_id=corpus_id,
     )
     store.close()
     typer.echo(
@@ -369,6 +417,14 @@ def report(
     ),
     run_id: str | None = typer.Option(None, "--run", help="Run id; default: most recent."),
     min_confidence: float = typer.Option(0.0, "--min-confidence", min=0.0, max=1.0),
+    corpus: str | None = typer.Option(
+        None,
+        "--corpus",
+        help=(
+            "Optional corpus name. When omitted, inferred from the run's corpus_id. "
+            "Providing a name that does not match the run's corpus is an error."
+        ),
+    ),
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
 ) -> None:
     cfg = _load_config(config)
@@ -383,10 +439,30 @@ def report(
             raise typer.Exit(code=2)
         target_run = recent.run_id
 
+    run_row = audit_logger.get_run(target_run)
+    run_corpus_id: str | None = run_row.corpus_id if run_row is not None else None
+
+    if corpus is not None:
+        # Resolve the explicitly-supplied corpus name to an id and validate.
+        existing = store.list_corpora()
+        match = next((c for c in existing if c.corpus_name == corpus), None)
+        if match is None:
+            store.close()
+            available = ", ".join(c.corpus_name for c in existing) or "<none>"
+            raise typer.BadParameter(f"--corpus {corpus!r} not found (available: {available})")
+        if run_corpus_id is not None and match.corpus_id != run_corpus_id:
+            run_corpus_name = next(
+                (c.corpus_name for c in existing if c.corpus_id == run_corpus_id), run_corpus_id
+            )
+            store.close()
+            raise typer.BadParameter(
+                f"--corpus mismatch: run {target_run!r} belongs to corpus "
+                f"{run_corpus_name!r} but --corpus {corpus!r} was supplied."
+            )
+
     text = render_report(store, audit_logger, run_id=target_run, min_confidence=min_confidence)
     if out is None:
-        run = audit_logger.get_run(target_run)
-        started = run.started_at if run is not None else None
+        started = run_row.started_at if run_row is not None else None
         out = cfg.data_dir / "reports" / report_filename(target_run, started_at=started)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding="utf-8")
@@ -406,18 +482,27 @@ def export(
         "-o",
         help=("Output path. Omit to write to <data_dir>/reports/cc_assertions_<timestamp>.<ext>."),
     ),
+    corpus: str | None = typer.Option(
+        None,
+        "--corpus",
+        help="Corpus name. Required (interactive picker on TTY).",
+    ),
     config: Path = typer.Option(Path("config.yml"), "--config", "-c"),
 ) -> None:
     cfg = _load_config(config)
     store = _open_store(cfg)
+    provider_for_corpus = _provider_for_corpus(cfg.judge_provider)
+    corpus_id = resolve_corpus(
+        store, corpus, str(cfg.corpus_dir), provider_for_corpus, allow_create=False
+    )
     if fmt == "csv":
         if out is None:
             out = cfg.data_dir / "reports" / export_csv_filename()
-        store.export_csv(out)
+        store.export_csv(out, corpus_id=corpus_id)
     elif fmt == "jsonl":
         if out is None:
             out = cfg.data_dir / "reports" / export_jsonl_filename()
-        store.export_jsonl(out)
+        store.export_jsonl(out, corpus_id=corpus_id)
     else:
         store.close()
         raise typer.BadParameter("FORMAT must be 'csv' or 'jsonl'")
@@ -546,6 +631,11 @@ def store_reidentify_orgs(
         "--null-only",
         help="Only documents whose org_label IS NULL. Overridden by --all.",
     ),
+    corpus: str | None = typer.Option(
+        None,
+        "--corpus",
+        help="Corpus name. Required (interactive picker on TTY).",
+    ),
     config: Path = typer.Option(
         Path("config.yml"),
         "--config",
@@ -554,12 +644,19 @@ def store_reidentify_orgs(
     ),
 ) -> None:
     cfg = Config.from_yaml(config) if config.exists() else Config(corpus_dir=Path("."))
-    extractor = make_extractor(cfg)
     store = AssertionStore(db)
     try:
         store.migrate()
+        # Resolve --corpus before building the extractor so a missing
+        # --corpus surfaces immediately, even when no judge API key is set
+        # in the environment (e.g. CI without MOONSHOT_API_KEY).
+        provider_for_corpus = _provider_for_corpus(cfg.judge_provider)
+        corpus_id = resolve_corpus(
+            store, corpus, str(cfg.corpus_dir), provider_for_corpus, allow_create=False
+        )
+        extractor = make_extractor(cfg)
         walk_all = all_docs
-        for doc in store.iter_documents():
+        for doc in store.iter_documents(corpus_id=corpus_id):
             if not walk_all and null_only and doc.org_label is not None:
                 continue
             try:
@@ -596,6 +693,111 @@ def store_rebuild_index(
     n = rebuild_faiss(store=store, faiss_store=faiss_store, embedder=embedder)
     store.close()
     typer.echo(f"Rebuilt FAISS index from {n} assertions.")
+
+
+# --- corpus subcommands -------------------------------------------------------
+
+
+@corpus_app.command("list")
+def corpus_list(
+    db: Path = typer.Option(..., "--db", help="Path to the SQLite DB."),
+) -> None:
+    """List corpora with document counts and paths."""
+    from consistency_checker.index.assertion_store import AssertionStore
+
+    store = AssertionStore(db)
+    store.migrate()
+    try:
+        rows = store.list_corpora()
+        if not rows:
+            typer.echo("No corpora.")
+            return
+        for c in rows:
+            stats = store.stats(corpus_id=c.corpus_id)
+            typer.echo(f"{c.corpus_name:30s}  {stats['documents']:>5d} docs   ({c.corpus_path})")
+    finally:
+        store.close()
+
+
+@corpus_app.command("delete")
+def corpus_delete(
+    name: str,
+    db: Path = typer.Option(..., "--db"),
+    yes: bool = typer.Option(
+        False,
+        "--yes-i-mean-it",
+        help="Required confirmation; cascades to all docs/assertions.",
+    ),
+) -> None:
+    """Delete a corpus and all its documents/assertions/findings."""
+    from consistency_checker.index.assertion_store import AssertionStore
+
+    if not yes:
+        raise typer.BadParameter("Refusing to delete without --yes-i-mean-it")
+    store = AssertionStore(db)
+    store.migrate()
+    try:
+        match = next((c for c in store.list_corpora() if c.corpus_name == name), None)
+        if not match:
+            available = ", ".join(c.corpus_name for c in store.list_corpora()) or "<none>"
+            raise typer.BadParameter(f"No corpus named {name!r} (available: {available})")
+        store.delete_corpus(match.corpus_id)
+        typer.echo(f"Deleted corpus {name!r}.")
+    finally:
+        store.close()
+
+
+@corpus_app.command("reassign")
+def corpus_reassign(
+    db: Path = typer.Option(..., "--db"),
+    src: str = typer.Option(..., "--from", help="Source corpus name."),
+    dst: str = typer.Option(..., "--to", help="Destination corpus name (created if absent)."),
+    where: str = typer.Option(
+        "",
+        "--where",
+        help=("Safe-listed WHERE clause filter on documents (e.g. \"org_label LIKE 'ATKINS%'\")."),
+    ),
+) -> None:
+    """Move documents from one corpus to another.
+
+    The --where clause is restricted to a safe subset (column=literal /
+    column LIKE pattern, joined by AND/OR) to prevent SQL injection.
+    """
+    import re
+
+    from consistency_checker.index.assertion_store import AssertionStore
+
+    # Safe-list: alphanumeric column names, _, single-quoted string literals
+    # with % wildcards, =, LIKE, AND, OR. Reject anything else.
+    if where and not re.fullmatch(
+        r"\s*[A-Za-z_][A-Za-z0-9_]*\s*(?:=|LIKE)\s*'[^']*'"
+        r"(?:\s+(?:AND|OR)\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:=|LIKE)\s*'[^']*')*\s*",
+        where,
+    ):
+        raise typer.BadParameter(
+            "--where allows only column=literal or column LIKE 'pattern' "
+            "joined by AND/OR (single-quoted string literals)."
+        )
+
+    store = AssertionStore(db)
+    store.migrate()
+    try:
+        src_match = next((c for c in store.list_corpora() if c.corpus_name == src), None)
+        if src_match is None:
+            available = ", ".join(c.corpus_name for c in store.list_corpora()) or "<none>"
+            raise typer.BadParameter(f"--from corpus {src!r} not found (available: {available})")
+        dst_id = store.get_or_create_corpus(dst, "(reassigned)", "moonshot")
+        sql = "UPDATE documents SET corpus_id = ? WHERE corpus_id = ?"
+        params: list[str] = [dst_id, src_match.corpus_id]
+        if where:
+            sql += f" AND ({where})"
+        with store._conn:
+            cur = store._conn.execute(sql, params)
+            n = cur.rowcount
+        word = "document" if n == 1 else "documents"
+        typer.echo(f"Moved {n} {word} from {src} to {dst}.")
+    finally:
+        store.close()
 
 
 if __name__ == "__main__":

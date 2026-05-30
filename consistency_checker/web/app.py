@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -155,6 +155,7 @@ def _live_counters(run: Any, audit: Any = None) -> dict[str, Any]:
     )
     return {
         "run_id": run.run_id,
+        "run_corpus_id": run.corpus_id,
         "n_assertions": run.n_assertions,
         "n_pairs_gated": run.n_pairs_gated,
         "n_pairs_judged": run.n_pairs_judged,
@@ -170,14 +171,21 @@ def _live_counters(run: Any, audit: Any = None) -> dict[str, Any]:
 
 
 def _corpus_banner_context(
-    store: AssertionStore, config: Config, *, run_id: str | None
+    store: AssertionStore,
+    config: Config,
+    *,
+    run_id: str | None,
+    corpus_id: str | None = None,
 ) -> dict[str, Any]:
     """Compute the four corpus-composition warning fields for the Stats banner.
 
     Mirrors the CLI warnings (see ``cli/warnings.py``) so the web surface emits
     the same triggers/messages as ``consistency-check check``.
+
+    When ``corpus_id`` is provided the banner is scoped to that corpus only so
+    that multi-org warnings from other corpora do not bleed into the view.
     """
-    docs = list(store.iter_documents())
+    docs = list(store.iter_documents(corpus_id=corpus_id))
     rows: list[tuple[str, str | None]] = [(d.doc_id, d.org_label) for d in docs]
     summary = summarize_buckets(rows)
     corpus_warning = render_corpus_warning(
@@ -378,6 +386,14 @@ def create_app(
             pair_total = _count_total_findings(store, "contradiction")
             mp_reviewed = sum(audit.count_reviewer_verdicts(detector_type="multi_party").values())
             mp_total = _count_total_findings(store, "multi_party")
+            # Corpus to scope a re-run against: use the run's corpus when available,
+            # otherwise fall back to the most recently created corpus.
+            run_corpus_id: str | None = run.corpus_id if run is not None else None
+            if run_corpus_id is None:
+                row = store._conn.execute(
+                    "SELECT corpus_id FROM corpora ORDER BY created_at DESC LIMIT 1"
+                ).fetchone()
+                run_corpus_id = row[0] if row else None
         finally:
             store.close()
 
@@ -394,6 +410,7 @@ def create_app(
                 }
                 if run is not None
                 else None,
+                "run_corpus_id": run_corpus_id,
                 "pair_findings": pair_findings,
                 "multi_party_findings": multi_party_findings,
                 "show_reviewed_contradiction": show_reviewed_contradiction,
@@ -505,10 +522,14 @@ def create_app(
         }
 
     @app.get("/tabs/documents", response_class=HTMLResponse)
-    def tab_documents(request: Request, page: int = 1) -> HTMLResponse:
+    def tab_documents(
+        request: Request,
+        page: int = 1,
+        corpus: str | None = Query(default=None),
+    ) -> HTMLResponse:
         store, _audit = _open_audit()
         try:
-            total = store.stats()["documents"]
+            total = store.stats(corpus_id=corpus)["documents"]
             pag = _pagination(page=page, total=total)
             offset = (pag["page"] - 1) * PAGE_SIZE
             rows = [
@@ -521,7 +542,7 @@ def create_app(
                     else "",
                     "doc_type": d.doc_type or "",
                 }
-                for d in store.iter_documents(limit=PAGE_SIZE, offset=offset)
+                for d in store.iter_documents(limit=PAGE_SIZE, offset=offset, corpus_id=corpus)
             ]
         finally:
             store.close()
@@ -567,13 +588,19 @@ def create_app(
         return templates.TemplateResponse(request, "cc__document_detail.html", context)
 
     @app.get("/tabs/assertions", response_class=HTMLResponse)
-    def tab_assertions(request: Request, page: int = 1) -> HTMLResponse:
+    def tab_assertions(
+        request: Request,
+        page: int = 1,
+        corpus: str | None = Query(default=None),
+    ) -> HTMLResponse:
         store, _audit = _open_audit()
         try:
-            total = store.stats()["assertions"]
+            total = store.stats(corpus_id=corpus)["assertions"]
             pag = _pagination(page=page, total=total)
             offset = (pag["page"] - 1) * PAGE_SIZE
-            page_assertions = list(store.iter_assertions(limit=PAGE_SIZE, offset=offset))
+            page_assertions = list(
+                store.iter_assertions(limit=PAGE_SIZE, offset=offset, corpus_id=corpus)
+            )
             documents = store.get_documents_bulk([a.doc_id for a in page_assertions])
             rows = [
                 {
@@ -704,7 +731,7 @@ def create_app(
             store.close()
         return templates.TemplateResponse(request, "cc__assertion_detail.html", context)
 
-    def _run_check_in_background(run_id: str, deep: bool) -> None:
+    def _run_check_in_background(run_id: str, deep: bool, corpus_id: str) -> None:
         # SQLite handles can't safely be shared across threads, so the
         # background task opens its own store. The embedder is not needed for
         # check (only for ingest), so open faiss directly to avoid the ~800 MB
@@ -764,6 +791,7 @@ def create_app(
                     multi_party_judge=mp_judge if deep else None,
                     definition_checker=def_checker,
                     run_id=run_id,
+                    corpus_id=corpus_id,
                 )
             except Exception as exc:
                 _log.exception("Run %s failed: %s", run_id, exc)
@@ -775,10 +803,17 @@ def create_app(
     def post_runs(
         request: Request,
         background_tasks: BackgroundTasks,
+        corpus_id: str = Form(...),
         deep: bool = Form(False),
     ) -> Response:
         store, audit = _open_audit()
         try:
+            # Validate corpus_id exists before starting the run.
+            row = store._conn.execute(
+                "SELECT corpus_id FROM corpora WHERE corpus_id = ?", (corpus_id,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=400, detail=f"corpus_id {corpus_id!r} not found")
             run_id = audit.begin_run(
                 config={
                     "deep": deep,
@@ -788,11 +823,12 @@ def create_app(
                     "judge_model": config.judge_model,
                 },
                 run_status="pending",
+                corpus_id=corpus_id,
             )
         finally:
             store.close()
 
-        background_tasks.add_task(_run_check_in_background, run_id, deep)
+        background_tasks.add_task(_run_check_in_background, run_id, deep, corpus_id)
 
         target = f"/tabs/stats?run_id={run_id}"
         if _is_htmx(request):
@@ -805,14 +841,20 @@ def create_app(
         )
 
     @app.get("/tabs/stats", response_class=HTMLResponse)
-    def tab_stats(request: Request) -> HTMLResponse:
+    def tab_stats(
+        request: Request,
+        corpus: str | None = Query(default=None),
+    ) -> HTMLResponse:
         store, audit = _open_audit()
         try:
             run = audit.most_recent_run()
             status = _infer_run_status(run)
             counters = _live_counters(run, audit) if run is not None else None
             banner = _corpus_banner_context(
-                store, config, run_id=run.run_id if run is not None else None
+                store,
+                config,
+                run_id=run.run_id if run is not None else None,
+                corpus_id=corpus,
             )
         finally:
             store.close()
@@ -829,7 +871,11 @@ def create_app(
         )
 
     @app.get("/runs/{run_id}/stats", response_class=HTMLResponse)
-    def run_stats_fragment(request: Request, run_id: str) -> HTMLResponse:
+    def run_stats_fragment(
+        request: Request,
+        run_id: str,
+        corpus: str | None = Query(default=None),
+    ) -> HTMLResponse:
         # Returning the final fragment (no polling attrs) is how the
         # self-polling loop stops once the run terminates.
         store, audit = _open_audit()
@@ -839,7 +885,7 @@ def create_app(
                 raise HTTPException(status_code=404, detail=f"run {run_id} not found")
             status = _infer_run_status(run)
             counters = _live_counters(run, audit)
-            banner = _corpus_banner_context(store, config, run_id=run.run_id)
+            banner = _corpus_banner_context(store, config, run_id=run.run_id, corpus_id=corpus)
         finally:
             store.close()
         if status == "failed":
@@ -982,7 +1028,13 @@ def create_app(
     async def post_uploads(
         request: Request,
         files: list[UploadFile],
+        corpus_id: str | None = Form(default=None),
     ) -> HTMLResponse:
+        if not corpus_id:
+            raise HTTPException(
+                status_code=400,
+                detail="corpus_id is required; select a corpus before uploading.",
+            )
         upload_id = _generate_upload_id()
         upload_dir = config.data_dir / "uploads" / upload_id
         upload_dir.mkdir(parents=True, exist_ok=False)
@@ -1018,6 +1070,8 @@ def create_app(
                 status_code=400,
             )
 
+        # corpus_id is guaranteed non-empty by the guard above; assert for mypy.
+        assert corpus_id is not None
         store, faiss_store, embedder_inst = _open_stores()
         try:
             extractor = _make_extractor()
@@ -1028,6 +1082,7 @@ def create_app(
                 embedder=embedder_inst,
                 extractor=extractor,
                 config=config,
+                corpus_id=corpus_id,
             )
             audit = AuditLogger(store)
             is_first_check = audit.most_recent_run() is None
@@ -1048,6 +1103,7 @@ def create_app(
                 "saved": [p.name for p in saved],
                 "n_assertions": n_assertions,
                 "is_first_check": is_first_check,
+                "corpus_id": corpus_id,
                 "error": None,
             },
         )
@@ -1082,6 +1138,7 @@ def _ingest_uploaded_paths(
     embedder: Embedder,
     extractor: Extractor,
     config: Config,
+    corpus_id: str,
 ) -> int:
     """Run loader → chunker → extractor → embedder on a list of file paths.
 
@@ -1101,7 +1158,7 @@ def _ingest_uploaded_paths(
         if config.org_grouping_enabled:
             res = extractor.identify_org(title=doc.title, text=loaded.text)
             doc = replace(doc, org_label=res.label, org_reason=res.reason)
-        store.add_document(doc)
+        store.add_document(doc, corpus_id=corpus_id)
         for chunk in chunk_document(
             loaded,
             max_chars=config.chunk_max_chars,

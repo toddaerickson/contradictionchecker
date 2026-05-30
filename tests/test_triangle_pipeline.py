@@ -63,13 +63,14 @@ def _build_three_doc_store(
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     docs = [
         Document.from_content("Policy A.", source_path="policy_a.md", title="Policy A"),
         Document.from_content("Policy B.", source_path="policy_b.md", title="Policy B"),
         Document.from_content("Policy C.", source_path="policy_c.md", title="Policy C"),
     ]
     for d in docs:
-        store.add_document(d)
+        store.add_document(d, corpus_id=_cid)
     assertions = [
         Assertion.build(docs[0].doc_id, "All employees get four weeks vacation."),
         Assertion.build(docs[1].doc_id, "Engineers are employees."),
@@ -90,6 +91,7 @@ def test_dual_gate_codepath_runs_without_crash(tmp_path: Path) -> None:
     """End-to-end smoke: check() with a multi-party judge exercises the dual gate."""
     cfg, store, fs, assertions = _build_three_doc_store(tmp_path)
     audit_logger = AuditLogger(store)
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
 
     triangle_ids = tuple(sorted(a.assertion_id for a in assertions))
     multi_party_judge = FixtureMultiPartyJudge(
@@ -116,6 +118,7 @@ def test_dual_gate_codepath_runs_without_crash(tmp_path: Path) -> None:
         gate=AllPairsGate(),
         multi_party_judge=multi_party_judge,
         run_id=run_id,
+        corpus_id=_cid,
     )
     # AllPairsGate marks every cross-doc pair as strong (score=1.0), so all
     # three edges of the only triangle are strong → it survives the ≥2 filter.
@@ -137,6 +140,7 @@ def test_weak_threshold_at_or_above_strong_is_degenerate(tmp_path: Path) -> None
         tmp_path, triangle_weak_top_k=5, triangle_weak_threshold=1.0
     )
     audit_logger = AuditLogger(store)
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
 
     triangle_ids = tuple(sorted(a.assertion_id for a in assertions))
     multi_party_judge = FixtureMultiPartyJudge(
@@ -163,6 +167,7 @@ def test_weak_threshold_at_or_above_strong_is_degenerate(tmp_path: Path) -> None
         gate=AllPairsGate(),
         multi_party_judge=multi_party_judge,
         run_id=run_id,
+        corpus_id=_cid,
     )
     # Same triangle as the baseline test — all edges are strong, all survive.
     assert result.n_triangles_judged == 1
@@ -215,6 +220,7 @@ def test_dual_gate_with_uncertain_judge(tmp_path: Path) -> None:
     """``uncertain`` triangle verdicts are still logged but not counted as findings."""
     cfg, store, fs, _ = _build_three_doc_store(tmp_path)
     audit_logger = AuditLogger(store)
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
 
     run_id = audit_logger.begin_run()
     result = run_check(
@@ -227,6 +233,7 @@ def test_dual_gate_with_uncertain_judge(tmp_path: Path) -> None:
         gate=AllPairsGate(),
         multi_party_judge=FixtureMultiPartyJudge({}),  # defaults to uncertain
         run_id=run_id,
+        corpus_id=_cid,
     )
     assert result.n_triangles_judged == 1
     assert result.n_multi_party_findings == 0
@@ -242,6 +249,7 @@ def test_dual_gate_config_variants_dont_crash(
         tmp_path, triangle_weak_top_k=weak_top_k, triangle_weak_threshold=weak_threshold
     )
     audit_logger = AuditLogger(store)
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
 
     run_id = audit_logger.begin_run()
     result = run_check(
@@ -254,6 +262,7 @@ def test_dual_gate_config_variants_dont_crash(
         gate=AllPairsGate(),
         multi_party_judge=FixtureMultiPartyJudge({}),
         run_id=run_id,
+        corpus_id=_cid,
     )
     # The fixture corpus has exactly one cross-doc triangle. With AllPairsGate
     # as the strong gate, all three edges are strong regardless of how the

@@ -46,13 +46,14 @@ def three_doc_store(tmp_path: Path) -> tuple[Config, AssertionStore, FaissStore,
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     docs = [
         Document.from_content("Policy A.", source_path="policy_a.md", title="Policy A"),
         Document.from_content("Policy B.", source_path="policy_b.md", title="Policy B"),
         Document.from_content("Policy C.", source_path="policy_c.md", title="Policy C"),
     ]
     for d in docs:
-        store.add_document(d)
+        store.add_document(d, corpus_id=_cid)
     assertions = [
         Assertion.build(docs[0].doc_id, "All employees get four weeks vacation."),
         Assertion.build(docs[1].doc_id, "Engineers are employees."),
@@ -78,6 +79,7 @@ def test_check_without_multi_party_judge_skips_triangle_pass(
     cfg, store, fs, _ = three_doc_store
     audit_logger = AuditLogger(store)
     run_id = audit_logger.begin_run()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     result = run_check(
         cfg,
         store=store,
@@ -87,6 +89,7 @@ def test_check_without_multi_party_judge_skips_triangle_pass(
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         run_id=run_id,
+        corpus_id=_cid,
     )
     assert result.n_triangles_judged == 0
     assert result.n_multi_party_findings == 0
@@ -118,6 +121,7 @@ def test_check_with_multi_party_judge_records_finding(
     )
 
     run_id = audit_logger.begin_run()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     result = run_check(
         cfg,
         store=store,
@@ -128,6 +132,7 @@ def test_check_with_multi_party_judge_records_finding(
         gate=AllPairsGate(),
         multi_party_judge=multi_party_judge,
         run_id=run_id,
+        corpus_id=_cid,
     )
 
     assert result.n_triangles_judged == 1
@@ -154,6 +159,7 @@ def test_check_with_multi_party_judge_returns_uncertain_does_not_count_finding(
     multi_party_judge = FixtureMultiPartyJudge({})
 
     run_id = audit_logger.begin_run()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     result = run_check(
         cfg,
         store=store,
@@ -164,6 +170,7 @@ def test_check_with_multi_party_judge_returns_uncertain_does_not_count_finding(
         gate=AllPairsGate(),
         multi_party_judge=multi_party_judge,
         run_id=run_id,
+        corpus_id=_cid,
     )
     assert result.n_triangles_judged == 1
     assert result.n_multi_party_findings == 0
@@ -194,9 +201,10 @@ def test_check_respects_max_triangles_per_run(tmp_path: Path) -> None:
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     docs = [Document.from_content(f"Body {i}.", source_path=f"d{i}.md") for i in range(3)]
     for d in docs:
-        store.add_document(d)
+        store.add_document(d, corpus_id=_cid)
     assertions = [Assertion.build(d.doc_id, f"text {i}") for i, d in enumerate(docs)]
     store.add_assertions(assertions)
     embedder = HashEmbedder(dim=64)
@@ -219,6 +227,7 @@ def test_check_respects_max_triangles_per_run(tmp_path: Path) -> None:
         gate=AllPairsGate(),
         multi_party_judge=FixtureMultiPartyJudge({}),
         run_id=run_id,
+        corpus_id=_cid,
     )
     assert result.n_triangles_judged == 0
     assert result.n_multi_party_findings == 0

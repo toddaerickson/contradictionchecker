@@ -106,10 +106,11 @@ class _TrackingFixtureJudge:
 def _seed_revenue_flip(tmp_path: Path, cfg: Config) -> tuple[Assertion, Assertion]:
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("Body A.", source_path="alpha.md", title="Alpha")
     doc_b = Document.from_content("Body B.", source_path="beta.md", title="Beta")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=_cid)
+    store.add_document(doc_b, corpus_id=_cid)
     a = Assertion.build(doc_a.doc_id, "Revenue grew 12% in fiscal 2025.")
     b = Assertion.build(doc_b.doc_id, "Revenue declined 5% in fiscal 2025.")
     store.add_assertions([a, b])
@@ -142,6 +143,7 @@ def test_pipeline_short_circuits_revenue_flip_pair(tmp_path: Path) -> None:
     judge = _TrackingFixtureJudge(FixtureJudge({}))
 
     run_id = audit_logger.begin_run()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     result = run_check(
         cfg,
         store=store,
@@ -151,6 +153,7 @@ def test_pipeline_short_circuits_revenue_flip_pair(tmp_path: Path) -> None:
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         run_id=run_id,
+        corpus_id=_cid,
     )
 
     assert result.n_findings == 1, (
@@ -175,10 +178,11 @@ def test_pipeline_falls_through_to_judge_when_no_short_circuit(tmp_path: Path) -
 
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("Body A.", source_path="a.md", title="A")
     doc_b = Document.from_content("Body B.", source_path="b.md", title="B")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=_cid)
+    store.add_document(doc_b, corpus_id=_cid)
     # Same-polarity pair — no sign-flip available.
     a = Assertion.build(doc_a.doc_id, "Revenue grew 12% in fiscal 2025.")
     b = Assertion.build(doc_b.doc_id, "Revenue grew 8% in fiscal 2025.")
@@ -204,6 +208,7 @@ def test_pipeline_falls_through_to_judge_when_no_short_circuit(tmp_path: Path) -
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         run_id=run_id,
+        corpus_id=_cid,
     )
 
     assert judge.call_count >= 1, "Judge must be called when no short-circuit applies"
@@ -231,6 +236,7 @@ def test_short_circuit_finding_appears_in_report(tmp_path: Path) -> None:
     )
     audit_logger = AuditLogger(store)
     run_id = audit_logger.begin_run()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     result = run_check(
         cfg,
         store=store,
@@ -240,6 +246,7 @@ def test_short_circuit_finding_appears_in_report(tmp_path: Path) -> None:
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         run_id=run_id,
+        corpus_id=_cid,
     )
 
     report = render_report(store, audit_logger, run_id=result.run_id)
@@ -293,10 +300,11 @@ class _RecordingJudge:
 def _seed_pair(tmp_path: Path, cfg: Config, a_text: str, b_text: str) -> None:
     store = AssertionStore(cfg.db_path)
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc_a = Document.from_content("Body A.", source_path="a.md", title="A")
     doc_b = Document.from_content("Body B.", source_path="b.md", title="B")
-    store.add_document(doc_a)
-    store.add_document(doc_b)
+    store.add_document(doc_a, corpus_id=_cid)
+    store.add_document(doc_b, corpus_id=_cid)
     a = Assertion.build(doc_a.doc_id, a_text)
     b = Assertion.build(doc_b.doc_id, b_text)
     store.add_assertions([a, b])
@@ -329,6 +337,7 @@ def test_pipeline_passes_numeric_context_when_values_disagree(tmp_path: Path) ->
     )
     audit_logger = AuditLogger(store)
     judge = _RecordingJudge()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
 
     run_check(
         cfg,
@@ -339,6 +348,7 @@ def test_pipeline_passes_numeric_context_when_values_disagree(tmp_path: Path) ->
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         run_id=audit_logger.begin_run(),
+        corpus_id=_cid,
     )
 
     assert judge.call_count == 1
@@ -368,6 +378,7 @@ def test_pipeline_passes_no_numeric_context_for_prose_pair(tmp_path: Path) -> No
     )
     audit_logger = AuditLogger(store)
     judge = _RecordingJudge()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
 
     run_check(
         cfg,
@@ -378,6 +389,7 @@ def test_pipeline_passes_no_numeric_context_for_prose_pair(tmp_path: Path) -> No
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         run_id=audit_logger.begin_run(),
+        corpus_id=_cid,
     )
 
     assert judge.call_count == 1
@@ -420,6 +432,7 @@ numeric_disagreement_threshold: 0.5
     )
     audit_logger = AuditLogger(store)
     judge = _RecordingJudge()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
 
     run_check(
         cfg,
@@ -430,6 +443,7 @@ numeric_disagreement_threshold: 0.5
         audit_logger=audit_logger,
         gate=AllPairsGate(),
         run_id=audit_logger.begin_run(),
+        corpus_id=_cid,
     )
 
     assert judge.call_count == 1

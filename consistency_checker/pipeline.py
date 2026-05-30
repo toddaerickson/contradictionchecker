@@ -122,6 +122,7 @@ class CheckResult:
     n_definition_findings: int = 0
     n_definition_short_circuited: int = 0
     n_definition_pairs_suppressed: int = 0
+    n_cross_corpus_gate_drops: int = 0
 
 
 # --- factories --------------------------------------------------------------
@@ -210,6 +211,7 @@ def ingest(
     faiss_store: FaissStore,
     extractor: Extractor,
     embedder: Embedder,
+    corpus_id: str,
 ) -> IngestResult:
     """Walk corpus_dir → chunks → assertions → embeddings."""
     junk_audit = (
@@ -225,7 +227,7 @@ def ingest(
         if config.org_grouping_enabled:
             res = extractor.identify_org(title=doc.title, text=loaded.text)
             doc = replace(doc, org_label=res.label, org_reason=res.reason)
-        store.add_document(doc)
+        store.add_document(doc, corpus_id=corpus_id)
         n_docs += 1
         chunks = chunk_document(
             loaded,
@@ -258,6 +260,25 @@ def ingest(
 
 
 # --- check ------------------------------------------------------------------
+
+
+def _filter_pairs_by_corpus(
+    pairs: Iterable[tuple[str, str]], corpus_assertion_ids: set[str]
+) -> tuple[list[tuple[str, str]], int]:
+    """Drop pairs where either endpoint is outside the corpus's assertion-id set.
+
+    Why: FAISS is a single shared index across all corpora (logical isolation
+    per ADR-0013). The top-K gate can return cross-corpus neighbors; without
+    this filter, a check on corpus A would leak findings into corpus B.
+    """
+    kept: list[tuple[str, str]] = []
+    dropped = 0
+    for a, b in pairs:
+        if a in corpus_assertion_ids and b in corpus_assertion_ids:
+            kept.append((a, b))
+        else:
+            dropped += 1
+    return kept, dropped
 
 
 def _resolve_gate(
@@ -407,6 +428,7 @@ def _run_definition_pass(
     checker: DefinitionChecker,
     audit_logger: AuditLogger,
     run_id: str,
+    corpus_id: str | None = None,
 ) -> tuple[int, int, int, int]:
     """Run the definition checker over all stored definitions and log findings.
 
@@ -418,7 +440,7 @@ def _run_definition_pass(
     ``suppressed=1`` for replay. The NLI gate is bypassed for this stage by
     design.
     """
-    definitions = list(store.iter_definitions())
+    definitions = list(store.iter_definitions(corpus_id=corpus_id))
     result = checker.run(definitions)
     n_judged = 0
     n_findings = 0
@@ -451,19 +473,29 @@ def check(
     multi_party_judge: MultiPartyJudge | None = None,
     definition_checker: DefinitionChecker | None = None,
     run_id: str,
+    corpus_id: str,
 ) -> CheckResult:
     """Stage A → Stage B → optional multi-party + definition passes → audit."""
     audit_logger.update_run_status(run_id, "running")
+
+    corpus_assertion_ids: set[str] = set(store.iter_assertion_ids(corpus_id=corpus_id))
 
     strong_gate = _resolve_gate(config, faiss_store, gate)
     n_pairs_gated = 0
     n_pairs_judged = 0
     n_findings = 0
-    n_assertions = store.stats()["assertions"]
+    n_cross_corpus_drops = 0
+    n_assertions = store.stats(corpus_id=corpus_id)["assertions"]
     track_strong_keys = multi_party_judge is not None
     strong_keys: set[tuple[str, str]] = set()
 
     for pair in strong_gate.candidates(store):
+        if (
+            pair.a.assertion_id not in corpus_assertion_ids
+            or pair.b.assertion_id not in corpus_assertion_ids
+        ):
+            n_cross_corpus_drops += 1
+            continue
         n_pairs_gated += 1
         if track_strong_keys:
             strong_keys.add((pair.a.assertion_id, pair.b.assertion_id))
@@ -538,6 +570,7 @@ def check(
             checker=definition_checker,
             audit_logger=audit_logger,
             run_id=run_id,
+            corpus_id=corpus_id,
         )
 
     audit_logger.end_run(
@@ -573,6 +606,7 @@ def check(
         n_definition_findings=n_definition_findings,
         n_definition_short_circuited=n_definition_short_circuited,
         n_definition_pairs_suppressed=n_definition_pairs_suppressed,
+        n_cross_corpus_gate_drops=n_cross_corpus_drops,
     )
 
 
@@ -586,6 +620,7 @@ def estimate_cost(
     faiss_store: FaissStore,
     per_call_low: float = 0.003,
     per_call_high: float = 0.010,
+    corpus_id: str | None = None,
 ) -> CostEstimate:
     """Count judge calls a check run would make, without making any LLM calls.
 
@@ -593,8 +628,23 @@ def estimate_cost(
     download and (b) the user wants a fast pre-flight estimate, not a
     real-cost figure. Real spend is usually 30-70% lower than this
     ceiling because NLI filters most gate-pass pairs.
+
+    When ``corpus_id`` is supplied the same FAISS post-filter applied by
+    ``check()`` is used so the preview matches the actual run.
     """
-    n_candidate_pairs = sum(1 for _ in _iter_candidates(config, store, faiss_store, gate=None))
+    corpus_assertion_ids: set[str] | None = (
+        set(store.iter_assertion_ids(corpus_id=corpus_id)) if corpus_id is not None else None
+    )
+
+    raw_pairs = list(_iter_candidates(config, store, faiss_store, gate=None))
+    if corpus_assertion_ids is not None:
+        kept, _ = _filter_pairs_by_corpus(
+            [(p.a.assertion_id, p.b.assertion_id) for p in raw_pairs],
+            corpus_assertion_ids,
+        )
+        n_candidate_pairs = len(kept)
+    else:
+        n_candidate_pairs = len(raw_pairs)
 
     # Route through DefinitionChecker so org-scope suppression matches the run.
     # The judge is a no-op stand-in — count_pairs never invokes it, and we
@@ -603,11 +653,11 @@ def estimate_cost(
         judge=FixtureDefinitionJudge(fixtures={}),
         org_scope_enabled=config.org_scope_enabled,
     )
-    n_definition_pairs = counter.count_pairs(list(store.iter_definitions()))
+    n_definition_pairs = counter.count_pairs(list(store.iter_definitions(corpus_id=corpus_id)))
 
     judge_calls_ceiling = n_candidate_pairs + n_definition_pairs
     return CostEstimate(
-        n_assertions=store.stats()["assertions"],
+        n_assertions=store.stats(corpus_id=corpus_id)["assertions"],
         n_candidate_pairs=n_candidate_pairs,
         n_definition_pairs=n_definition_pairs,
         judge_calls_ceiling=judge_calls_ceiling,

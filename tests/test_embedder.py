@@ -120,8 +120,9 @@ def test_faiss_store_dim_check_on_reopen(tmp_path: Path) -> None:
 def _seed_store(tmp_path: Path, n: int) -> AssertionStore:
     store = AssertionStore(tmp_path / "store.db")
     store.migrate()
+    cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc = Document.from_content("Body text.", source_path="d.txt")
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=cid)
     for i in range(n):
         text = f"Assertion number {i} about widgets."
         store.add_assertion(Assertion.build(doc.doc_id, text))
@@ -239,8 +240,9 @@ def test_sentence_transformer_paraphrase_top_1(tmp_path: Path) -> None:
     embedder = SentenceTransformerEmbedder(model_name="sentence-transformers/all-MiniLM-L6-v2")
     store = AssertionStore(tmp_path / "store.db")
     store.migrate()
+    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
     doc = Document.from_content("body", source_path="d.txt")
-    store.add_document(doc)
+    store.add_document(doc, corpus_id=_cid)
     claims = [
         "Revenue grew twelve percent in fiscal 2025.",
         "The cat sat on the mat.",

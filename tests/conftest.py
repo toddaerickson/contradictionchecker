@@ -17,12 +17,40 @@ modules so the boilerplate Config + TestClient construction isn't duplicated.
 
 from __future__ import annotations
 
+import os
+import re
 from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+
+# Keep Click/Typer error output stable across local and CI environments:
+#  - COLUMNS=200 stops the BadParameter box from wrapping
+#    "--corpus is required (available: ...)" across lines.
+#  - NO_COLOR=1 strips actual ANSI color codes. Typer's rich renderer still
+#    emits bold/dim style codes (\x1b[1m, \x1b[2m) inside option names regardless
+#    of NO_COLOR, so tests asserting against the literal phrase must also pass
+#    output through strip_ansi() below.
+os.environ.setdefault("COLUMNS", "200")
+os.environ.setdefault("NO_COLOR", "1")
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def strip_ansi(s: str) -> str:
+    """Remove ANSI escape sequences so substring assertions are robust.
+
+    Typer/rich renders BadParameter inside a Panel with bold+dim styling on
+    option names. NO_COLOR suppresses colors but not styles, so a phrase like
+    "--corpus is required" reaches CliRunner.output as
+    "\x1b[1;2m--corpus\x1b[0m is required". This helper makes assertions
+    stable across local and CI rich versions.
+    """
+    return _ANSI_RE.sub("", s)
+
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
