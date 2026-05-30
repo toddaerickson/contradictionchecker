@@ -14,7 +14,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'RESUME (contradictionchecker, as of 2026-05-21): Judge/extractor default to Moonshot/Kimi (kimi-k2.6) and need MOONSHOT_API_KEY in a gitignored .env; run from repo root. PRs #60 (Moonshot + security) and #61 (PDF junk filter) are merged to main. NEXT LEVERS are in futureplans.md under Eval findings and next levers 2026-05-21: 1) definition-judge/canonicalizer precision [highest-leverage], 2) a corpus must be a SINGLE organization for results to be meaningful, 3) the pairwise contradiction detector is deprioritized on legal/contract prose. Background in MEMORY.md.'"
+            "command": "echo 'RESUME (contradictionchecker, as of 2026-05-25): Judge/extractor default to Moonshot/Kimi (kimi-k2.6); need MOONSHOT_API_KEY in a gitignored .env; run from repo root. PRs #60 #61 #62 #64 #65 all merged to main. --corpus is now REQUIRED on ingest/check/estimate-cost/export/store reidentify-orgs (interactive picker on TTY; consistency-check corpus list to see what is there). NEXT WORK = 3 verified follow-up bugs from PR #65 cross-task review (see project_pr64_pr65_followups_2026-05-25.md): (a) triangle/multi-party pass bypasses the corpus filter under --deep, (b) add_document INSERT OR IGNORE silently misroutes cross-corpus duplicates, (c) estimate_cost reverted PR #58 streaming OOM-protection. Atkins corpus is mid-flight from 2026-05-25; after a clean re-ingest under --corpus atkins, the test plan at ~/.claude/plans/i-ve-loaded-a-corpus-steady-curry.md is unblocked. Background in MEMORY.md.'"
           }
         ]
       }
