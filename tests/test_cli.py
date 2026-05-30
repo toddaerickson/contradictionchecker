@@ -893,7 +893,6 @@ def test_ingest_without_corpus_errors_in_non_tty(
 
 def test_ingest_with_corpus_persists(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Mirror existing ingest test fixtures. Confirm corpus_id is set on every doc."""
-    import consistency_checker.pipeline as pipeline_mod
     from consistency_checker.extract.atomic_facts import FixtureExtractor, OrgIdentification
 
     doc_path = tmp_path / "doc.txt"
@@ -906,7 +905,10 @@ def test_ingest_with_corpus_persists(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     fx = FixtureExtractor(
         {}, org_fixtures={("doc", "Atkins"): OrgIdentification("Atkins", "org_found")}
     )
-    monkeypatch.setattr(pipeline_mod, "make_extractor", lambda c: fx)
+    # cli.main does `from consistency_checker.pipeline import make_extractor`, so
+    # the symbol lives in cli.main's namespace; patching pipeline.make_extractor
+    # alone misses that binding.
+    monkeypatch.setattr("consistency_checker.cli.main.make_extractor", lambda c: fx)
 
     runner = CliRunner()
     res = runner.invoke(
