@@ -28,6 +28,29 @@ from consistency_checker.extract.schema import Assertion, Corpus, Document, hash
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 _MIGRATION_NAME = re.compile(r"^(\d{4})_.*\.sql$")
 
+
+class CrossCorpusDocumentError(ValueError):
+    """Raised when the same doc_id already exists under a different corpus.
+
+    ``doc_id`` is a content hash, so this only fires when the user tries to
+    ingest the same file (or byte-identical content) into corpus B when it
+    already lives in corpus A. The pre-PR behavior was a silent INSERT OR
+    IGNORE that left the doc in corpus A and reported success — operators
+    discovered the misroute only after the check run produced confusing
+    cross-corpus findings.
+    """
+
+    def __init__(self, *, doc_id: str, existing_corpus_id: str, requested_corpus_id: str) -> None:
+        self.doc_id = doc_id
+        self.existing_corpus_id = existing_corpus_id
+        self.requested_corpus_id = requested_corpus_id
+        super().__init__(
+            f"document {doc_id} already exists under corpus "
+            f"{existing_corpus_id}; refusing to silently misroute it to "
+            f"corpus {requested_corpus_id}"
+        )
+
+
 DEFAULT_EXPORT_COLUMNS: tuple[str, ...] = ("doc_id", "assertion_id", "assertion_text")
 _ALL_ASSERTION_COLUMNS: tuple[str, ...] = (
     "assertion_id",
@@ -160,8 +183,20 @@ class AssertionStore:
         if corpus_id is None:
             raise ValueError("corpus_id is required; pass --corpus <name> at the CLI")
         with self._conn:
+            existing = self._conn.execute(
+                "SELECT corpus_id FROM documents WHERE doc_id = ?", (doc.doc_id,)
+            ).fetchone()
+            if existing is not None:
+                existing_corpus_id = str(existing["corpus_id"])
+                if existing_corpus_id == corpus_id:
+                    return
+                raise CrossCorpusDocumentError(
+                    doc_id=doc.doc_id,
+                    existing_corpus_id=existing_corpus_id,
+                    requested_corpus_id=corpus_id,
+                )
             self._conn.execute(
-                "INSERT OR IGNORE INTO documents"
+                "INSERT INTO documents"
                 "(doc_id, source_path, title, doc_date, doc_type, metadata_json, "
                 "org_label, org_reason, corpus_id) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",

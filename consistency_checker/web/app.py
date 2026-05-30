@@ -32,7 +32,7 @@ from consistency_checker.config import Config, load_local_env
 from consistency_checker.corpus.chunker import chunk_document
 from consistency_checker.corpus.junk_filter import JunkAudit
 from consistency_checker.corpus.loader import load_path
-from consistency_checker.index.assertion_store import AssertionStore
+from consistency_checker.index.assertion_store import AssertionStore, CrossCorpusDocumentError
 from consistency_checker.index.embedder import Embedder, embed_pending
 from consistency_checker.index.faiss_store import FaissStore
 from consistency_checker.logging_setup import get_logger
@@ -1075,15 +1075,32 @@ def create_app(
         store, faiss_store, embedder_inst = _open_stores()
         try:
             extractor = _make_extractor()
-            n_assertions = _ingest_uploaded_paths(
-                saved,
-                store=store,
-                faiss_store=faiss_store,
-                embedder=embedder_inst,
-                extractor=extractor,
-                config=config,
-                corpus_id=corpus_id,
-            )
+            try:
+                n_assertions = _ingest_uploaded_paths(
+                    saved,
+                    store=store,
+                    faiss_store=faiss_store,
+                    embedder=embedder_inst,
+                    extractor=extractor,
+                    config=config,
+                    corpus_id=corpus_id,
+                )
+            except CrossCorpusDocumentError as err:
+                names_by_id = {c.corpus_id: c.corpus_name for c in store.list_corpora()}
+                existing_name = names_by_id.get(err.existing_corpus_id, err.existing_corpus_id)
+                requested_name = names_by_id.get(err.requested_corpus_id, err.requested_corpus_id)
+                # Drop the staged upload directory so we don't leak disk on
+                # rejected cross-corpus uploads; the user will re-upload after
+                # picking the right corpus.
+                shutil.rmtree(upload_dir, ignore_errors=True)
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"document {err.doc_id} already exists under corpus "
+                        f"'{existing_name}' and cannot be re-uploaded into corpus "
+                        f"'{requested_name}'."
+                    ),
+                ) from err
             audit = AuditLogger(store)
             is_first_check = audit.most_recent_run() is None
         finally:
