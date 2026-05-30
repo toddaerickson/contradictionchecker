@@ -24,7 +24,7 @@ from consistency_checker.config import Config
 from consistency_checker.extract.atomic_facts import FixtureExtractor
 from consistency_checker.extract.schema import Assertion, Document
 from consistency_checker.index.assertion_store import AssertionStore
-from tests.conftest import HashEmbedder
+from tests.conftest import HashEmbedder, strip_ansi
 
 
 def write_config(tmp_path: Path, corpus_dir: Path, *, judge_provider: str = "anthropic") -> Path:
@@ -887,7 +887,7 @@ def test_ingest_without_corpus_errors_in_non_tty(
     res = runner.invoke(app, ["ingest", str(tmp_path), "--config", str(cfg)])
     # The Click/Typer error message embeds "--corpus is required"
     assert res.exit_code != 0
-    out = (res.output or "") + str(res.exception or "")
+    out = strip_ansi((res.output or "") + str(res.exception or ""))
     assert "--corpus is required" in out
 
 
@@ -937,7 +937,7 @@ def test_check_without_corpus_errors_in_non_tty(
     runner = CliRunner()
     res = runner.invoke(app, ["check", "--config", str(cfg)])
     assert res.exit_code != 0
-    out = (res.output or "") + str(res.exception or "")
+    out = strip_ansi((res.output or "") + str(res.exception or ""))
     assert "--corpus is required" in out
 
 
@@ -1022,7 +1022,7 @@ def test_estimate_cost_without_corpus_errors_in_non_tty(
     runner = CliRunner()
     res = runner.invoke(app, ["estimate-cost", "--config", str(cfg)])
     assert res.exit_code != 0
-    out = (res.output or "") + str(res.exception or "")
+    out = strip_ansi((res.output or "") + str(res.exception or ""))
     assert "--corpus is required" in out
 
 
@@ -1038,7 +1038,7 @@ def test_export_without_corpus_errors_in_non_tty(
     runner = CliRunner()
     res = runner.invoke(app, ["export", "csv", "--config", str(cfg)])
     assert res.exit_code != 0
-    out = (res.output or "") + str(res.exception or "")
+    out = strip_ansi((res.output or "") + str(res.exception or ""))
     assert "--corpus is required" in out
 
 

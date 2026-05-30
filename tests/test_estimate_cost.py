@@ -12,7 +12,7 @@ from consistency_checker.index.assertion_store import AssertionStore
 from consistency_checker.index.embedder import embed_pending
 from consistency_checker.index.faiss_store import FaissStore
 from consistency_checker.pipeline import estimate_cost
-from tests.conftest import HashEmbedder
+from tests.conftest import HashEmbedder, strip_ansi
 
 
 @pytest.fixture
@@ -312,7 +312,7 @@ def test_estimate_cost_cli_without_corpus_errors_in_non_tty(tmp_path: Path) -> N
     runner = CliRunner()
     res = runner.invoke(app, ["estimate-cost", "--config", str(cfg)])
     assert res.exit_code != 0
-    out = (res.output or "") + str(res.exception or "")
+    out = strip_ansi((res.output or "") + str(res.exception or ""))
     assert "--corpus is required" in out
 
 

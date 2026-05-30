@@ -2,6 +2,8 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from tests.conftest import strip_ansi
+
 
 def test_reidentify_orgs_null_only_updates_null_rows(monkeypatch, tmp_path):
     from consistency_checker.cli.main import app
@@ -118,7 +120,7 @@ def test_reidentify_orgs_without_corpus_errors_in_non_tty(tmp_path: Path):
     runner = CliRunner()
     res = runner.invoke(app, ["store", "reidentify-orgs", "--db", str(db)])
     assert res.exit_code != 0
-    out = (res.output or "") + str(res.exception or "")
+    out = strip_ansi((res.output or "") + str(res.exception or ""))
     assert "--corpus is required" in out
 
 

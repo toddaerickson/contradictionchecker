@@ -1,5 +1,7 @@
 from typer.testing import CliRunner
 
+from tests.conftest import strip_ansi
+
 
 def test_corpus_list_shows_each_corpus_with_doc_count(tmp_path):
     from consistency_checker.cli.main import app
@@ -47,7 +49,7 @@ def test_corpus_delete_requires_yes_i_mean_it(tmp_path):
     runner = CliRunner()
     res = runner.invoke(app, ["corpus", "delete", "alpha", "--db", str(db)])
     assert res.exit_code != 0
-    out = res.output + str(res.exception or "")
+    out = strip_ansi(res.output + str(res.exception or ""))
     assert "--yes-i-mean-it" in out
 
     res2 = runner.invoke(app, ["corpus", "delete", "alpha", "--yes-i-mean-it", "--db", str(db)])
