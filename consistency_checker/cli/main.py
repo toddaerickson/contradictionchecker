@@ -210,12 +210,15 @@ def ingest(
     cfg = _load_config(config)
     cfg = cfg.model_copy(update={"corpus_dir": corpus_dir, "org_scope_enabled": org_scope})
     configure_logging(cfg.log_dir)
-    extractor = make_extractor(cfg)
-    embedder = make_embedder(cfg)
+    # Resolve --corpus first so a missing flag fails fast without doing the
+    # expensive extractor/embedder bootstrap (sentence-transformers download,
+    # Moonshot key check, etc.).
     store = _open_store(cfg)
-    faiss_store = _open_faiss(cfg, dim=embedder.dim)
     provider_for_corpus = _provider_for_corpus(cfg.judge_provider)
     corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
+    extractor = make_extractor(cfg)
+    embedder = make_embedder(cfg)
+    faiss_store = _open_faiss(cfg, dim=embedder.dim)
     result = run_ingest(
         cfg,
         store=store,
@@ -264,11 +267,13 @@ def check(
         cfg = cfg.model_copy(update={"enable_multi_party": True})
     cfg = cfg.model_copy(update={"org_scope_enabled": org_scope})
     configure_logging(cfg.log_dir)
-    _preflight_memory(cfg)
-    embedder = make_embedder(cfg)
+    # Resolve --corpus first so a missing flag fails fast without the
+    # sentence-transformers model load and OOM pre-flight.
     store = _open_store(cfg)
     provider_for_corpus = _provider_for_corpus(cfg.judge_provider)
     corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
+    _preflight_memory(cfg)
+    embedder = make_embedder(cfg)
     faiss_store = _open_faiss(cfg, dim=embedder.dim)
     _emit_corpus_warnings(store, cfg)
     audit_logger = AuditLogger(store)
