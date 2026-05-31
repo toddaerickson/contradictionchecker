@@ -240,3 +240,27 @@ def test_pairwise_enabled_env_override(tmp_path: Path) -> None:
     yml = write_yaml(tmp_path / "c.yml", {"corpus_dir": str(tmp_path / "corpus")})
     cfg = Config.from_yaml(yml, env={"CC_PAIRWISE_ENABLED": "true"})
     assert cfg.pairwise_enabled is True
+
+
+def test_max_cost_usd_defaults_none(tmp_path: Path) -> None:
+    yml = write_yaml(tmp_path / "c.yml", {"corpus_dir": str(tmp_path / "corpus")})
+    cfg = Config.from_yaml(yml, env={})
+    assert cfg.max_cost_usd is None
+
+
+def test_max_cost_usd_rejects_negative(tmp_path: Path) -> None:
+    yml = write_yaml(
+        tmp_path / "c.yml",
+        {"corpus_dir": str(tmp_path / "corpus"), "max_cost_usd": -1.0},
+    )
+    with pytest.raises(ValidationError):
+        Config.from_yaml(yml, env={})
+
+
+def test_max_cost_usd_accepts_zero(tmp_path: Path) -> None:
+    yml = write_yaml(
+        tmp_path / "c.yml",
+        {"corpus_dir": str(tmp_path / "corpus"), "max_cost_usd": 0.0},
+    )
+    cfg = Config.from_yaml(yml, env={})
+    assert cfg.max_cost_usd == 0.0

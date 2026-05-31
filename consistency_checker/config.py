@@ -136,6 +136,19 @@ class Config(BaseModel):
             "skip the pre-flight check entirely."
         ),
     )
+    max_cost_usd: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Hard ceiling on estimated API spend, in USD. When set, "
+            "`consistency-check check` runs `estimate_cost` as a pre-flight; if "
+            "the high-end projection exceeds this value, the run aborts before "
+            "any judge or NLI bootstrap. The ceiling uses the conservative "
+            "`est_cost_high` figure — real spend is typically 30-70% lower than "
+            "that projection, so the gate may reject runs that would have come "
+            "in under budget. Leave unset to disable. See ADR-0016."
+        ),
+    )
 
     @field_validator("corpus_dir", "data_dir", "log_dir", mode="before")
     @classmethod
