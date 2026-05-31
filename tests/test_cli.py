@@ -27,7 +27,13 @@ from consistency_checker.index.assertion_store import AssertionStore
 from tests.conftest import HashEmbedder, strip_ansi
 
 
-def write_config(tmp_path: Path, corpus_dir: Path, *, judge_provider: str = "anthropic") -> Path:
+def write_config(
+    tmp_path: Path,
+    corpus_dir: Path,
+    *,
+    judge_provider: str = "anthropic",
+    pairwise_enabled: bool = True,
+) -> Path:
     cfg_path = tmp_path / "config.yml"
     cfg_path.write_text(
         f"""
@@ -40,7 +46,7 @@ embedder_model: hash
 nli_model: fixture
 gate_similarity_threshold: -1.0
 nli_contradiction_threshold: 0.0
-pairwise_enabled: true
+pairwise_enabled: {str(pairwise_enabled).lower()}
 """.strip()
     )
     return cfg_path
@@ -356,6 +362,238 @@ def test_check_without_deep_flag_skips_multi_party_factory(
     assert result.exit_code == 0, result.stdout
     assert multi_party_calls == []
     assert "multi-party" not in result.stdout
+
+
+# --- Task 3: --pairwise/--no-pairwise tri-state + lazy NLI load -------------
+
+
+def test_check_no_pairwise_flag_disables_pairwise_when_config_on(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--no-pairwise`` skips NLI construction even when config has pairwise_enabled=True."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")  # pairwise_enabled: true
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    def fake_embedder(_cfg: Any) -> Any:
+        return HashEmbedder(dim=64)
+
+    def fake_judge(_cfg: Any) -> Any:
+        return FixtureJudge({})
+
+    class _ForbiddenNliFactory:
+        def __init__(self, model_name: str) -> None:
+            raise AssertionError("NLI should not be constructed when --no-pairwise")
+
+    monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
+    monkeypatch.setattr("consistency_checker.cli.main.make_judge", fake_judge)
+    monkeypatch.setattr(
+        "consistency_checker.check.nli_checker.TransformerNliChecker", _ForbiddenNliFactory
+    )
+
+    result = runner.invoke(
+        app, ["check", "--no-pairwise", "--corpus", "default", "--config", str(cfg_path)]
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "pairwise=off" in result.stdout
+
+
+def test_check_pairwise_flag_overrides_config_off(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--pairwise`` constructs NLI even when config has pairwise_enabled=False."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused", pairwise_enabled=False)
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    nli_calls: list[str | None] = []
+
+    def fake_embedder(_cfg: Any) -> Any:
+        return HashEmbedder(dim=64)
+
+    def fake_judge(_cfg: Any) -> Any:
+        return FixtureJudge({})
+
+    class _SpyNliFactory:
+        def __init__(self, model_name: str | None = None) -> None:
+            nli_calls.append(model_name)
+            self._inner = FixtureNliChecker({})
+
+        def score(self, premise: str, hypothesis: str) -> NliResult:
+            return self._inner.score(premise, hypothesis)
+
+        def release(self) -> None:
+            self._inner.release()
+
+    monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
+    monkeypatch.setattr("consistency_checker.cli.main.make_judge", fake_judge)
+    monkeypatch.setattr(
+        "consistency_checker.check.nli_checker.TransformerNliChecker", _SpyNliFactory
+    )
+
+    result = runner.invoke(
+        app, ["check", "--pairwise", "--corpus", "default", "--config", str(cfg_path)]
+    )
+    assert result.exit_code == 0, result.stdout
+    assert len(nli_calls) == 1
+    assert "gated" in result.stdout
+
+
+def test_check_omitted_respects_config(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No --pairwise flag → config value wins (pairwise_enabled=true → NLI built)."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")  # pairwise_enabled: true
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    nli_calls: list[str | None] = []
+
+    def fake_embedder(_cfg: Any) -> Any:
+        return HashEmbedder(dim=64)
+
+    def fake_judge(_cfg: Any) -> Any:
+        return FixtureJudge({})
+
+    class _SpyNliFactory:
+        def __init__(self, model_name: str | None = None) -> None:
+            nli_calls.append(model_name)
+            self._inner = FixtureNliChecker({})
+
+        def score(self, premise: str, hypothesis: str) -> NliResult:
+            return self._inner.score(premise, hypothesis)
+
+        def release(self) -> None:
+            self._inner.release()
+
+    monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
+    monkeypatch.setattr("consistency_checker.cli.main.make_judge", fake_judge)
+    monkeypatch.setattr(
+        "consistency_checker.check.nli_checker.TransformerNliChecker", _SpyNliFactory
+    )
+
+    result = runner.invoke(app, ["check", "--corpus", "default", "--config", str(cfg_path)])
+    assert result.exit_code == 0, result.stdout
+    assert len(nli_calls) == 1
+
+
+def test_check_deep_without_pairwise_rejected(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--deep --no-pairwise`` fails fast with a helpful BadParameter message."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--deep",
+            "--no-pairwise",
+            "--corpus",
+            "default",
+            "--config",
+            str(cfg_path),
+        ],
+    )
+    assert result.exit_code != 0
+    combined = (result.stdout or "") + (result.stderr or "") + str(result.exception or "")
+    assert "--deep requires" in combined
+
+
+def test_check_deep_with_pairwise_accepted(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--deep --pairwise`` is accepted and runs both passes."""
+    from consistency_checker.check.multi_party_judge import FixtureMultiPartyJudge
+
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    def fake_embedder(_cfg: Any) -> Any:
+        return HashEmbedder(dim=64)
+
+    def fake_judge(_cfg: Any) -> Any:
+        return FixtureJudge({})
+
+    def fake_multi_party_judge(_cfg: Any) -> Any:
+        return FixtureMultiPartyJudge({})
+
+    class _SpyNliFactory:
+        def __init__(self, model_name: str | None = None) -> None:
+            self._inner = FixtureNliChecker({})
+
+        def score(self, premise: str, hypothesis: str) -> NliResult:
+            return self._inner.score(premise, hypothesis)
+
+        def release(self) -> None:
+            self._inner.release()
+
+    monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
+    monkeypatch.setattr("consistency_checker.cli.main.make_judge", fake_judge)
+    monkeypatch.setattr(
+        "consistency_checker.cli.main.make_multi_party_judge", fake_multi_party_judge
+    )
+    monkeypatch.setattr(
+        "consistency_checker.check.nli_checker.TransformerNliChecker", _SpyNliFactory
+    )
+
+    result = runner.invoke(
+        app, ["check", "--deep", "--pairwise", "--corpus", "default", "--config", str(cfg_path)]
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "gated" in result.stdout
+    assert "multi-party" in result.stdout
+
+
+def test_estimate_cost_no_pairwise_flag_zeros_candidate_pairs(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``estimate-cost --no-pairwise`` reports 0 gated pairs and the disabled footnote."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    result = runner.invoke(
+        app,
+        [
+            "estimate-cost",
+            "--no-pairwise",
+            "--corpus",
+            "default",
+            "--config",
+            str(cfg_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "Stage A - gated pairs:        0" in result.stdout
+    assert "Pairwise detector disabled" in result.stdout
+
+
+def test_estimate_cost_pairwise_flag_includes_candidate_pairs(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``estimate-cost --pairwise`` exercises the FAISS scan and omits the disabled note."""
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused", pairwise_enabled=False)
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    result = runner.invoke(
+        app,
+        [
+            "estimate-cost",
+            "--pairwise",
+            "--corpus",
+            "default",
+            "--config",
+            str(cfg_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "Stage A - gated pairs:        0" not in result.stdout
+    assert "Pairwise detector disabled" not in result.stdout
 
 
 # --- report -----------------------------------------------------------------
