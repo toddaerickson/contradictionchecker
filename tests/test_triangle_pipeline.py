@@ -59,6 +59,7 @@ def _build_three_doc_store(
         nli_contradiction_threshold=0.0,
         triangle_weak_top_k=triangle_weak_top_k,
         triangle_weak_threshold=triangle_weak_threshold,
+        pairwise_enabled=True,
     )
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     store = AssertionStore(cfg.db_path)

@@ -17,6 +17,8 @@ from tests.conftest import HashEmbedder, strip_ansi
 
 @pytest.fixture
 def cfg(tmp_path: Path) -> Config:
+    # pairwise_enabled=True so the existing gate-counting tests continue to
+    # exercise the FAISS candidate path; ADR-0015 made False the global default.
     return Config(
         corpus_dir=tmp_path / "corpus",
         judge_provider="fixture",
@@ -26,6 +28,7 @@ def cfg(tmp_path: Path) -> Config:
         embedder_model="hash",
         nli_model="fixture",
         gate_similarity_threshold=-1.0,
+        pairwise_enabled=True,
     )
 
 
@@ -224,6 +227,7 @@ def test_estimate_cost_does_not_count_cross_corpus_pairs(tmp_path: Path) -> None
         embedder_model="hash",
         nli_model="fixture",
         gate_similarity_threshold=-1.0,
+        pairwise_enabled=True,
     )
 
     est_no_filter = estimate_cost(cfg_obj, store=store, faiss_store=faiss)
@@ -235,6 +239,27 @@ def test_estimate_cost_does_not_count_cross_corpus_pairs(tmp_path: Path) -> None
     # only one assertion, so no intra-corpus pairs).
     assert est_corpus_a.n_candidate_pairs == 0
     store.close()
+
+
+def test_estimate_cost_zero_candidate_pairs_when_pairwise_disabled(cfg: Config) -> None:
+    """ADR-0015: with pairwise_enabled=False the cost preview reports zero
+    candidate pairs (no FAISS scan), but still counts definition pairs."""
+    store, faiss = _seed_store(cfg)
+
+    cfg_off = cfg.model_copy(update={"pairwise_enabled": False})
+    cfg_on = cfg.model_copy(update={"pairwise_enabled": True})
+
+    est_off = estimate_cost(cfg_off, store=store, faiss_store=faiss)
+    est_on = estimate_cost(cfg_on, store=store, faiss_store=faiss)
+    store.close()
+
+    # Off: no candidate pairs, definition pairs unchanged, ceiling = def pairs.
+    assert est_off.n_candidate_pairs == 0
+    assert est_off.n_definition_pairs == 1
+    assert est_off.judge_calls_ceiling == est_off.n_definition_pairs
+    # On: candidate pairs come back; sanity-check against the off run.
+    assert est_on.n_candidate_pairs > 0
+    assert est_on.n_definition_pairs == est_off.n_definition_pairs
 
 
 def test_estimate_cost_excludes_cross_org_pairs_when_scope_enabled(cfg: Config) -> None:

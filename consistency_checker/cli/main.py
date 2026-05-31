@@ -34,6 +34,7 @@ from consistency_checker.audit.naming import (
     report_filename,
 )
 from consistency_checker.audit.report import render_report
+from consistency_checker.check.nli_checker import NliChecker
 from consistency_checker.cli.corpus_prompt import resolve_corpus
 from consistency_checker.cli.warnings import (
     render_corpus_warning,
@@ -288,28 +289,50 @@ def check(
         "--org-scope/--no-org-scope",
         help="Suppress cross-organization definition pairs and write them to the audit trail.",
     ),
+    pairwise: bool | None = typer.Option(
+        None,
+        "--pairwise/--no-pairwise",
+        help=(
+            "Run the pairwise contradiction detector (NLI gate + LLM judge). "
+            "Pass --pairwise to force on, --no-pairwise to force off, or omit "
+            "to use the config's pairwise_enabled value (shipped default: False "
+            "— see ADR-0015 for the eval data behind that default)."
+        ),
+    ),
 ) -> None:
     cfg = _load_config(config)
     if deep:
         cfg = cfg.model_copy(update={"enable_multi_party": True})
     cfg = cfg.model_copy(update={"org_scope_enabled": org_scope})
+    if pairwise is not None:
+        cfg = cfg.model_copy(update={"pairwise_enabled": pairwise})
+    if cfg.enable_multi_party and not cfg.pairwise_enabled:
+        raise typer.BadParameter(
+            "--deep requires the pairwise gate output. Re-run with --pairwise."
+        )
     configure_logging(cfg.log_dir)
     # Resolve --corpus first so a missing flag fails fast without the
     # sentence-transformers model load and OOM pre-flight.
     store = _open_store(cfg)
     provider_for_corpus = _provider_for_corpus(cfg.judge_provider)
     corpus_id = resolve_corpus(store, corpus, str(cfg.corpus_dir), provider_for_corpus)
-    _preflight_memory(cfg)
+    # OOM pre-flight gates the NLI download specifically, but the embedder
+    # load itself is ~400 MB sentence-transformers — run the check before that
+    # too, so a tight-memory machine bails before any model touches RAM. Skip
+    # entirely when pairwise is off (no NLI to protect).
+    if cfg.pairwise_enabled:
+        _preflight_memory(cfg)
     embedder = make_embedder(cfg)
     faiss_store = _open_faiss(cfg, dim=embedder.dim)
     _emit_corpus_warnings(store, cfg)
     audit_logger = AuditLogger(store)
 
-    # Lazy NLI import — keeps `ingest` fast when the model is not yet cached.
-    from consistency_checker.check.nli_checker import TransformerNliChecker
+    nli: NliChecker | None = None
+    if cfg.pairwise_enabled:
+        from consistency_checker.check.nli_checker import TransformerNliChecker
 
-    _warn_if_model_download_needed(cfg.nli_model or TransformerNliChecker.DEFAULT_MODEL)
-    nli = TransformerNliChecker(model_name=cfg.nli_model)
+        _warn_if_model_download_needed(cfg.nli_model or TransformerNliChecker.DEFAULT_MODEL)
+        nli = TransformerNliChecker(model_name=cfg.nli_model)
     judge = make_judge(cfg)
     multi_party = make_multi_party_judge(cfg) if cfg.enable_multi_party else None
     definition_checker = None if no_definitions else make_definition_checker(cfg)
@@ -327,6 +350,7 @@ def check(
             "enable_multi_party": cfg.enable_multi_party,
             "max_triangles_per_run": cfg.max_triangles_per_run,
             "definitions_enabled": not no_definitions,
+            "pairwise_enabled": cfg.pairwise_enabled,
         },
     )
     result = run_check(
@@ -353,11 +377,13 @@ def check(
         if not no_definitions
         else ""
     )
-    typer.echo(
-        f"Run {result.run_id} — "
+    pairwise_summary = (
         f"{result.n_pairs_gated} gated / {result.n_pairs_judged} judged / "
-        f"{result.n_findings} contradictions{deep_suffix}{def_suffix}"
+        f"{result.n_findings} contradictions"
+        if cfg.pairwise_enabled
+        else "pairwise=off"
     )
+    typer.echo(f"Run {result.run_id} — {pairwise_summary}{deep_suffix}{def_suffix}")
 
 
 # --- estimate-cost ----------------------------------------------------------
@@ -384,8 +410,19 @@ def estimate_cost(
         "--per-call-high",
         help="High end of per-judge-call cost in USD; override to match your model.",
     ),
+    pairwise: bool | None = typer.Option(
+        None,
+        "--pairwise/--no-pairwise",
+        help=(
+            "Include the pairwise candidate-pair count. Pass --pairwise to "
+            "force on, --no-pairwise to force off, or omit to use the config's "
+            "pairwise_enabled value. When off, Stage A gated pairs is 0."
+        ),
+    ),
 ) -> None:
     cfg = _load_config(config)
+    if pairwise is not None:
+        cfg = cfg.model_copy(update={"pairwise_enabled": pairwise})
     store = _open_store(cfg)
     # `dim=None` reads the dimension from the existing FAISS index. This
     # skips the sentence-transformers model load that `make_embedder` would
@@ -413,6 +450,16 @@ def estimate_cost(
         corpus_id=corpus_id,
     )
     store.close()
+    if cfg.pairwise_enabled:
+        footnote = (
+            "   varies by model + prompt size. This is a CEILING - many gate-pass\n"
+            "   pairs are filtered by NLI before reaching the judge, so real spend\n"
+            "   is usually 30-70% lower.)"
+        )
+    else:
+        footnote = (
+            "   Pairwise detector disabled — Stage A count is 0. Pass --pairwise to include it.)"
+        )
     typer.echo(
         "Run cost estimate\n"
         f"  Assertions in store:          {est.n_assertions}\n"
@@ -422,9 +469,7 @@ def estimate_cost(
         "\n"
         f"  Estimated API cost:  ${est.est_cost_low:.2f} to ${est.est_cost_high:.2f}\n"
         f"  (assumes ${est.per_call_low:.3f} to ${est.per_call_high:.3f} per judge call;\n"
-        "   varies by model + prompt size. This is a CEILING - many gate-pass\n"
-        "   pairs are filtered by NLI before reaching the judge, so real spend\n"
-        "   is usually 30-70% lower.)"
+        + footnote
     )
 
 

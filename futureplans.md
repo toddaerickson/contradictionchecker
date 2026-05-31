@@ -6,7 +6,7 @@ Forward-looking work beyond the v0.3 release. Items are sized roughly; pick from
 
 Real-corpus eval (3 nonprofit-bylaws PDFs + an earlier loan/partnership corpus, Moonshot/Kimi judge) produced three decisions that should steer the next milestone pick. No ground truth — these are operating-point observations, not precision/recall.
 
-1. **Pairwise contradiction detector is low-yield on legal/contract prose — deprioritize.** Full funnel on a real partnership/loan corpus (3,416 assertions → 901 candidate pairs → 254 NLI-flagged) yielded **1** borderline, non-reproducing "contradiction" (kimi non-deterministic; 22/24 borderline pairs flipped verdict across re-runs). Adding containing-sentence context made the judge confidently find **zero**. The judge is competent; the detector just earns ~nothing on prose at high compute cost. Lean into definition-inconsistency + the obligation/date-conflict and cross-reference detectors (items #20/#20a) instead.
+1. **Pairwise contradiction detector low-yield on legal/contract prose — flipped to opt-in (shipped 2026-05-31, see Completed).** Original observation retained for provenance: full funnel on a real partnership/loan corpus (3,416 assertions → 901 candidate pairs → 254 NLI-flagged) yielded **1** borderline, non-reproducing "contradiction" (kimi non-deterministic; 22/24 borderline pairs flipped verdict across re-runs). Adding containing-sentence context made the judge confidently find **zero**. The judge is competent; the detector just earns ~nothing on prose at high compute cost. Lean into definition-inconsistency + the obligation/date-conflict and cross-reference detectors (items #20/#20a) instead.
 
 2. **PDF junk filter shipped (PR #61) and validated — but it only fixed the extraction-noise slice.** It removed dot-leaders / page-numbers / cross-reference "definitions" (bylaws corpus: 158→84 definitions, 93→24 same-term pairs, zero junk fragments reaching the judge). Definition-divergent rate fell only **84%→75%** because the residual is NOT extraction noise.
 
@@ -263,6 +263,20 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
 ## Completed
 
 (Move items here as they ship, keep a one-line note on which release.)
+
+- **Pairwise contradiction detector flipped to opt-in (2026-05-31)**
+  Branch: `feat/pairwise-opt-in`. ADR-0015. Plan:
+  `docs/superpowers/plans/2026-05-31-pairwise-opt-in.md`.
+  `Config.pairwise_enabled` defaults to `False`; tri-state CLI
+  `--pairwise / --no-pairwise` on `check` and `estimate-cost`; pipeline
+  and web entrypoints skip the NLI model load entirely when pairwise is
+  off (no ~800 MB download, no ~600 MB RSS, `max_memory_mb` pre-flight
+  skipped); `--deep` without `--pairwise` rejected as a config error;
+  `estimate_cost` reports `n_candidate_pairs=0` when pairwise is off.
+  Resolves the "low-yield on legal/contract prose" finding recorded in
+  the Eval findings & next levers (2026-05-21) section above. Code path
+  retained — flipping the default back is one line if a future eval on a
+  numeric/spec corpus reverses the call.
 
 - **OCR fallback for scanned PDFs (2026-05-31)**
   Auto-escalates fast-strategy PDF extraction to hi_res (Tesseract via

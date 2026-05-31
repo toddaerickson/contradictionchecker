@@ -36,7 +36,7 @@ The tool needs outbound HTTPS to:
 | Host | Why | When |
 |------|-----|------|
 | `api.anthropic.com` | LLM judge + extraction calls | Every `check` / `ingest` run |
-| `huggingface.co` and `cdn-lfs.huggingface.co` | DeBERTa NLI model download (~440 MB default, ~1.5 GB if you opt up to large) | First `check` run only; cached afterwards in `~/.cache/huggingface/` |
+| `huggingface.co` and `cdn-lfs.huggingface.co` | DeBERTa NLI model download (~440 MB default, ~1.5 GB if you opt up to large) | Only when the pairwise detector is enabled (`--pairwise` or `pairwise_enabled: true` — off by default per ADR-0015). First `check --pairwise` run only; cached afterwards in `~/.cache/huggingface/` |
 | `api.openai.com` (optional) | LLM judge if `judge_provider: openai` | If using OpenAI instead of Anthropic |
 
 Validate from the corp machine before installing:
@@ -50,11 +50,14 @@ If either fails, you need a corporate proxy (`HTTPS_PROXY`,
 `HTTP_PROXY`, `NO_PROXY`) configured, or an exception ticket with
 network/security. The Hugging Face download is the most likely to be
 blocked — large binary egress to a cloud CDN is exactly the pattern
-corp DLP rules target.
+corp DLP rules target. Note: with pairwise off by default (ADR-0015),
+this egress is only required if you plan to run `check --pairwise`;
+default `check` runs do not touch Hugging Face.
 
 **Workaround for blocked Hugging Face egress:** download the NLI model
-once from a permitted machine, then copy the contents of
-`~/.cache/huggingface/hub/models--<model-name>` to the corp machine.
+once from a permitted machine (run `check --pairwise` there once),
+then copy the contents of `~/.cache/huggingface/hub/models--<model-name>`
+to the corp machine.
 
 ---
 
@@ -148,17 +151,19 @@ the only remaining unknowns are network egress + API credentials.
 
 ## 4.5 Memory budget
 
-`check` loads two large models into the same process:
+`check --pairwise` loads two large models into the same process; default
+`check` (pairwise off per ADR-0015) skips the NLI model entirely:
 
 | Component | Resident RSS |
 |-----------|--------------|
-| `DeBERTa-v3-base-mnli-fever-anli` (NLI, default) | ~0.6 GB |
+| `DeBERTa-v3-base-mnli-fever-anli` (NLI, only when `--pairwise` is enabled) | ~0.6 GB |
 | `all-mpnet-base-v2` (embedder, ingest stage) | ~0.5 GB |
 | Python / sqlite / faiss baseline | ~0.3 GB |
-| **Estimated peak `check` RSS (default)** | **~1.4 GB** |
+| **Estimated peak `check --pairwise` RSS (default NLI model)** | **~1.4 GB** |
+| **Estimated peak default `check` RSS (definitions only)** | **~0.8 GB** |
 
 If you opt up to `DeBERTa-v3-large-mnli-fever-anli-ling-wanli` for max recall,
-add ~1.5 GB to peak (≈ 2.5–2.8 GB total).
+add ~1.5 GB to peak (≈ 2.5–2.8 GB total) when running with `--pairwise`.
 
 Recommended floors:
 
@@ -183,9 +188,11 @@ Pre-flight guardrail:
 max_memory_mb: 3000
 ```
 
-When set, `check` aborts before the NLI model loads if `MemAvailable` is below
-the threshold, with a clear message instead of an OOM crash. Leave unset to
-skip the check (you'll get a soft warning if available memory looks low).
+When set, `check --pairwise` aborts before the NLI model loads if `MemAvailable`
+is below the threshold, with a clear message instead of an OOM crash. The
+pre-flight is **skipped** entirely when pairwise is off (the dominant memory
+consumer doesn't load). Leave unset to skip the check unconditionally (you'll
+get a soft warning if available memory looks low).
 
 If you need maximum gate recall and have headroom, swap up to the large model:
 
@@ -233,10 +240,11 @@ uv run consistency-check serve --open
 
 First-run gotchas to expect:
 
-- **~440 MB NLI model download** on the first `check` — visible as a
-  long pause. The CLI now prints a one-line warning before the
+- **~440 MB NLI model download** on the first `check --pairwise` — visible
+  as a long pause. The CLI now prints a one-line warning before the
   download so you don't suspect a hang. (Larger if you opted up to
-  `DeBERTa-v3-large`: ~1.5 GB.)
+  `DeBERTa-v3-large`: ~1.5 GB.) Default `check` runs (pairwise off per
+  ADR-0015) skip this download entirely.
 - **Web UI binds to `127.0.0.1:8000` by default.** Corp browsers
   usually allow loopback; if not, switch ports or open the markdown
   report instead.
@@ -249,10 +257,18 @@ First-run gotchas to expect:
 
 ## 7. Operational hygiene
 
+- **`uv run consistency-check check --pairwise`** enables the pairwise
+  contradiction detector (NLI gate → LLM judge). Off by default per
+  ADR-0015 — own-corpus eval on legal prose showed near-zero useful yield
+  at high compute cost. Re-enable on numeric- or spec-heavy corpora where
+  outright sign flips and quantity disagreements live.
 - **`uv run consistency-check check --no-definitions`** disables the
-  definition-inconsistency detector if you only want contradictions.
-- **`uv run consistency-check check --deep`** enables the three-document
-  conditional contradiction pass. Roughly 1.5× to 2× the API spend.
+  definition-inconsistency detector if you only want contradictions
+  (and only makes sense paired with `--pairwise`).
+- **`uv run consistency-check check --pairwise --deep`** enables the
+  three-document conditional contradiction pass. Roughly 1.5× to 2× the
+  pairwise API spend; `--deep` shares the pairwise NLI gate, so
+  `--deep` without `--pairwise` is rejected.
 - **The audit SQLite DB** under `data_dir/store/` retains every judge
   verdict (including `uncertain` rows hidden from reports). Back it
   up before re-running on the same corpus if you care about

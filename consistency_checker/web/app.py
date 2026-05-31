@@ -748,14 +748,20 @@ def create_app(
             )
             audit_logger = AuditLogger(store)
             try:
-                if nli_checker is None:
-                    from consistency_checker.check.nli_checker import (
-                        TransformerNliChecker,
-                    )
+                # ADR-0015: only construct the NLI checker when the pairwise
+                # pass is enabled. Skipping it avoids the ~800 MB model
+                # download / RSS hit for operators who only want the
+                # definition pass.
+                nli_inst: NliChecker | None = None
+                if config.pairwise_enabled:
+                    if nli_checker is None:
+                        from consistency_checker.check.nli_checker import (
+                            TransformerNliChecker,
+                        )
 
-                    nli_inst: NliChecker = TransformerNliChecker(model_name=config.nli_model)
-                else:
-                    nli_inst = nli_checker
+                        nli_inst = TransformerNliChecker(model_name=config.nli_model)
+                    else:
+                        nli_inst = nli_checker
                 if judge is None:
                     from consistency_checker.pipeline import make_judge
 
@@ -815,6 +821,15 @@ def create_app(
             ).fetchone()
             if row is None:
                 raise HTTPException(status_code=400, detail=f"corpus_id {corpus_id!r} not found")
+            if deep and not config.pairwise_enabled:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "'deep' (multi-party) requires the pairwise gate output. "
+                        "Enable pairwise_enabled in the server config or do not "
+                        "select 'deep'."
+                    ),
+                )
             run_id = audit.begin_run(
                 config={
                     "deep": deep,
@@ -822,6 +837,7 @@ def create_app(
                     "nli_model": config.nli_model,
                     "judge_provider": config.judge_provider,
                     "judge_model": config.judge_model,
+                    "pairwise_enabled": config.pairwise_enabled,
                 },
                 run_status="pending",
                 corpus_id=corpus_id,

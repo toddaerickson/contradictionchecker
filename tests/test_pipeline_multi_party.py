@@ -42,6 +42,7 @@ def three_doc_store(tmp_path: Path) -> tuple[Config, AssertionStore, FaissStore,
         gate_top_k=10,
         gate_similarity_threshold=-1.0,
         nli_contradiction_threshold=0.0,
+        pairwise_enabled=True,
     )
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     store = AssertionStore(cfg.db_path)
@@ -197,6 +198,7 @@ def test_check_respects_max_triangles_per_run(tmp_path: Path) -> None:
         gate_similarity_threshold=-1.0,
         nli_contradiction_threshold=0.0,
         max_triangles_per_run=0,
+        pairwise_enabled=True,
     )
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     store = AssertionStore(cfg.db_path)

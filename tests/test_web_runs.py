@@ -25,7 +25,7 @@ from consistency_checker.web.app import create_app
 from tests.conftest import HashEmbedder
 
 
-def _config(tmp_path: Path) -> Config:
+def _config(tmp_path: Path, *, pairwise_enabled: bool = True) -> Config:
     return Config(
         corpus_dir=tmp_path / "corpus",
         judge_provider="fixture",
@@ -36,6 +36,7 @@ def _config(tmp_path: Path) -> Config:
         nli_model="fixture",
         gate_similarity_threshold=-1.0,
         nli_contradiction_threshold=0.0,
+        pairwise_enabled=pairwise_enabled,
     )
 
 
@@ -162,3 +163,84 @@ def test_post_runs_deep_propagates_to_pipeline(
     assert run is not None
     assert run.config_json is not None
     assert '"deep": true' in run.config_json
+
+
+# --- ADR-0015: pairwise opt-in -------------------------------------------
+
+
+def test_run_check_skips_nli_when_pairwise_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When config.pairwise_enabled=False, the background task must NOT
+    construct TransformerNliChecker. We monkeypatch its __init__ to raise
+    — the run should still complete cleanly."""
+    cfg = _config(tmp_path, pairwise_enabled=False)
+    corpus_id = _seed_store(cfg)
+
+    def _boom(self: object, *args: object, **kwargs: object) -> None:
+        raise AssertionError("TransformerNliChecker must not be constructed")
+
+    monkeypatch.setattr(
+        "consistency_checker.check.nli_checker.TransformerNliChecker.__init__",
+        _boom,
+    )
+
+    # Pass no nli_checker — the gate in _run_check_in_background must skip
+    # constructing one entirely.
+    app = create_app(
+        cfg,
+        extractor=FixtureExtractor({}),
+        embedder=HashEmbedder(dim=64),
+        judge=FixtureJudge({}),
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/runs", data={"deep": "false", "corpus_id": corpus_id}, follow_redirects=False
+    )
+    assert response.status_code == 303
+    run_id = response.headers["location"].rsplit("=", 1)[1]
+
+    store = AssertionStore(cfg.db_path)
+    logger = AuditLogger(store)
+    run = logger.get_run(run_id)
+    store.close()
+    assert run is not None
+    assert run.run_status == "done"
+
+
+def test_post_runs_rejects_deep_without_pairwise(tmp_path: Path) -> None:
+    """deep=True under pairwise_enabled=False must 400 BEFORE creating a
+    run row, with a message that names the config knob to flip."""
+    cfg = _config(tmp_path, pairwise_enabled=False)
+    corpus_id = _seed_store(cfg)
+    app = create_app(
+        cfg,
+        extractor=FixtureExtractor({}),
+        embedder=HashEmbedder(dim=64),
+        judge=FixtureJudge({}),
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/runs", data={"deep": "true", "corpus_id": corpus_id}, follow_redirects=False
+    )
+    assert response.status_code == 400
+    body = response.json()
+    assert "pairwise_enabled" in body["detail"]
+    # No phantom run row created.
+    store = AssertionStore(cfg.db_path)
+    logger = AuditLogger(store)
+    assert logger.most_recent_run() is None
+    store.close()
+
+
+def test_post_runs_accepts_deep_with_pairwise(
+    hermetic_client: tuple[TestClient, Config, str],
+) -> None:
+    """When pairwise_enabled=True (default for hermetic_client), deep=true
+    is accepted as before."""
+    client, _cfg, corpus_id = hermetic_client
+    response = client.post(
+        "/runs", data={"deep": "true", "corpus_id": corpus_id}, follow_redirects=False
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/tabs/stats?run_id=")
