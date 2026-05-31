@@ -110,6 +110,29 @@ class CostEstimate:
     per_call_high: float
 
 
+class CostCeilingExceeded(Exception):
+    """Raised by :func:`check` when the pre-flight cost estimate exceeds
+    :attr:`Config.max_cost_usd`.
+
+    Attributes:
+        estimated_high: The high-end ``est_cost_high`` from :func:`estimate_cost`.
+        ceiling: The ``Config.max_cost_usd`` value the estimate exceeded.
+
+    The CLI catches this to produce a non-traceback error message. Library
+    callers can read both attributes to surface a user-facing diagnostic.
+    """
+
+    def __init__(self, *, estimated_high: float, ceiling: float) -> None:
+        self.estimated_high = estimated_high
+        self.ceiling = ceiling
+        super().__init__(str(self))
+
+    def __str__(self) -> str:
+        return (
+            f"Estimated cost ${self.estimated_high:.4f} exceeds max_cost_usd ${self.ceiling:.4f}."
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class CheckResult:
     run_id: str
@@ -495,6 +518,22 @@ def check(
         raise ValueError(
             "--deep requires --pairwise; cannot run multi-party pass without the pairwise gate"
         )
+
+    # ADR-0016: pre-flight cost ceiling. Runs BEFORE update_run_status so an
+    # aborted run is never marked "running" in the audit DB (the CLI's
+    # begin_run leaves it "pending"; this preserves that).
+    if config.max_cost_usd is not None:
+        pre_estimate = estimate_cost(
+            config,
+            store=store,
+            faiss_store=faiss_store,
+            corpus_id=corpus_id,
+        )
+        if pre_estimate.est_cost_high > config.max_cost_usd:
+            raise CostCeilingExceeded(
+                estimated_high=pre_estimate.est_cost_high,
+                ceiling=config.max_cost_usd,
+            )
 
     audit_logger.update_run_status(run_id, "running")
 

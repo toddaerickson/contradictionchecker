@@ -26,7 +26,12 @@ from consistency_checker.extract.schema import Assertion, Document
 from consistency_checker.index.assertion_store import AssertionStore
 from consistency_checker.index.embedder import embed_pending
 from consistency_checker.index.faiss_store import FaissStore
-from consistency_checker.pipeline import check, default_per_call_costs, make_judge
+from consistency_checker.pipeline import (
+    CostCeilingExceeded,
+    check,
+    default_per_call_costs,
+    make_judge,
+)
 from tests.conftest import HashEmbedder
 
 
@@ -251,3 +256,199 @@ def test_default_per_call_costs_moonshot() -> None:
 
 def test_default_per_call_costs_fixture() -> None:
     assert default_per_call_costs("fixture") == (0.0, 0.0)
+
+
+# --- Task 3: pre-flight cost ceiling (ADR-0016) ----------------------------
+
+
+def _seed_def_pair_store(
+    tmp_path: Path,
+) -> tuple[AssertionStore, FaissStore, str, tuple[str, str]]:
+    """Seed two MAE definitions so the definition pass yields ≥1 pair.
+
+    Pairwise is disabled in these tests so we don't need NLI-friendly
+    assertions; the definition pair alone drives the cost projection.
+    """
+    store = AssertionStore(tmp_path / "store.db")
+    store.migrate()
+    cid = store.get_or_create_corpus("test", "/test", "anthropic")
+    doc_a = Document(doc_id="docA", source_path="/A.txt")
+    doc_b = Document(doc_id="docB", source_path="/B.txt")
+    store.add_document(doc_a, corpus_id=cid)
+    store.add_document(doc_b, corpus_id=cid)
+    d1 = Assertion.build(
+        "docA", '"MAE" means A.', kind="definition", term="MAE", definition_text="A"
+    )
+    d2 = Assertion.build(
+        "docB", '"MAE" means B.', kind="definition", term="MAE", definition_text="B"
+    )
+    store.add_assertions([d1, d2])
+
+    embedder = HashEmbedder(dim=64)
+    (tmp_path / "store").mkdir(parents=True, exist_ok=True)
+    faiss = FaissStore.open_or_create(
+        index_path=tmp_path / "store" / "faiss.idx",
+        id_map_path=tmp_path / "store" / "faiss.idmap.json",
+        dim=embedder.dim,
+    )
+    embed_pending(store, faiss, embedder)
+    return store, faiss, cid, (d1.assertion_id, d2.assertion_id)
+
+
+def _cost_ceiling_config(tmp_path: Path) -> Config:
+    """Base config for cost-ceiling tests — pairwise disabled to keep the
+    projection driven solely by the definition pair count."""
+    return Config(
+        corpus_dir=tmp_path / "corpus",
+        judge_provider="fixture",
+        judge_model="test",
+        data_dir=tmp_path / "store",
+        log_dir=tmp_path / "logs",
+        embedder_model="hash",
+        nli_model="fixture",
+        gate_similarity_threshold=-1.0,
+        pairwise_enabled=False,
+    )
+
+
+def _def_fixture_checker(key: tuple[str, str]) -> DefinitionChecker:
+    verdict = DefinitionJudgeVerdict(
+        assertion_a_id=key[0],
+        assertion_b_id=key[1],
+        verdict="definition_divergent",
+        confidence=0.9,
+        rationale="A vs B",
+        evidence_spans=["A", "B"],
+    )
+    return DefinitionChecker(judge=FixtureDefinitionJudge({key: verdict}))
+
+
+def test_check_aborts_when_estimate_exceeds_max_cost(tmp_path: Path) -> None:
+    """max_cost_usd lower than the high-end projection aborts the run,
+    and the audit row stays in 'pending' (never marked 'running')."""
+    store, faiss, cid, (d_a, d_b) = _seed_def_pair_store(tmp_path)
+    cfg = _cost_ceiling_config(tmp_path).model_copy(
+        update={"max_cost_usd": 0.001, "judge_provider": "anthropic"}
+    )
+    logger = AuditLogger(store)
+    run_id = logger.begin_run(run_status="pending")
+    key = (min(d_a, d_b), max(d_a, d_b))
+    def_checker = _def_fixture_checker(key)
+
+    with pytest.raises(CostCeilingExceeded) as excinfo:
+        check(
+            cfg,
+            store=store,
+            faiss_store=faiss,
+            nli_checker=None,
+            judge=FixtureJudge({}),
+            audit_logger=logger,
+            definition_checker=def_checker,
+            run_id=run_id,
+            corpus_id=cid,
+        )
+
+    assert excinfo.value.ceiling == 0.001
+    # Anthropic per-call high = 0.010, one definition pair → est_cost_high = 0.010.
+    assert excinfo.value.estimated_high >= 0.010
+    # Critical: no run-status update fired — the row is still 'pending'.
+    run = logger.get_run(run_id)
+    assert run is not None
+    assert run.run_status == "pending"
+    store.close()
+
+
+def test_check_runs_when_estimate_under_max_cost(tmp_path: Path) -> None:
+    """max_cost_usd above the projection lets the run complete normally."""
+    store, faiss, cid, (d_a, d_b) = _seed_def_pair_store(tmp_path)
+    cfg = _cost_ceiling_config(tmp_path).model_copy(
+        update={"max_cost_usd": 1000.0, "judge_provider": "anthropic"}
+    )
+    logger = AuditLogger(store)
+    run_id = logger.begin_run(run_status="pending")
+    key = (min(d_a, d_b), max(d_a, d_b))
+    def_checker = _def_fixture_checker(key)
+
+    result = check(
+        cfg,
+        store=store,
+        faiss_store=faiss,
+        nli_checker=None,
+        judge=FixtureJudge({}),
+        audit_logger=logger,
+        definition_checker=def_checker,
+        run_id=run_id,
+        corpus_id=cid,
+    )
+
+    assert result.n_definition_pairs_judged >= 1
+    run = logger.get_run(run_id)
+    assert run is not None
+    assert run.run_status == "done"
+    store.close()
+
+
+def test_check_raises_when_max_cost_zero_and_pairs_exist(tmp_path: Path) -> None:
+    """max_cost_usd=0.0 with a non-fixture provider + ≥ 1 pair aborts.
+
+    'Spend exactly nothing' is a valid signal — the high-end projection is
+    0.010 (one anthropic pair) which strictly exceeds 0.0.
+    """
+    store, faiss, cid, (d_a, d_b) = _seed_def_pair_store(tmp_path)
+    cfg = _cost_ceiling_config(tmp_path).model_copy(
+        update={"max_cost_usd": 0.0, "judge_provider": "anthropic"}
+    )
+    logger = AuditLogger(store)
+    run_id = logger.begin_run(run_status="pending")
+    key = (min(d_a, d_b), max(d_a, d_b))
+    def_checker = _def_fixture_checker(key)
+
+    with pytest.raises(CostCeilingExceeded):
+        check(
+            cfg,
+            store=store,
+            faiss_store=faiss,
+            nli_checker=None,
+            judge=FixtureJudge({}),
+            audit_logger=logger,
+            definition_checker=def_checker,
+            run_id=run_id,
+            corpus_id=cid,
+        )
+    run = logger.get_run(run_id)
+    assert run is not None
+    assert run.run_status == "pending"
+    store.close()
+
+
+def test_check_no_ceiling_when_max_cost_usd_none(tmp_path: Path) -> None:
+    """max_cost_usd=None (default): no pre-flight, no exception even if the
+    projection would otherwise blow past any sane budget."""
+    store, faiss, cid, (d_a, d_b) = _seed_def_pair_store(tmp_path)
+    # Default config (max_cost_usd unset) with the expensive anthropic provider
+    # plus a definition pair: would project $0.010 — well above $0.001 — but
+    # with no ceiling set, the run should still complete.
+    cfg = _cost_ceiling_config(tmp_path).model_copy(update={"judge_provider": "anthropic"})
+    assert cfg.max_cost_usd is None
+    logger = AuditLogger(store)
+    run_id = logger.begin_run(run_status="pending")
+    key = (min(d_a, d_b), max(d_a, d_b))
+    def_checker = _def_fixture_checker(key)
+
+    result = check(
+        cfg,
+        store=store,
+        faiss_store=faiss,
+        nli_checker=None,
+        judge=FixtureJudge({}),
+        audit_logger=logger,
+        definition_checker=def_checker,
+        run_id=run_id,
+        corpus_id=cid,
+    )
+
+    assert result.n_definition_pairs_judged >= 1
+    run = logger.get_run(run_id)
+    assert run is not None
+    assert run.run_status == "done"
+    store.close()
