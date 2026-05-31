@@ -1109,6 +1109,41 @@ def test_report_infers_corpus_from_run_when_not_specified(tmp_path: Path) -> Non
     assert out.exists()
 
 
+def test_ingest_no_ocr_flag_disables_ocr(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """``--no-ocr`` propagates to ``config.ocr_enabled=False`` before ingest runs."""
+    from consistency_checker.extract.atomic_facts import FixtureExtractor, OrgIdentification
+
+    doc_path = tmp_path / "doc.txt"
+    doc_path.write_text("Atkins bylaws text", encoding="utf-8")
+    cfg_path = tmp_path / "config.yml"
+    cfg_path.write_text(
+        f"corpus_dir: {tmp_path}\ndata_dir: {tmp_path}\njudge_provider: moonshot\n",
+        encoding="utf-8",
+    )
+    fx = FixtureExtractor(
+        {}, org_fixtures={("doc", "Atkins"): OrgIdentification("Atkins", "org_found")}
+    )
+    monkeypatch.setattr("consistency_checker.cli.main.make_extractor", lambda c: fx)
+
+    captured: dict[str, Any] = {}
+
+    def fake_ingest(config: Any, **kwargs: Any) -> Any:
+        captured["ocr_enabled"] = config.ocr_enabled
+        from consistency_checker.pipeline import IngestResult
+
+        return IngestResult(n_documents=0, n_chunks=0, n_assertions=0, n_embedded=0)
+
+    monkeypatch.setattr("consistency_checker.cli.main.run_ingest", fake_ingest)
+
+    runner = CliRunner()
+    res = runner.invoke(
+        app,
+        ["ingest", str(tmp_path), "--config", str(cfg_path), "--corpus", "atkins", "--no-ocr"],
+    )
+    assert res.exit_code == 0, res.output
+    assert captured["ocr_enabled"] is False
+
+
 def test_report_errors_when_corpus_mismatches_run(tmp_path: Path) -> None:
     """report --corpus <other> that differs from run's corpus_id must error."""
     from consistency_checker.audit.logger import AuditLogger
