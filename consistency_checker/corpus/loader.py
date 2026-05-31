@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Protocol
 
 from consistency_checker.corpus.junk_filter import JunkAudit, is_junk_line
-from consistency_checker.corpus.ocr import OcrAudit, needs_ocr
+from consistency_checker.corpus.ocr import OcrAudit, looks_empty, needs_ocr
 from consistency_checker.extract.schema import Document
 from consistency_checker.logging_setup import get_logger
 
@@ -123,16 +123,16 @@ class UnstructuredLoader:
         *,
         drop_junk_lines: bool,
         audit: JunkAudit | None,
-        ocr_enabled: bool | None = None,
-        ocr_audit: OcrAudit | None = None,
+        ocr_enabled: bool,
+        ocr_audit: OcrAudit | None,
     ) -> UnstructuredLoader:
-        """Return a copy with junk-filter settings overridden (strategy preserved)."""
+        """Return a copy with junk-filter and OCR settings overridden (strategy preserved)."""
         return UnstructuredLoader(
             strategy=self._strategy,
             drop_junk_lines=drop_junk_lines,
             audit=audit,
-            ocr_enabled=self._ocr_enabled if ocr_enabled is None else ocr_enabled,
-            ocr_audit=ocr_audit if ocr_audit is not None else self._ocr_audit,
+            ocr_enabled=ocr_enabled,
+            ocr_audit=ocr_audit,
         )
 
     def __call__(self, path: Path) -> LoadedDocument:
@@ -142,8 +142,15 @@ class UnstructuredLoader:
         elements = partition(filename=str(path), strategy=self._strategy)
         full_text, element_spans = self._build_text_and_spans(elements, path)
 
-        # OCR fallback: re-partition with hi_res when fast looks empty.
-        if self._ocr_enabled and self._strategy == "fast" and path.suffix.lower() == ".pdf":
+        # OCR fallback: re-partition with hi_res when fast looks empty. Cheap
+        # alpha-count check first so text-native PDFs don't pay for pypdf +
+        # stat probes they'll never need.
+        if (
+            self._ocr_enabled
+            and self._strategy == "fast"
+            and path.suffix.lower() == ".pdf"
+            and looks_empty(full_text)
+        ):
             page_count = _pdf_page_count(path)
             try:
                 file_size = path.stat().st_size
@@ -153,7 +160,6 @@ class UnstructuredLoader:
                 if self._ocr_audit is not None:
                     self._ocr_audit.record(
                         event="escalated",
-                        doc_id=None,
                         path=str(path),
                         page_count=page_count,
                     )
@@ -162,21 +168,40 @@ class UnstructuredLoader:
                     "retrying with hi_res (OCR). First use downloads ~500 MB.",
                     path,
                 )
-                elements = partition(filename=str(path), strategy="hi_res")
-                full_text, element_spans = self._build_text_and_spans(elements, path)
-                if needs_ocr(text=full_text, page_count=page_count, file_size=file_size):
+                # hi_res can raise: missing system Tesseract, model-download
+                # failure, OOM mid-OCR, Pillow decode error. Catch broadly so
+                # one bad PDF doesn't abort the rest of the corpus walk.
+                try:
+                    elements = partition(filename=str(path), strategy="hi_res")
+                    full_text, element_spans = self._build_text_and_spans(elements, path)
+                except Exception as exc:
                     if self._ocr_audit is not None:
                         self._ocr_audit.record(
-                            event="ocr_failed",
-                            doc_id=None,
+                            event="ocr_error",
                             path=str(path),
                             page_count=page_count,
                         )
                     _log.warning(
-                        "hi_res extraction also returned near-empty text on %s — "
-                        "document will be ingested with whatever text was recovered.",
+                        "hi_res OCR failed on %s (%s: %s) — continuing with "
+                        "fast-pass empty text. Verify system Tesseract is "
+                        "installed if this is unexpected.",
                         path,
+                        type(exc).__name__,
+                        exc,
                     )
+                else:
+                    if needs_ocr(text=full_text, page_count=page_count, file_size=file_size):
+                        if self._ocr_audit is not None:
+                            self._ocr_audit.record(
+                                event="ocr_failed",
+                                path=str(path),
+                                page_count=page_count,
+                            )
+                        _log.warning(
+                            "hi_res extraction also returned near-empty text on %s — "
+                            "document will be ingested with whatever text was recovered.",
+                            path,
+                        )
 
         metadata = make_metadata_json({"element_spans": element_spans})
         document = Document.from_content(

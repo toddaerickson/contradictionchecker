@@ -2,9 +2,11 @@
 
 `needs_ocr` is a pure predicate that decides whether a fast-strategy
 extraction looks empty enough to warrant a one-shot retry with
-``strategy="hi_res"``. `OcrAudit` mirrors `JunkAudit`: in-memory counts plus
-optional JSONL persistence, write failures swallowed so ingest never aborts
-on telemetry trouble.
+``strategy="hi_res"``. `looks_empty` is the cheap text-only sub-check that
+callers can use to skip the expensive page-count / stat probes when the
+extracted text already has plenty of alpha chars. `OcrAudit` mirrors
+`JunkAudit`: in-memory counts plus optional JSONL persistence, write
+failures swallowed so ingest never aborts on telemetry trouble.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from pathlib import Path
 
 _log = logging.getLogger(__name__)
 
-__all__ = ["OcrAudit", "needs_ocr"]
+__all__ = ["OcrAudit", "looks_empty", "needs_ocr"]
 
 _MIN_ALPHA_CHARS = 100
 _MIN_PAGE_COUNT = 2
@@ -27,19 +29,29 @@ def _alpha_count(text: str) -> int:
     return sum(1 for c in text if c.isalpha())
 
 
+def looks_empty(text: str) -> bool:
+    """True when fast-path text has too few alpha chars to be a real document body.
+
+    Cheap text-only check. Callers can use this to short-circuit before
+    paying for `pypdf` page counts and `path.stat()` — both are wasted I/O
+    on text-native PDFs where the alpha count is already plenty.
+    """
+    return _alpha_count(text) < _MIN_ALPHA_CHARS
+
+
 def needs_ocr(*, text: str, page_count: int, file_size: int) -> bool:
     """True iff fast-path extraction looks empty for a non-trivial PDF.
 
     All three guards must trigger:
-      * < 100 alpha chars in the extracted body text
+      * < 100 alpha chars in the extracted body text (cheapest — checked first)
       * >= 2 pages in the PDF (single-page PDFs are often legit-short)
       * >= 100 KB on disk (placeholder PDFs aren't worth a slow retry)
     """
+    if not looks_empty(text):
+        return False
     if page_count < _MIN_PAGE_COUNT:
         return False
-    if file_size < _MIN_FILE_SIZE:
-        return False
-    return _alpha_count(text) < _MIN_ALPHA_CHARS
+    return file_size >= _MIN_FILE_SIZE
 
 
 class OcrAudit:
@@ -53,7 +65,6 @@ class OcrAudit:
         self,
         *,
         event: str,
-        doc_id: str | None,
         path: str,
         page_count: int,
     ) -> None:
@@ -63,7 +74,6 @@ class OcrAudit:
         record = {
             "ts": datetime.now(UTC).isoformat(),
             "event": event,
-            "doc_id": doc_id,
             "path": path,
             "page_count": page_count,
         }
