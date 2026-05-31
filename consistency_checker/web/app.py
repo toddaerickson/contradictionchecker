@@ -837,6 +837,7 @@ def create_app(
                     "nli_model": config.nli_model,
                     "judge_provider": config.judge_provider,
                     "judge_model": config.judge_model,
+                    "pairwise_enabled": config.pairwise_enabled,
                 },
                 run_status="pending",
                 corpus_id=corpus_id,
