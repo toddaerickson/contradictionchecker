@@ -74,6 +74,14 @@ class Config(BaseModel):
         description="Drop structural junk (TOC dot-leaders, page numbers, "
         "cross-reference 'definitions') during ingest. See junk_filter.py.",
     )
+    ocr_enabled: bool = Field(
+        default=True,
+        description=(
+            "Re-run image-only PDFs with unstructured's hi_res (OCR) strategy "
+            "when the fast strategy extracts near-empty text. Requires system "
+            "Tesseract; first use downloads ~500 MB of layout/OCR models."
+        ),
+    )
     org_grouping_enabled: bool = Field(
         default=True,
         description=(
