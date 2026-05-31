@@ -228,3 +228,15 @@ def test_org_scope_env_override(tmp_path: Path) -> None:
     yml = write_yaml(tmp_path / "c.yml", {"corpus_dir": str(tmp_path / "corpus")})
     cfg = Config.from_yaml(yml, env={"CC_ORG_SCOPE_ENABLED": "true"})
     assert cfg.org_scope_enabled is True
+
+
+def test_pairwise_enabled_defaults_false(tmp_path: Path) -> None:
+    yml = write_yaml(tmp_path / "c.yml", {"corpus_dir": str(tmp_path / "corpus")})
+    cfg = Config.from_yaml(yml, env={})
+    assert cfg.pairwise_enabled is False
+
+
+def test_pairwise_enabled_env_override(tmp_path: Path) -> None:
+    yml = write_yaml(tmp_path / "c.yml", {"corpus_dir": str(tmp_path / "corpus")})
+    cfg = Config.from_yaml(yml, env={"CC_PAIRWISE_ENABLED": "true"})
+    assert cfg.pairwise_enabled is True

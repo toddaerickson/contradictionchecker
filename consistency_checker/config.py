@@ -96,6 +96,17 @@ class Config(BaseModel):
             "writes them to the suppressed audit trail)."
         ),
     )
+    pairwise_enabled: bool = Field(
+        default=False,
+        description=(
+            "Run the pairwise contradiction detector (NLI gate + LLM judge). "
+            "Default off: own 2026-05-21 eval showed near-zero useful yield on "
+            "legal prose, and the NLI model is a ~800 MB download / ~600 MB RSS. "
+            "Enable with --pairwise on the CLI when running against numeric- or "
+            "spec-heavy corpora where contradictions surface as outright sign flips. "
+            "See ADR-0015."
+        ),
+    )
 
     data_dir: Path = Field(default_factory=default_data_dir)
     log_dir: Path = Field(default_factory=default_log_dir)
