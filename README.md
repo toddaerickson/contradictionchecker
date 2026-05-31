@@ -126,6 +126,8 @@ Recorded as ADRs in [`docs/decisions/`](docs/decisions/README.md):
 | `.txt`, `.md`  | built-in plaintext loader                     | char spans round-trip exactly |
 | `.pdf`, `.docx`| `unstructured` (`strategy="fast"`)             | body-content elements only; sidecar `element_spans` in `documents.metadata_json` |
 
+> Scanned-image PDFs are auto-escalated to `unstructured`'s hi_res (OCR) strategy when fast extraction returns near-empty text. First OCR run downloads ~500 MB of layout + OCR models. Requires system Tesseract (`apt install tesseract-ocr` on Debian/Ubuntu, `brew install tesseract` on macOS).
+
 Other formats can be added via the `LOADERS` registry in `consistency_checker/corpus/loader.py`.
 
 ## Known limitations
@@ -135,7 +137,7 @@ Carried forward into the v0.4+ roadmap in [`futureplans.md`](futureplans.md):
 - Chunk overlap `> 0` is unimplemented.
 - Three-document detection misses triangles whose edges fall below the FAISS gate threshold; v0.4 #6 adds an entity-NER cluster pass to catch these.
 - First `check` run downloads ~440 MB for the default NLI model (DeBERTa-v3-base). Switch to DeBERTa-v3-large via `nli_model` in config for higher recall at ~1.5 GB.
-- PDF / DOCX loaders use `strategy="fast"` by default — image-only PDFs need `strategy="hi_res"` (model download, not in CI).
+- OCR fallback is automatic for image-only PDFs (`--no-ocr` to disable); first use downloads ~500 MB and requires system Tesseract.
 - `data_dir/uploads/<upload_id>/` grows without bound; v0.4 will add a GC pass.
 - The web UI is single-user, localhost-only, no auth — bind beyond `127.0.0.1` only after auth lands.
 
