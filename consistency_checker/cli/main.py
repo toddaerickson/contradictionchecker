@@ -206,9 +206,16 @@ def ingest(
         "--org-scope/--no-org-scope",
         help="Suppress cross-organization definition pairs and write them to the audit trail.",
     ),
+    ocr: bool = typer.Option(
+        True,
+        "--ocr/--no-ocr",
+        help="Auto-escalate scanned PDFs to OCR (hi_res) when fast extraction is empty.",
+    ),
 ) -> None:
     cfg = _load_config(config)
     cfg = cfg.model_copy(update={"corpus_dir": corpus_dir, "org_scope_enabled": org_scope})
+    if not ocr:
+        cfg = cfg.model_copy(update={"ocr_enabled": False})
     configure_logging(cfg.log_dir)
     # Resolve --corpus first so a missing flag fails fast without doing the
     # expensive extractor/embedder bootstrap (sentence-transformers download,

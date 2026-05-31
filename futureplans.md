@@ -264,6 +264,14 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
 
 (Move items here as they ship, keep a one-line note on which release.)
 
+- **OCR fallback for scanned PDFs (2026-05-31)**
+  Auto-escalates fast-strategy PDF extraction to hi_res (Tesseract via
+  unstructured) when the extracted text is near-empty on a multi-page
+  non-trivial PDF. Disable with `--no-ocr` / `ocr_enabled: false`.
+  Spec: inline in `docs/superpowers/plans/2026-05-31-ocr-fallback.md`.
+  ADR-0014. Resolves the Atkins-corpus silent-drop failure mode recorded
+  in `project_atkins_corpus_2026-05-30.md`.
+
 - **Corpus isolation (item: retention gap, 2026-05-25)**
   Spec: `docs/superpowers/specs/2026-05-25-corpus-isolation-design.md`.
   Plan: `docs/superpowers/plans/2026-05-25-corpus-isolation.md`.

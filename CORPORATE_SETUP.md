@@ -58,6 +58,16 @@ once from a permitted machine, then copy the contents of
 
 ---
 
+## 1.5 System dependencies
+
+The OCR fallback path uses `unstructured`'s `strategy="hi_res"`, which calls system Tesseract under the hood. First run downloads ~500 MB of layout + OCR model weights into the HuggingFace cache.
+
+Data-classification implication: OCR runs entirely locally. Document images do not leave the machine for OCR — the LLM judge is still the only path that sends content to a third-party API.
+
+Install Tesseract: `apt install tesseract-ocr` (Debian/Ubuntu), `brew install tesseract` (macOS), or the equivalent for your distro.
+
+---
+
 ## 2. Python toolchain
 
 Required: **Python 3.11 or newer**. Corporate Linux images often ship 3.9

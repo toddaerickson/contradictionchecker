@@ -15,12 +15,13 @@ corpus walks (with a DEBUG log) and raise on direct :func:`load_path` calls.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 from consistency_checker.corpus.junk_filter import JunkAudit, is_junk_line
+from consistency_checker.corpus.ocr import OcrAudit, needs_ocr
 from consistency_checker.extract.schema import Document
 from consistency_checker.logging_setup import get_logger
 
@@ -67,6 +68,18 @@ def _stub_loader(extension: str) -> FileLoader:
     return _stub
 
 
+def _pdf_page_count(path: Path) -> int:
+    """Page count for a PDF; returns 0 on any error (treated as "skip OCR")."""
+    if path.suffix.lower() != ".pdf":
+        return 0
+    try:
+        from pypdf import PdfReader  # transitive dep of unstructured[pdf]
+
+        return len(PdfReader(str(path)).pages)
+    except Exception:  # pypdf raises a zoo of errors; treat all as "unknown"
+        return 0
+
+
 class UnstructuredLoader:
     """Loader backed by :mod:`unstructured` ``partition.auto``.
 
@@ -96,25 +109,90 @@ class UnstructuredLoader:
         strategy: str = "fast",
         drop_junk_lines: bool = True,
         audit: JunkAudit | None = None,
+        ocr_enabled: bool = True,
+        ocr_audit: OcrAudit | None = None,
     ) -> None:
         self._strategy = strategy
         self._drop_junk_lines = drop_junk_lines
         self._audit = audit
+        self._ocr_enabled = ocr_enabled
+        self._ocr_audit = ocr_audit
 
-    def with_options(self, *, drop_junk_lines: bool, audit: JunkAudit | None) -> UnstructuredLoader:
+    def with_options(
+        self,
+        *,
+        drop_junk_lines: bool,
+        audit: JunkAudit | None,
+        ocr_enabled: bool | None = None,
+        ocr_audit: OcrAudit | None = None,
+    ) -> UnstructuredLoader:
         """Return a copy with junk-filter settings overridden (strategy preserved)."""
         return UnstructuredLoader(
-            strategy=self._strategy, drop_junk_lines=drop_junk_lines, audit=audit
+            strategy=self._strategy,
+            drop_junk_lines=drop_junk_lines,
+            audit=audit,
+            ocr_enabled=self._ocr_enabled if ocr_enabled is None else ocr_enabled,
+            ocr_audit=ocr_audit if ocr_audit is not None else self._ocr_audit,
         )
 
     def __call__(self, path: Path) -> LoadedDocument:
         from unstructured.partition.auto import partition
 
+        # First pass: configured strategy (default "fast").
         elements = partition(filename=str(path), strategy=self._strategy)
-        text_parts: list[str] = []
-        element_spans: list[dict[str, Any]] = []
-        char_offset = 0
+        full_text, element_spans = self._build_text_and_spans(elements, path)
 
+        # OCR fallback: re-partition with hi_res when fast looks empty.
+        if self._ocr_enabled and self._strategy == "fast" and path.suffix.lower() == ".pdf":
+            page_count = _pdf_page_count(path)
+            try:
+                file_size = path.stat().st_size
+            except OSError:
+                file_size = 0
+            if needs_ocr(text=full_text, page_count=page_count, file_size=file_size):
+                if self._ocr_audit is not None:
+                    self._ocr_audit.record(
+                        event="escalated",
+                        doc_id=None,
+                        path=str(path),
+                        page_count=page_count,
+                    )
+                _log.warning(
+                    "Fast extraction returned near-empty text on %s — "
+                    "retrying with hi_res (OCR). First use downloads ~500 MB.",
+                    path,
+                )
+                elements = partition(filename=str(path), strategy="hi_res")
+                full_text, element_spans = self._build_text_and_spans(elements, path)
+                if needs_ocr(text=full_text, page_count=page_count, file_size=file_size):
+                    if self._ocr_audit is not None:
+                        self._ocr_audit.record(
+                            event="ocr_failed",
+                            doc_id=None,
+                            path=str(path),
+                            page_count=page_count,
+                        )
+                    _log.warning(
+                        "hi_res extraction also returned near-empty text on %s — "
+                        "document will be ingested with whatever text was recovered.",
+                        path,
+                    )
+
+        metadata = make_metadata_json({"element_spans": element_spans})
+        document = Document.from_content(
+            full_text,
+            source_path=str(path),
+            title=path.stem,
+            metadata_json=metadata,
+        )
+        return LoadedDocument(document=document, text=full_text)
+
+    def _build_text_and_spans(
+        self, elements: Sequence[object], path: Path
+    ) -> tuple[str, list[dict[str, object]]]:
+        text_parts: list[str] = []
+        element_spans: list[dict[str, object]] = []
+        char_offset = 0
         for index, element in enumerate(elements):
             element_type = type(element).__name__
             if element_type not in self.BODY_TYPES:
@@ -144,16 +222,7 @@ class UnstructuredLoader:
                     "char_end": char_offset,
                 }
             )
-
-        full_text = "".join(text_parts)
-        metadata = make_metadata_json({"element_spans": element_spans})
-        document = Document.from_content(
-            full_text,
-            source_path=str(path),
-            title=path.stem,
-            metadata_json=metadata,
-        )
-        return LoadedDocument(document=document, text=full_text)
+        return "".join(text_parts), element_spans
 
 
 _unstructured_loader = UnstructuredLoader()
@@ -182,6 +251,8 @@ def load_path(
     *,
     junk_filter_enabled: bool = True,
     junk_audit: JunkAudit | None = None,
+    ocr_enabled: bool = True,
+    ocr_audit: OcrAudit | None = None,
 ) -> LoadedDocument:
     """Load a single document by path. Dispatches via :data:`LOADERS`.
 
@@ -200,7 +271,12 @@ def load_path(
             f"Registered: {sorted(LOADERS)}; stubbed: {sorted(STUB_EXTENSIONS)}."
         )
     if isinstance(loader, UnstructuredLoader):
-        loader = loader.with_options(drop_junk_lines=junk_filter_enabled, audit=junk_audit)
+        loader = loader.with_options(
+            drop_junk_lines=junk_filter_enabled,
+            audit=junk_audit,
+            ocr_enabled=ocr_enabled,
+            ocr_audit=ocr_audit,
+        )
     return loader(p)
 
 
@@ -209,6 +285,8 @@ def load_corpus(
     *,
     junk_filter_enabled: bool = True,
     junk_audit: JunkAudit | None = None,
+    ocr_enabled: bool = True,
+    ocr_audit: OcrAudit | None = None,
 ) -> Iterator[LoadedDocument]:
     """Walk ``corpus_dir`` recursively, yielding loaded documents.
 
@@ -233,7 +311,13 @@ def load_corpus(
         if ext in STUB_EXTENSIONS and _is_stub(loader):
             _log.warning("Skipping %s — %s loader not yet implemented", path, ext)
             continue
-        yield load_path(path, junk_filter_enabled=junk_filter_enabled, junk_audit=junk_audit)
+        yield load_path(
+            path,
+            junk_filter_enabled=junk_filter_enabled,
+            junk_audit=junk_audit,
+            ocr_enabled=ocr_enabled,
+            ocr_audit=ocr_audit,
+        )
 
 
 def make_metadata_json(payload: dict[str, object]) -> str:

@@ -58,6 +58,7 @@ from consistency_checker.config import Config
 from consistency_checker.corpus.chunker import chunk_document
 from consistency_checker.corpus.junk_filter import JunkAudit
 from consistency_checker.corpus.loader import load_corpus
+from consistency_checker.corpus.ocr import OcrAudit
 from consistency_checker.extract.atomic_facts import (
     AnthropicExtractor,
     Extractor,
@@ -217,11 +218,14 @@ def ingest(
     junk_audit = (
         JunkAudit(config.data_dir / "junk_drops.jsonl") if config.junk_filter_enabled else None
     )
+    ocr_audit = OcrAudit(config.data_dir / "ocr_events.jsonl") if config.ocr_enabled else None
     n_docs = n_chunks = n_assertions = 0
     for loaded in load_corpus(
         config.corpus_dir,
         junk_filter_enabled=config.junk_filter_enabled,
         junk_audit=junk_audit,
+        ocr_enabled=config.ocr_enabled,
+        ocr_audit=ocr_audit,
     ):
         doc = loaded.document
         if config.org_grouping_enabled:
@@ -244,6 +248,8 @@ def ingest(
     n_embedded = embed_pending(store, faiss_store, embedder)
     if junk_audit is not None and junk_audit.counts:
         _log.info("Junk filter dropped (text stage): %s", junk_audit.counts)
+    if ocr_audit is not None and ocr_audit.counts:
+        _log.info("OCR fallback: %s", ocr_audit.counts)
     _log.info(
         "Ingested %d docs / %d chunks / %d assertions (%d newly embedded)",
         n_docs,

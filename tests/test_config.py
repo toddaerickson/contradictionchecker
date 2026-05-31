@@ -191,6 +191,21 @@ def test_junk_filter_enabled_can_disable(tmp_path: Path) -> None:
     assert cfg.junk_filter_enabled is False
 
 
+def test_ocr_enabled_defaults_true(tmp_path: Path) -> None:
+    yml = write_yaml(tmp_path / "c.yml", {"corpus_dir": str(tmp_path / "corpus")})
+    cfg = Config.from_yaml(yml, env={})
+    assert cfg.ocr_enabled is True
+
+
+def test_ocr_enabled_can_disable(tmp_path: Path) -> None:
+    yml = write_yaml(
+        tmp_path / "c.yml",
+        {"corpus_dir": str(tmp_path / "corpus"), "ocr_enabled": False},
+    )
+    cfg = Config.from_yaml(yml, env={})
+    assert cfg.ocr_enabled is False
+
+
 def test_org_grouping_enabled_defaults_true(tmp_path: Path) -> None:
     yml = write_yaml(tmp_path / "c.yml", {"corpus_dir": str(tmp_path / "corpus")})
     cfg = Config.from_yaml(yml, env={})
