@@ -498,7 +498,9 @@ def test_check_deep_without_pairwise_rejected(
         ],
     )
     assert result.exit_code != 0
-    combined = (result.stdout or "") + (result.stderr or "") + str(result.exception or "")
+    combined = strip_ansi(
+        (result.stdout or "") + (result.stderr or "") + str(result.exception or "")
+    )
     assert "--deep requires" in combined
 
 
