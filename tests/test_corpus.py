@@ -19,6 +19,7 @@ from consistency_checker.corpus.loader import (
     load_corpus,
     load_path,
 )
+from consistency_checker.corpus.ocr import OcrAudit
 from consistency_checker.extract.schema import Document
 
 _skip_unstructured_on_win = pytest.mark.skipif(
@@ -363,3 +364,93 @@ def test_loader_disabled_keeps_everything(monkeypatch: pytest.MonkeyPatch, tmp_p
     pdf.write_bytes(b"%PDF stub")
     loaded = UnstructuredLoader(drop_junk_lines=False)(pdf)
     assert "15" in loaded.text
+
+
+# --- OCR fallback escalation ------------------------------------------------
+
+
+@_skip_unstructured_on_win
+def test_loader_escalates_to_hi_res_when_fast_returns_empty(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Fast partition returns nothing; loader re-runs with hi_res and uses that text."""
+    calls: list[str] = []
+
+    def fake_partition(*, filename: str, strategy: str, **kwargs: object) -> list[object]:
+        calls.append(strategy)
+        if strategy == "fast":
+            return []  # simulate image-only PDF
+        return [_named("OCR'd narrative content recovered from images. " * 5, "NarrativeText")]
+
+    import unstructured.partition.auto as auto
+
+    monkeypatch.setattr(auto, "partition", fake_partition)
+    monkeypatch.setattr("consistency_checker.corpus.loader._pdf_page_count", lambda _: 10)
+    pdf = tmp_path / "scanned.pdf"
+    pdf.write_bytes(b"x" * 200_000)  # >= 100 KB so heuristic fires
+    audit = OcrAudit(None)
+    loaded = UnstructuredLoader(ocr_enabled=True, ocr_audit=audit)(pdf)
+    assert "OCR'd narrative content" in loaded.text
+    assert calls == ["fast", "hi_res"]
+    assert audit.counts == {"escalated": 1}
+
+
+@_skip_unstructured_on_win
+def test_loader_does_not_escalate_when_fast_already_has_text(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[str] = []
+
+    def fake_partition(*, filename: str, strategy: str, **kwargs: object) -> list[object]:
+        calls.append(strategy)
+        return [_named("The Board shall consist of three Directors. " * 5, "NarrativeText")]
+
+    import unstructured.partition.auto as auto
+
+    monkeypatch.setattr(auto, "partition", fake_partition)
+    monkeypatch.setattr("consistency_checker.corpus.loader._pdf_page_count", lambda _: 10)
+    pdf = tmp_path / "text.pdf"
+    pdf.write_bytes(b"x" * 200_000)
+    audit = OcrAudit(None)
+    loaded = UnstructuredLoader(ocr_enabled=True, ocr_audit=audit)(pdf)
+    assert "Board shall consist" in loaded.text
+    assert calls == ["fast"]
+    assert audit.counts == {}
+
+
+@_skip_unstructured_on_win
+def test_loader_records_ocr_failed_when_hi_res_also_empty(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake_partition(*, filename: str, strategy: str, **kwargs: object) -> list[object]:
+        return []  # both passes return nothing
+
+    import unstructured.partition.auto as auto
+
+    monkeypatch.setattr(auto, "partition", fake_partition)
+    monkeypatch.setattr("consistency_checker.corpus.loader._pdf_page_count", lambda _: 10)
+    pdf = tmp_path / "bad.pdf"
+    pdf.write_bytes(b"x" * 200_000)
+    audit = OcrAudit(None)
+    loaded = UnstructuredLoader(ocr_enabled=True, ocr_audit=audit)(pdf)
+    assert loaded.text == ""
+    assert audit.counts == {"escalated": 1, "ocr_failed": 1}
+
+
+@_skip_unstructured_on_win
+def test_loader_disabled_never_escalates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    def fake_partition(*, filename: str, strategy: str, **kwargs: object) -> list[object]:
+        calls.append(strategy)
+        return [] if strategy == "fast" else [_named("recovered", "NarrativeText")]
+
+    import unstructured.partition.auto as auto
+
+    monkeypatch.setattr(auto, "partition", fake_partition)
+    monkeypatch.setattr("consistency_checker.corpus.loader._pdf_page_count", lambda _: 10)
+    pdf = tmp_path / "scanned.pdf"
+    pdf.write_bytes(b"x" * 200_000)
+    loaded = UnstructuredLoader(ocr_enabled=False)(pdf)
+    assert loaded.text == ""
+    assert calls == ["fast"]
