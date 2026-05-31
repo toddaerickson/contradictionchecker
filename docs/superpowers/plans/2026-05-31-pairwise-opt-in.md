@@ -71,7 +71,7 @@ Make them pass: add the typer option (mirroring `--ocr/--no-ocr`), gate the `Tra
 **Task 4 — Web background task**
 Write failing test `test_web_run_check_skips_nli_when_pairwise_disabled` (mock the background path's NLI construction site). Make it pass: branch on `config.pairwise_enabled` in `_run_check_in_background`. Verify: `pytest -q tests/test_web.py` (or whichever test module owns the run-trigger surface).
 
-**Task 5 — Docs sweep**
+**Task 5 — Docs sweep (DONE 2026-05-31)**
 Update README "Default behavior" subsection, CORPORATE_SETUP NLI install note, futureplans Completed entry. No code, no tests required — but `mypy` + `ruff` must still pass.
 
 **Task 6 — Integration verification**

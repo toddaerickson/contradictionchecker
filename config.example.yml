@@ -18,7 +18,14 @@ judge_model: claude-sonnet-4-6
 data_dir: ./data/store
 log_dir: ./data/logs
 
+# Pairwise contradiction detector — see docs/decisions/0015-pairwise-opt-in.md
+# Off by default: own-corpus eval on legal prose showed near-zero useful yield
+# at high compute cost (~800 MB NLI download, ~600 MB RSS). Set to true on
+# numeric- or spec-heavy corpora, or pass --pairwise per run.
+pairwise_enabled: false
+
 # Stage A NLI — see docs/decisions/0002-embedding-model.md for embedder choice
+# (NLI model only loaded when pairwise_enabled is true)
 embedder_model: sentence-transformers/all-mpnet-base-v2
 nli_model: MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli
 nli_contradiction_threshold: 0.5
@@ -31,7 +38,8 @@ gate_similarity_threshold: 0.7
 chunk_max_chars: 1000
 chunk_overlap_chars: 0
 
-# Optional memory guardrail. When set, `consistency-check check` aborts
-# before loading the NLI model if MemAvailable is below this threshold. See
-# CORPORATE_SETUP.md §4.5. Leave unset to skip the pre-flight entirely.
+# Optional memory guardrail. When set, `consistency-check check --pairwise`
+# aborts before loading the NLI model if MemAvailable is below this threshold.
+# Skipped entirely when pairwise is off (the dominant memory consumer doesn't
+# load). See CORPORATE_SETUP.md §4.5. Leave unset to skip the pre-flight.
 # max_memory_mb: 3000
