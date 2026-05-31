@@ -251,6 +251,8 @@ def load_path(
     *,
     junk_filter_enabled: bool = True,
     junk_audit: JunkAudit | None = None,
+    ocr_enabled: bool = True,
+    ocr_audit: OcrAudit | None = None,
 ) -> LoadedDocument:
     """Load a single document by path. Dispatches via :data:`LOADERS`.
 
@@ -269,7 +271,12 @@ def load_path(
             f"Registered: {sorted(LOADERS)}; stubbed: {sorted(STUB_EXTENSIONS)}."
         )
     if isinstance(loader, UnstructuredLoader):
-        loader = loader.with_options(drop_junk_lines=junk_filter_enabled, audit=junk_audit)
+        loader = loader.with_options(
+            drop_junk_lines=junk_filter_enabled,
+            audit=junk_audit,
+            ocr_enabled=ocr_enabled,
+            ocr_audit=ocr_audit,
+        )
     return loader(p)
 
 
@@ -278,6 +285,8 @@ def load_corpus(
     *,
     junk_filter_enabled: bool = True,
     junk_audit: JunkAudit | None = None,
+    ocr_enabled: bool = True,
+    ocr_audit: OcrAudit | None = None,
 ) -> Iterator[LoadedDocument]:
     """Walk ``corpus_dir`` recursively, yielding loaded documents.
 
@@ -302,7 +311,13 @@ def load_corpus(
         if ext in STUB_EXTENSIONS and _is_stub(loader):
             _log.warning("Skipping %s — %s loader not yet implemented", path, ext)
             continue
-        yield load_path(path, junk_filter_enabled=junk_filter_enabled, junk_audit=junk_audit)
+        yield load_path(
+            path,
+            junk_filter_enabled=junk_filter_enabled,
+            junk_audit=junk_audit,
+            ocr_enabled=ocr_enabled,
+            ocr_audit=ocr_audit,
+        )
 
 
 def make_metadata_json(payload: dict[str, object]) -> str:

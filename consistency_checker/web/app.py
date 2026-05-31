@@ -32,6 +32,7 @@ from consistency_checker.config import Config, load_local_env
 from consistency_checker.corpus.chunker import chunk_document
 from consistency_checker.corpus.junk_filter import JunkAudit
 from consistency_checker.corpus.loader import load_path
+from consistency_checker.corpus.ocr import OcrAudit
 from consistency_checker.index.assertion_store import AssertionStore, CrossCorpusDocumentError
 from consistency_checker.index.embedder import Embedder, embed_pending
 from consistency_checker.index.faiss_store import FaissStore
@@ -1166,10 +1167,15 @@ def _ingest_uploaded_paths(
     junk_audit = (
         JunkAudit(config.data_dir / "junk_drops.jsonl") if config.junk_filter_enabled else None
     )
+    ocr_audit = OcrAudit(config.data_dir / "ocr_events.jsonl") if config.ocr_enabled else None
     n_assertions = 0
     for path in paths:
         loaded = load_path(
-            path, junk_filter_enabled=config.junk_filter_enabled, junk_audit=junk_audit
+            path,
+            junk_filter_enabled=config.junk_filter_enabled,
+            junk_audit=junk_audit,
+            ocr_enabled=config.ocr_enabled,
+            ocr_audit=ocr_audit,
         )
         doc = loaded.document
         if config.org_grouping_enabled:
@@ -1188,4 +1194,6 @@ def _ingest_uploaded_paths(
     embed_pending(store, faiss_store, embedder)
     if junk_audit is not None and junk_audit.counts:
         _log.info("Junk filter dropped (text stage): %s", junk_audit.counts)
+    if ocr_audit is not None and ocr_audit.counts:
+        _log.info("OCR fallback: %s", ocr_audit.counts)
     return n_assertions
