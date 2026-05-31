@@ -41,7 +41,9 @@
       "Bash(git ls-remote *)",
       "Bash(git commit *)",
       "Bash(git fetch *)",
-      "Bash(git rebase *)"
+      "Bash(git rebase *)",
+      "Bash(tee /tmp/fcs_ingest.log)",
+      "Bash(sqlite3 data/store/assertions.db \"SELECT corpus_id, COUNT\\(*\\) as docs FROM documents GROUP BY corpus_id;\")"
     ]
   }
 }
