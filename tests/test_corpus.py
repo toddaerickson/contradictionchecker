@@ -454,3 +454,52 @@ def test_loader_disabled_never_escalates(monkeypatch: pytest.MonkeyPatch, tmp_pa
     loaded = UnstructuredLoader(ocr_enabled=False)(pdf)
     assert loaded.text == ""
     assert calls == ["fast"]
+
+
+@_skip_unstructured_on_win
+def test_loader_does_not_probe_pypdf_when_fast_text_is_substantial(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Cheap alpha-count check short-circuits before _pdf_page_count fires."""
+    page_count_calls: list[Path] = []
+
+    def fake_partition(*, filename: str, strategy: str, **kwargs: object) -> list[object]:
+        return [_named("The Board shall consist of three Directors. " * 5, "NarrativeText")]
+
+    def fake_page_count(p: Path) -> int:
+        page_count_calls.append(p)
+        return 10
+
+    import unstructured.partition.auto as auto
+
+    monkeypatch.setattr(auto, "partition", fake_partition)
+    monkeypatch.setattr("consistency_checker.corpus.loader._pdf_page_count", fake_page_count)
+    pdf = tmp_path / "text.pdf"
+    pdf.write_bytes(b"x" * 200_000)
+    UnstructuredLoader(ocr_enabled=True, ocr_audit=OcrAudit(None))(pdf)
+    # looks_empty(full_text) is False → guard short-circuits, pypdf never called
+    assert page_count_calls == []
+
+
+@_skip_unstructured_on_win
+def test_loader_records_ocr_error_when_hi_res_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Tesseract missing / model-download failure must not abort the corpus walk."""
+
+    def fake_partition(*, filename: str, strategy: str, **kwargs: object) -> list[object]:
+        if strategy == "fast":
+            return []
+        raise RuntimeError("tesseract is not installed or not in PATH")
+
+    import unstructured.partition.auto as auto
+
+    monkeypatch.setattr(auto, "partition", fake_partition)
+    monkeypatch.setattr("consistency_checker.corpus.loader._pdf_page_count", lambda _: 10)
+    pdf = tmp_path / "scanned.pdf"
+    pdf.write_bytes(b"x" * 200_000)
+    audit = OcrAudit(None)
+    loaded = UnstructuredLoader(ocr_enabled=True, ocr_audit=audit)(pdf)
+    # Ingest continues with fast-pass empty result; error is recorded.
+    assert loaded.text == ""
+    assert audit.counts == {"escalated": 1, "ocr_error": 1}

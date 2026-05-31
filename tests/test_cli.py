@@ -1109,15 +1109,18 @@ def test_report_infers_corpus_from_run_when_not_specified(tmp_path: Path) -> Non
     assert out.exists()
 
 
-def test_ingest_no_ocr_flag_disables_ocr(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """``--no-ocr`` propagates to ``config.ocr_enabled=False`` before ingest runs."""
+def _ocr_flag_harness(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, config_ocr_line: str
+) -> dict[str, Any]:
+    """Shared setup for the three CLI --ocr/--no-ocr flag tests; returns the captured dict."""
     from consistency_checker.extract.atomic_facts import FixtureExtractor, OrgIdentification
 
     doc_path = tmp_path / "doc.txt"
     doc_path.write_text("Atkins bylaws text", encoding="utf-8")
     cfg_path = tmp_path / "config.yml"
     cfg_path.write_text(
-        f"corpus_dir: {tmp_path}\ndata_dir: {tmp_path}\njudge_provider: moonshot\n",
+        f"corpus_dir: {tmp_path}\ndata_dir: {tmp_path}\n"
+        f"judge_provider: moonshot\n{config_ocr_line}",
         encoding="utf-8",
     )
     fx = FixtureExtractor(
@@ -1134,11 +1137,60 @@ def test_ingest_no_ocr_flag_disables_ocr(monkeypatch: pytest.MonkeyPatch, tmp_pa
         return IngestResult(n_documents=0, n_chunks=0, n_assertions=0, n_embedded=0)
 
     monkeypatch.setattr("consistency_checker.cli.main.run_ingest", fake_ingest)
+    return captured
 
+
+def test_ingest_no_ocr_flag_disables_ocr(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """``--no-ocr`` forces ``config.ocr_enabled=False`` regardless of config."""
+    captured = _ocr_flag_harness(monkeypatch, tmp_path, config_ocr_line="")
     runner = CliRunner()
     res = runner.invoke(
         app,
-        ["ingest", str(tmp_path), "--config", str(cfg_path), "--corpus", "atkins", "--no-ocr"],
+        [
+            "ingest",
+            str(tmp_path),
+            "--config",
+            str(tmp_path / "config.yml"),
+            "--corpus",
+            "atkins",
+            "--no-ocr",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    assert captured["ocr_enabled"] is False
+
+
+def test_ingest_ocr_flag_overrides_config_off(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``--ocr`` forces on even when the config file disables it."""
+    captured = _ocr_flag_harness(monkeypatch, tmp_path, config_ocr_line="ocr_enabled: false\n")
+    runner = CliRunner()
+    res = runner.invoke(
+        app,
+        [
+            "ingest",
+            str(tmp_path),
+            "--config",
+            str(tmp_path / "config.yml"),
+            "--corpus",
+            "atkins",
+            "--ocr",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    assert captured["ocr_enabled"] is True
+
+
+def test_ingest_no_ocr_flag_omitted_respects_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """No flag → config value wins. Was a bug pre-fix: --ocr default True silently overrode."""
+    captured = _ocr_flag_harness(monkeypatch, tmp_path, config_ocr_line="ocr_enabled: false\n")
+    runner = CliRunner()
+    res = runner.invoke(
+        app,
+        ["ingest", str(tmp_path), "--config", str(tmp_path / "config.yml"), "--corpus", "atkins"],
     )
     assert res.exit_code == 0, res.output
     assert captured["ocr_enabled"] is False

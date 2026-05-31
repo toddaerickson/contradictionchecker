@@ -5,7 +5,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from consistency_checker.corpus.ocr import OcrAudit, needs_ocr
+from consistency_checker.corpus.ocr import OcrAudit, looks_empty, needs_ocr
+
+
+# --- looks_empty: cheap text-only sub-check ---------------------------------
+def test_looks_empty_true_when_text_has_few_alpha_chars() -> None:
+    assert looks_empty("") is True
+    assert looks_empty("Page 1\n\nPage 2") is True
+
+
+def test_looks_empty_false_when_text_has_real_content() -> None:
+    long_text = "The Board shall consist of no fewer than three Directors. " * 20
+    assert looks_empty(long_text) is False
 
 
 # --- needs_ocr: positive cases (image PDFs the heuristic must catch) --------
@@ -36,24 +47,26 @@ def test_needs_ocr_substantive_text_skipped() -> None:
 # --- OcrAudit ---------------------------------------------------------------
 def test_ocr_audit_records_escalation_and_failure(tmp_path: Path) -> None:
     audit = OcrAudit(tmp_path / "ocr_events.jsonl")
-    audit.record(event="escalated", doc_id="docA", path="a.pdf", page_count=10)
-    audit.record(event="ocr_failed", doc_id="docB", path="b.pdf", page_count=5)
+    audit.record(event="escalated", path="a.pdf", page_count=10)
+    audit.record(event="ocr_failed", path="b.pdf", page_count=5)
     assert audit.counts == {"escalated": 1, "ocr_failed": 1}
     lines = (tmp_path / "ocr_events.jsonl").read_text().splitlines()
     assert len(lines) == 2
     rec = json.loads(lines[0])
-    assert rec["event"] == "escalated" and rec["doc_id"] == "docA"
+    assert rec["event"] == "escalated" and rec["path"] == "a.pdf"
+    assert "doc_id" not in rec
 
 
-def test_ocr_audit_none_path_is_memory_only(tmp_path: Path) -> None:
+def test_ocr_audit_none_path_is_memory_only() -> None:
     audit = OcrAudit(None)
-    audit.record(event="escalated", doc_id=None, path="a.pdf", page_count=3)
+    audit.record(event="escalated", path="a.pdf", page_count=3)
     assert audit.counts == {"escalated": 1}
 
 
 def test_ocr_audit_write_failure_is_swallowed(tmp_path: Path) -> None:
+    # parent is a regular file → mkdir(parents=True) raises NotADirectoryError
     bad = tmp_path / "afile"
     bad.write_text("x")
     audit = OcrAudit(bad / "nested" / "events.jsonl")
-    audit.record(event="escalated", doc_id=None, path="a.pdf", page_count=3)  # no exception
+    audit.record(event="escalated", path="a.pdf", page_count=3)  # no exception
     assert audit.counts == {"escalated": 1}
