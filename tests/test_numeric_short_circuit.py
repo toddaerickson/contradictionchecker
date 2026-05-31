@@ -39,6 +39,7 @@ nli_model: fixture
 gate_top_k: 10
 gate_similarity_threshold: -1.0
 nli_contradiction_threshold: 0.0
+pairwise_enabled: true
 """.strip()
     )
     return cfg_path
@@ -414,6 +415,7 @@ gate_top_k: 10
 gate_similarity_threshold: -1.0
 nli_contradiction_threshold: 0.0
 numeric_disagreement_threshold: 0.5
+pairwise_enabled: true
 """.strip()
     )
     cfg = Config.from_yaml(cfg_path)

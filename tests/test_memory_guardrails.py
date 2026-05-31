@@ -41,6 +41,7 @@ def cfg(tmp_path: Path) -> Config:
         embedder_model="hash",
         nli_model="fixture",
         gate_similarity_threshold=-1.0,
+        pairwise_enabled=True,
     )
 
 

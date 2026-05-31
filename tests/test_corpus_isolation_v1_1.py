@@ -64,6 +64,7 @@ def _two_corpus_triangle_setup(
         nli_contradiction_threshold=0.0,
         triangle_weak_top_k=10,
         triangle_weak_threshold=-1.0,
+        pairwise_enabled=True,
     )
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     store = AssertionStore(cfg.db_path)
@@ -214,6 +215,7 @@ def test_estimate_cost_streams_candidates_without_materialising(
         embedder_model="hash",
         nli_model="fixture",
         gate_similarity_threshold=-1.0,
+        pairwise_enabled=True,
     )
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     store = AssertionStore(cfg.db_path)

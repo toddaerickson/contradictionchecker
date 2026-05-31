@@ -10,11 +10,24 @@ from pathlib import Path
 
 import pytest
 
+from consistency_checker.audit.logger import AuditLogger
+from consistency_checker.check.definition_checker import DefinitionChecker
+from consistency_checker.check.definition_judge import (
+    DefinitionJudgeVerdict,
+    FixtureDefinitionJudge,
+)
+from consistency_checker.check.llm_judge import FixtureJudge
+from consistency_checker.check.multi_party_judge import FixtureMultiPartyJudge
 from consistency_checker.check.providers.anthropic import AnthropicProvider
 from consistency_checker.check.providers.moonshot import MoonshotJudgeProvider
 from consistency_checker.check.providers.openai import OpenAIProvider
 from consistency_checker.config import Config
-from consistency_checker.pipeline import make_judge
+from consistency_checker.extract.schema import Assertion, Document
+from consistency_checker.index.assertion_store import AssertionStore
+from consistency_checker.index.embedder import embed_pending
+from consistency_checker.index.faiss_store import FaissStore
+from consistency_checker.pipeline import check, make_judge
+from tests.conftest import HashEmbedder
 
 
 @pytest.mark.e2e_fixture
@@ -87,3 +100,135 @@ def test_pipeline_with_openai_provider(tmp_path: Path, monkeypatch: pytest.Monke
 
     assert isinstance(judge, LLMJudge)
     assert isinstance(judge._provider, OpenAIProvider)
+
+
+# --- Task 2: pairwise opt-in gate (ADR-0015) --------------------------------
+
+
+def _pairwise_config(tmp_path: Path) -> Config:
+    return Config(
+        corpus_dir=tmp_path / "corpus",
+        judge_provider="fixture",
+        judge_model="test",
+        data_dir=tmp_path / "store",
+        log_dir=tmp_path / "logs",
+        embedder_model="hash",
+        nli_model="fixture",
+        gate_similarity_threshold=-1.0,
+    )
+
+
+def _seed_pairwise_store(tmp_path: Path) -> tuple[AssertionStore, FaissStore, str, tuple[str, str]]:
+    """Seed two definitions of MAE so the definition pass produces ≥1 pair,
+    plus two contradiction-style assertions for the pairwise pass.
+    Returns (store, faiss, corpus_id, (def_a_id, def_b_id)).
+    """
+    store = AssertionStore(tmp_path / "store.db")
+    store.migrate()
+    cid = store.get_or_create_corpus("test", "/test", "moonshot")
+    doc_a = Document(doc_id="docA", source_path="/A.txt")
+    doc_b = Document(doc_id="docB", source_path="/B.txt")
+    store.add_document(doc_a, corpus_id=cid)
+    store.add_document(doc_b, corpus_id=cid)
+    # Two non-definition assertions to give the pairwise gate something to find.
+    a1 = Assertion.build("docA", "Revenue grew 12%.")
+    a2 = Assertion.build("docB", "Revenue declined 5%.")
+    d1 = Assertion.build(
+        "docA", '"MAE" means A.', kind="definition", term="MAE", definition_text="A"
+    )
+    d2 = Assertion.build(
+        "docB", '"MAE" means B.', kind="definition", term="MAE", definition_text="B"
+    )
+    store.add_assertions([a1, a2, d1, d2])
+
+    embedder = HashEmbedder(dim=64)
+    (tmp_path / "store").mkdir(parents=True, exist_ok=True)
+    faiss = FaissStore.open_or_create(
+        index_path=tmp_path / "store" / "faiss.idx",
+        id_map_path=tmp_path / "store" / "faiss.idmap.json",
+        dim=embedder.dim,
+    )
+    embed_pending(store, faiss, embedder)
+    return store, faiss, cid, (d1.assertion_id, d2.assertion_id)
+
+
+def test_check_skips_pairwise_when_disabled(tmp_path: Path) -> None:
+    """pairwise_enabled=False + nli_checker=None: skip the pairwise pass
+    entirely, but still run the definition pass."""
+    cfg = _pairwise_config(tmp_path).model_copy(update={"pairwise_enabled": False})
+    store, faiss, cid, (d_a, d_b) = _seed_pairwise_store(tmp_path)
+    logger = AuditLogger(store)
+    run_id = logger.begin_run()
+    key = (min(d_a, d_b), max(d_a, d_b))
+    fixture_verdict = DefinitionJudgeVerdict(
+        assertion_a_id=key[0],
+        assertion_b_id=key[1],
+        verdict="definition_divergent",
+        confidence=0.9,
+        rationale="A vs B",
+        evidence_spans=["A", "B"],
+    )
+    definition_checker = DefinitionChecker(judge=FixtureDefinitionJudge({key: fixture_verdict}))
+
+    result = check(
+        cfg,
+        store=store,
+        faiss_store=faiss,
+        nli_checker=None,
+        judge=FixtureJudge({}),
+        audit_logger=logger,
+        definition_checker=definition_checker,
+        run_id=run_id,
+        corpus_id=cid,
+    )
+    store.close()
+
+    assert result.n_pairs_gated == 0
+    assert result.n_pairs_judged == 0
+    assert result.n_findings == 0
+    assert result.n_cross_corpus_gate_drops == 0
+    # Definition pass still runs.
+    assert result.n_definition_pairs_judged >= 1
+    assert result.n_definition_findings >= 1
+
+
+def test_check_pairwise_enabled_requires_nli_checker(tmp_path: Path) -> None:
+    """pairwise_enabled=True but nli_checker=None must raise ValueError."""
+    cfg = _pairwise_config(tmp_path).model_copy(update={"pairwise_enabled": True})
+    store, faiss, cid, _ = _seed_pairwise_store(tmp_path)
+    logger = AuditLogger(store)
+    run_id = logger.begin_run()
+    with pytest.raises(ValueError, match="pairwise_enabled=True but nli_checker is None"):
+        check(
+            cfg,
+            store=store,
+            faiss_store=faiss,
+            nli_checker=None,
+            judge=FixtureJudge({}),
+            audit_logger=logger,
+            run_id=run_id,
+            corpus_id=cid,
+        )
+    store.close()
+
+
+def test_check_deep_without_pairwise_rejected(tmp_path: Path) -> None:
+    """pairwise_enabled=False with multi_party_judge supplied must raise ValueError —
+    the deep pass relies on the strong-pair gate output."""
+    cfg = _pairwise_config(tmp_path).model_copy(update={"pairwise_enabled": False})
+    store, faiss, cid, _ = _seed_pairwise_store(tmp_path)
+    logger = AuditLogger(store)
+    run_id = logger.begin_run()
+    with pytest.raises(ValueError, match="--deep requires --pairwise"):
+        check(
+            cfg,
+            store=store,
+            faiss_store=faiss,
+            nli_checker=None,
+            judge=FixtureJudge({}),
+            audit_logger=logger,
+            multi_party_judge=FixtureMultiPartyJudge({}),
+            run_id=run_id,
+            corpus_id=cid,
+        )
+    store.close()

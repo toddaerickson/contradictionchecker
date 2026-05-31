@@ -472,7 +472,7 @@ def check(
     *,
     store: AssertionStore,
     faiss_store: FaissStore,
-    nli_checker: NliChecker,
+    nli_checker: NliChecker | None = None,
     judge: Judge,
     audit_logger: AuditLogger,
     gate: CandidateGate | None = None,
@@ -481,7 +481,21 @@ def check(
     run_id: str,
     corpus_id: str,
 ) -> CheckResult:
-    """Stage A → Stage B → optional multi-party + definition passes → audit."""
+    """Stage A → Stage B → optional multi-party + definition passes → audit.
+
+    ADR-0015: the pairwise (NLI + judge) pass is opt-in via
+    ``config.pairwise_enabled``. When disabled, the strong-gate loop is
+    skipped entirely; the definition pass still runs because it bypasses
+    the NLI gate by design.
+    """
+    pairwise_active = config.pairwise_enabled and nli_checker is not None
+    if config.pairwise_enabled and nli_checker is None:
+        raise ValueError("pairwise_enabled=True but nli_checker is None")
+    if multi_party_judge is not None and not pairwise_active:
+        raise ValueError(
+            "--deep requires --pairwise; cannot run multi-party pass without the pairwise gate"
+        )
+
     audit_logger.update_run_status(run_id, "running")
 
     corpus_assertion_ids: set[str] = set(store.iter_assertion_ids(corpus_id=corpus_id))
@@ -495,39 +509,41 @@ def check(
     track_strong_keys = multi_party_judge is not None
     strong_keys: set[tuple[str, str]] = set()
 
-    for pair in strong_gate.candidates(store):
-        if (
-            pair.a.assertion_id not in corpus_assertion_ids
-            or pair.b.assertion_id not in corpus_assertion_ids
-        ):
-            n_cross_corpus_drops += 1
-            continue
-        n_pairs_gated += 1
-        if track_strong_keys:
-            strong_keys.add((pair.a.assertion_id, pair.b.assertion_id))
-        nli = score_bidirectional(nli_checker, pair.a.assertion_text, pair.b.assertion_text)
-        if nli.p_contradiction < config.nli_contradiction_threshold:
-            continue
-        # ADR-0005 step E2: deterministic sign-flip cases skip the LLM judge entirely.
-        verdict = _try_numeric_short_circuit(pair.a, pair.b)
-        if verdict is None:
-            # Step E3: hand the LLM judge a structured hint when same-metric,
-            # same-scope values disagree above the configured threshold without
-            # flipping sign. Empty / None hint leaves the prompt unchanged.
-            numeric_context = _build_numeric_context(
-                pair.a, pair.b, threshold=config.numeric_disagreement_threshold
-            )
-            verdict = judge.judge(pair.a, pair.b, numeric_context=numeric_context)
-        audit_logger.record_finding(run_id, candidate=pair, nli=nli, verdict=verdict)
-        n_pairs_judged += 1
-        if verdict.verdict in CONTRADICTION_VERDICTS:
-            n_findings += 1
+    if pairwise_active:
+        assert nli_checker is not None  # narrow for mypy
+        for pair in strong_gate.candidates(store):
+            if (
+                pair.a.assertion_id not in corpus_assertion_ids
+                or pair.b.assertion_id not in corpus_assertion_ids
+            ):
+                n_cross_corpus_drops += 1
+                continue
+            n_pairs_gated += 1
+            if track_strong_keys:
+                strong_keys.add((pair.a.assertion_id, pair.b.assertion_id))
+            nli = score_bidirectional(nli_checker, pair.a.assertion_text, pair.b.assertion_text)
+            if nli.p_contradiction < config.nli_contradiction_threshold:
+                continue
+            # ADR-0005 step E2: deterministic sign-flip cases skip the LLM judge entirely.
+            verdict = _try_numeric_short_circuit(pair.a, pair.b)
+            if verdict is None:
+                # Step E3: hand the LLM judge a structured hint when same-metric,
+                # same-scope values disagree above the configured threshold without
+                # flipping sign. Empty / None hint leaves the prompt unchanged.
+                numeric_context = _build_numeric_context(
+                    pair.a, pair.b, threshold=config.numeric_disagreement_threshold
+                )
+                verdict = judge.judge(pair.a, pair.b, numeric_context=numeric_context)
+            audit_logger.record_finding(run_id, candidate=pair, nli=nli, verdict=verdict)
+            n_pairs_judged += 1
+            if verdict.verdict in CONTRADICTION_VERDICTS:
+                n_findings += 1
 
-    # The NLI checker isn't used by the multi-party LLM-judge pass or the
-    # definition pass — release its weights now so the ~0.6-2 GB of model RSS
-    # is reclaimed before those passes allocate their own request buffers.
-    nli_checker.release()
-    gc.collect()
+        # The NLI checker isn't used by the multi-party LLM-judge pass or the
+        # definition pass — release its weights now so the ~0.6-2 GB of model RSS
+        # is reclaimed before those passes allocate their own request buffers.
+        nli_checker.release()
+        gc.collect()
 
     # ADR-0006 F4: optional triangle pass over the gate output.
     # Dual-gate: feed the triangle finder a union of strong pairs (used by the
@@ -598,14 +614,16 @@ def check(
         n_pairs_judged=n_pairs_judged,
         n_findings=n_findings + n_definition_findings,
     )
+    pairwise_summary = (
+        f"{n_pairs_gated} gated / {n_pairs_judged} judged / {n_findings} findings"
+        if pairwise_active
+        else "pairwise=off"
+    )
     _log.info(
-        "Run %s — %d gated / %d judged / %d findings / %d triangles / "
-        "%d multi-party / %d definition pairs / %d definition findings / "
-        "%d short-circuited",
+        "Run %s — %s / %d triangles / %d multi-party / %d definition pairs / "
+        "%d definition findings / %d short-circuited",
         run_id,
-        n_pairs_gated,
-        n_pairs_judged,
-        n_findings,
+        pairwise_summary,
         n_triangles_judged,
         n_multi_party_findings,
         n_definition_pairs_judged,
@@ -657,14 +675,18 @@ def estimate_cost(
     # Stream the candidates: PR #58 made _iter_candidates an iterator for
     # OOM protection on large corpora; materialising it here would regress
     # that. Apply the corpus filter inline as we count.
+    # ADR-0015: when pairwise is disabled the check loop skips the candidate
+    # pass entirely; mirror that here so the cost preview reflects real spend
+    # and we avoid the FAISS scan.
     n_candidate_pairs = 0
-    for pair in _iter_candidates(config, store, faiss_store, gate=None):
-        if corpus_assertion_ids is not None and (
-            pair.a.assertion_id not in corpus_assertion_ids
-            or pair.b.assertion_id not in corpus_assertion_ids
-        ):
-            continue
-        n_candidate_pairs += 1
+    if config.pairwise_enabled:
+        for pair in _iter_candidates(config, store, faiss_store, gate=None):
+            if corpus_assertion_ids is not None and (
+                pair.a.assertion_id not in corpus_assertion_ids
+                or pair.b.assertion_id not in corpus_assertion_ids
+            ):
+                continue
+            n_candidate_pairs += 1
 
     # Route through DefinitionChecker so org-scope suppression matches the run.
     # The judge is a no-op stand-in — count_pairs never invokes it, and we
