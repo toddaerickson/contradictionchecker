@@ -26,7 +26,7 @@ from consistency_checker.extract.schema import Assertion, Document
 from consistency_checker.index.assertion_store import AssertionStore
 from consistency_checker.index.embedder import embed_pending
 from consistency_checker.index.faiss_store import FaissStore
-from consistency_checker.pipeline import check, make_judge
+from consistency_checker.pipeline import check, default_per_call_costs, make_judge
 from tests.conftest import HashEmbedder
 
 
@@ -232,3 +232,22 @@ def test_check_deep_without_pairwise_rejected(tmp_path: Path) -> None:
             corpus_id=cid,
         )
     store.close()
+
+
+# --- Task 2: provider-aware default per-call costs --------------------------
+
+
+def test_default_per_call_costs_anthropic() -> None:
+    assert default_per_call_costs("anthropic") == (0.003, 0.010)
+
+
+def test_default_per_call_costs_openai() -> None:
+    assert default_per_call_costs("openai") == (0.003, 0.010)
+
+
+def test_default_per_call_costs_moonshot() -> None:
+    assert default_per_call_costs("moonshot") == (0.0001, 0.001)
+
+
+def test_default_per_call_costs_fixture() -> None:
+    assert default_per_call_costs("fixture") == (0.0, 0.0)

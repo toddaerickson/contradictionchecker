@@ -120,6 +120,24 @@ def test_estimate_cost_dollars_use_supplied_bounds(cfg: Config) -> None:
     assert est.est_cost_high == pytest.approx(est.judge_calls_ceiling * 0.020)
 
 
+def test_estimate_cost_uses_moonshot_defaults_when_provider_moonshot(cfg: Config) -> None:
+    store, faiss = _seed_store(cfg)
+    cfg_m = cfg.model_copy(update={"judge_provider": "moonshot"})
+    est = estimate_cost(cfg_m, store=store, faiss_store=faiss)
+    store.close()
+    assert est.per_call_low == 0.0001
+    assert est.per_call_high == 0.001
+
+
+def test_estimate_cost_explicit_overrides_win(cfg: Config) -> None:
+    store, faiss = _seed_store(cfg)
+    cfg_m = cfg.model_copy(update={"judge_provider": "moonshot"})
+    est = estimate_cost(cfg_m, store=store, faiss_store=faiss, per_call_low=0.5, per_call_high=0.6)
+    store.close()
+    assert est.per_call_low == 0.5
+    assert est.per_call_high == 0.6
+
+
 def test_estimate_cost_empty_store_returns_zero(cfg: Config) -> None:
     store = AssertionStore(cfg.db_path)
     store.migrate()

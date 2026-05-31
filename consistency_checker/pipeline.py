@@ -54,7 +54,7 @@ from consistency_checker.check.providers.openai import (
     OpenAIProvider,
 )
 from consistency_checker.check.triangle import Triangle, find_triangles
-from consistency_checker.config import Config
+from consistency_checker.config import Config, JudgeProvider
 from consistency_checker.corpus.chunker import chunk_document
 from consistency_checker.corpus.junk_filter import JunkAudit
 from consistency_checker.corpus.loader import load_corpus
@@ -649,13 +649,32 @@ def check(
 # --- cost estimate ----------------------------------------------------------
 
 
+_PER_CALL_COSTS: dict[str, tuple[float, float]] = {
+    "anthropic": (0.003, 0.010),
+    "openai": (0.003, 0.010),
+    "moonshot": (0.0001, 0.001),
+    "fixture": (0.0, 0.0),
+}
+
+
+def default_per_call_costs(provider: JudgeProvider) -> tuple[float, float]:
+    """Return (low, high) per-judge-call cost in USD for the given provider.
+
+    Anthropic and OpenAI calibrated against typical 1-2 KB input + 200-token
+    output (sonnet-tier / gpt-4-tier pricing as of 2026-05-31). Moonshot
+    (kimi-k2.6) measured at roughly 10-100x cheaper from in-house runs;
+    see ADR-0016 for the source of the numbers and the price-drift mitigation.
+    """
+    return _PER_CALL_COSTS[provider]
+
+
 def estimate_cost(
     config: Config,
     *,
     store: AssertionStore,
     faiss_store: FaissStore,
-    per_call_low: float = 0.003,
-    per_call_high: float = 0.010,
+    per_call_low: float | None = None,
+    per_call_high: float | None = None,
     corpus_id: str | None = None,
 ) -> CostEstimate:
     """Count judge calls a check run would make, without making any LLM calls.
@@ -667,7 +686,17 @@ def estimate_cost(
 
     When ``corpus_id`` is supplied the same FAISS post-filter applied by
     ``check()`` is used so the preview matches the actual run.
+
+    ``per_call_low`` / ``per_call_high`` default to provider-specific bounds
+    via :func:`default_per_call_costs` when ``None``. Explicit values win so
+    callers (and tests) can still pin exact dollar bounds.
     """
+    provider_low, provider_high = default_per_call_costs(config.judge_provider)
+    if per_call_low is None:
+        per_call_low = provider_low
+    if per_call_high is None:
+        per_call_high = provider_high
+
     corpus_assertion_ids: set[str] | None = (
         set(store.iter_assertion_ids(corpus_id=corpus_id)) if corpus_id is not None else None
     )
