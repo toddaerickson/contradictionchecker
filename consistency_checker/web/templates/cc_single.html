@@ -20,14 +20,17 @@
       <button type="button" class="cc-settings-cog" disabled title="Settings drawer — out of scope for ADR-0017">⚙</button>
     </header>
     <div class="cc-shell">
-      <aside class="cc-sidebar" id="cc-sidebar">
+      <aside class="cc-sidebar" id="cc-sidebar"
+             hx-get="/corpora/sidebar"
+             hx-trigger="corpus-created from:body"
+             hx-swap="innerHTML">
         {% include "cc_sidebar.html" %}
       </aside>
       <main class="cc-main" id="cc-main">
         {% include "cc_findings.html" %}
       </main>
     </div>
-    <dialog id="cc-modal-region" class="cc-dialog"></dialog>
+    <div id="cc-modal-region"></div>
     <div id="cc-drawer-region" class="cc-drawer-region" hidden></div>
     <div id="cc-toast-region" class="cc-toast-region" role="status" aria-live="polite"></div>
   </body>

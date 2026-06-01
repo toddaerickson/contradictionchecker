@@ -1,7 +1,10 @@
 {% if active_corpus is none %}
   <div class="cc-empty cc-main-empty">
     <p class="cc-muted">No corpora yet. Create one to get started.</p>
-    <button type="button" class="cc-button" disabled title="Wired in Phase 2">+ New corpus</button>
+    <button type="button" class="cc-button"
+            hx-get="/corpora/new/modal"
+            hx-target="#cc-modal-region"
+            hx-swap="innerHTML">+ New corpus</button>
   </div>
 {% else %}
   <header class="cc-main-head">

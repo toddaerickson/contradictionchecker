@@ -228,3 +228,137 @@ def test_corpus_query_param_selects_active(tmp_path: Path, which: str) -> None:
     body = resp.text
     # The active corpus's name appears in the main-pane title (in the h2).
     assert f'<h2 class="cc-main-title">{target_name}</h2>' in body
+
+
+# --- Phase 2: New Corpus modal (ADR-0017) -------------------------------
+
+
+def test_sidebar_button_wired_to_modal_route(tmp_path: Path) -> None:
+    """The sidebar's [+ New corpus] button targets the modal route, not disabled."""
+    cfg = _config(tmp_path)
+    _seed_one_corpus(cfg)
+    client = _client(cfg)
+    resp = client.get("/?new_ui=1")
+    assert resp.status_code == 200
+    body = resp.text
+    assert 'hx-get="/corpora/new/modal"' in body
+    # The Phase-1 placeholder hint must be gone from the sidebar button.
+    assert 'title="Wired in Phase 2"' not in body
+
+
+def test_modal_route_returns_dialog_fragment(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    resp = client.get("/corpora/new/modal")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "<dialog" in body.lower()
+    assert 'name="corpus_name"' in body
+    assert 'name="judge_provider"' in body
+    assert 'name="files"' in body
+    # No full-page wrapper.
+    assert "<html" not in body.lower()
+
+
+def test_create_corpus_success_with_files(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    # FixtureExtractor's facts dict is keyed by chunk_id, which is a content
+    # hash we don't know up front. The test verifies the ingest path runs to
+    # completion by checking the document count, not the assertion count.
+    client = _client(cfg)
+    files = [("files", ("alpha.txt", b"Revenue grew 12% in fiscal 2025.\n", "text/plain"))]
+    data = {"corpus_name": "test-alpha", "judge_provider": "moonshot"}
+    resp = client.post("/corpora/new", files=files, data=data)
+    assert resp.status_code == 200, resp.text
+    assert "test-alpha" in resp.text
+    assert resp.headers.get("HX-Trigger") == "corpus-created"
+
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    try:
+        rows = store._conn.execute(
+            "SELECT corpus_id FROM corpora WHERE corpus_name = ?", ("test-alpha",)
+        ).fetchall()
+        assert len(rows) == 1
+        corpus_id = rows[0]["corpus_id"]
+        # The fixture extractor returns no assertions, but the document row
+        # must exist — proves the ingest pipeline ran for the uploaded file.
+        n_docs = store.stats(corpus_id=corpus_id)["documents"]
+        assert n_docs == 1
+    finally:
+        store.close()
+
+
+def test_create_corpus_success_without_files(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    data = {"corpus_name": "empty-bravo", "judge_provider": "moonshot"}
+    resp = client.post("/corpora/new", data=data)
+    assert resp.status_code == 200, resp.text
+    assert "empty-bravo" in resp.text
+    assert resp.headers.get("HX-Trigger") == "corpus-created"
+
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    try:
+        rows = store._conn.execute(
+            "SELECT corpus_id FROM corpora WHERE corpus_name = ?", ("empty-bravo",)
+        ).fetchall()
+        assert len(rows) == 1
+        n = store.stats(corpus_id=rows[0]["corpus_id"])["assertions"]
+        assert n == 0
+    finally:
+        store.close()
+
+
+def test_create_corpus_duplicate_name_returns_409(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    _seed_one_corpus(cfg, name="dup-corpus")
+    client = _client(cfg)
+    data = {"corpus_name": "dup-corpus", "judge_provider": "moonshot"}
+    resp = client.post("/corpora/new", data=data)
+    assert resp.status_code == 409
+    assert "already exists" in resp.text
+    assert "HX-Trigger" not in resp.headers
+
+
+def test_create_corpus_invalid_name_returns_400(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    data = {"corpus_name": "   ", "judge_provider": "moonshot"}
+    resp = client.post("/corpora/new", data=data)
+    assert resp.status_code == 400
+    assert "HX-Trigger" not in resp.headers
+
+
+def test_create_corpus_invalid_judge_provider_returns_400(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    data = {"corpus_name": "ok-name", "judge_provider": "openai"}
+    resp = client.post("/corpora/new", data=data)
+    assert resp.status_code == 400
+    assert "moonshot" in resp.text or "anthropic" in resp.text
+    assert "HX-Trigger" not in resp.headers
+
+
+def test_sidebar_refresh_endpoint_returns_fragment(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    _seed_one_corpus(cfg, name="Refresh-me")
+    client = _client(cfg)
+    resp = client.get("/corpora/sidebar")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "Refresh-me" in body
+    lower = body.lower()
+    assert "<html" not in lower
+    assert "<head>" not in lower
+    assert "<!doctype" not in lower
+
+
+def test_sidebar_refresh_honors_active_param(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Active-target")
+    client = _client(cfg)
+    resp = client.get(f"/corpora/sidebar?active={cid}")
+    assert resp.status_code == 200
+    assert "cc-corpus-row--active" in resp.text
