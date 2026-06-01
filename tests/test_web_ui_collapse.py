@@ -555,8 +555,10 @@ def test_post_run_begin_run_config_matches_cli_shape(tmp_path: Path) -> None:
         assert '"enable_multi_party": true' in cfg_json
         assert '"definitions_enabled": true' in cfg_json
         assert '"pairwise_enabled": true' in cfg_json
-        assert "deep" not in cfg_json
-        assert "no_definitions" not in cfg_json
+        # Quoted key check — bare "deep"/"no_definitions" would false-fail on
+        # any future model name or value that contains those substrings.
+        assert '"deep":' not in cfg_json
+        assert '"no_definitions":' not in cfg_json
         # Missing-from-Phase-3 fields the review caught.
         assert "nli_contradiction_threshold" in cfg_json
         assert "gate_top_k" in cfg_json
