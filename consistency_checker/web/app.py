@@ -879,15 +879,25 @@ def create_app(
                     max_cost=max_cost,
                 )
 
+            # ADR-0017 review: mirror the CLI's begin_run config dict
+            # exactly so audit-log replay sees one shape regardless of
+            # whether the run was started from `consistency-check check`
+            # or the web Run Check modal. The legacy `POST /runs` route
+            # uses the same shape below — both routes are aligned to
+            # `cli/main.py` lines 357-370.
             run_id = audit.begin_run(
                 config={
-                    "deep": deep,
                     "embedder_model": config.embedder_model,
                     "nli_model": config.nli_model,
                     "judge_provider": config.judge_provider,
                     "judge_model": config.judge_model,
+                    "nli_contradiction_threshold": config.nli_contradiction_threshold,
+                    "gate_top_k": config.gate_top_k,
+                    "gate_similarity_threshold": config.gate_similarity_threshold,
+                    "enable_multi_party": deep,
+                    "max_triangles_per_run": config.max_triangles_per_run,
+                    "definitions_enabled": not no_definitions,
                     "pairwise_enabled": effective_pairwise,
-                    "no_definitions": no_definitions,
                     "max_cost_usd": (max_cost if max_cost is not None else config.max_cost_usd),
                 },
                 run_status="pending",
@@ -1690,12 +1700,18 @@ def create_app(
                 )
             run_id = audit.begin_run(
                 config={
-                    "deep": deep,
                     "embedder_model": config.embedder_model,
                     "nli_model": config.nli_model,
                     "judge_provider": config.judge_provider,
                     "judge_model": config.judge_model,
+                    "nli_contradiction_threshold": config.nli_contradiction_threshold,
+                    "gate_top_k": config.gate_top_k,
+                    "gate_similarity_threshold": config.gate_similarity_threshold,
+                    "enable_multi_party": deep,
+                    "max_triangles_per_run": config.max_triangles_per_run,
+                    "definitions_enabled": True,
                     "pairwise_enabled": config.pairwise_enabled,
+                    "max_cost_usd": config.max_cost_usd,
                 },
                 run_status="pending",
                 corpus_id=corpus_id,

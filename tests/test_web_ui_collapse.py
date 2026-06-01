@@ -531,6 +531,42 @@ def test_post_run_starts_background_task(tmp_path: Path) -> None:
         store.close()
 
 
+def test_post_run_begin_run_config_matches_cli_shape(tmp_path: Path) -> None:
+    """ADR-0017 review: web /corpora/{id}/run's begin_run config dict must
+    mirror the CLI's keys so audit-log replay sees one shape regardless of
+    which surface started the run."""
+    cfg = _config(tmp_path)
+    cid = _seed_ingested_corpus(cfg, name="Replay-parity")
+    client = _client(cfg)
+    resp = client.post(
+        f"/corpora/{cid}/run",
+        data={"pairwise": "true", "no_definitions": "false", "deep": "true"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    store = AssertionStore(cfg.db_path)
+    try:
+        row = store._conn.execute(
+            "SELECT config_json FROM pipeline_runs WHERE corpus_id = ?", (cid,)
+        ).fetchone()
+        assert row is not None
+        cfg_json = row["config_json"]
+        # CLI key vocabulary — not "deep" or "no_definitions".
+        assert '"enable_multi_party": true' in cfg_json
+        assert '"definitions_enabled": true' in cfg_json
+        assert '"pairwise_enabled": true' in cfg_json
+        assert "deep" not in cfg_json
+        assert "no_definitions" not in cfg_json
+        # Missing-from-Phase-3 fields the review caught.
+        assert "nli_contradiction_threshold" in cfg_json
+        assert "gate_top_k" in cfg_json
+        assert "gate_similarity_threshold" in cfg_json
+        assert "max_triangles_per_run" in cfg_json
+        assert "max_cost_usd" in cfg_json
+    finally:
+        store.close()
+
+
 def test_post_run_deep_without_pairwise_rejected(tmp_path: Path) -> None:
     """deep=true with effective pairwise=false renders a 400 error in-modal."""
     cfg = _config(tmp_path)

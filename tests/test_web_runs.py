@@ -162,7 +162,10 @@ def test_post_runs_deep_propagates_to_pipeline(
     store.close()
     assert run is not None
     assert run.config_json is not None
-    assert '"deep": true' in run.config_json
+    # ADR-0017 review: web /runs aligned to CLI's begin_run dict shape —
+    # `deep` is no longer stored under that key, it lives as
+    # `enable_multi_party` to match `cli/main.py::check`.
+    assert '"enable_multi_party": true' in run.config_json
 
 
 # --- ADR-0015: pairwise opt-in -------------------------------------------
