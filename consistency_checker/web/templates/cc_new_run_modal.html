@@ -1,0 +1,76 @@
+<dialog class="cc-modal {% if success %}cc-modal--success{% elif error %}cc-modal--error{% endif %}" open>
+  {% if success %}
+    <header class="cc-modal-head">
+      <h2 class="cc-modal-title">Run started</h2>
+    </header>
+    <div class="cc-modal-body">
+      <p>
+        Run <code>{{ run_id_short }}</code> started for
+        corpus <strong>{{ corpus_name }}</strong>.
+        Watch the sidebar row for live progress.
+      </p>
+    </div>
+    <footer class="cc-modal-actions">
+      <button type="button" class="cc-button cc-button--primary"
+              onclick="document.getElementById('cc-modal-region').innerHTML = ''">Close</button>
+    </footer>
+  {% else %}
+    <header class="cc-modal-head">
+      <h2 class="cc-modal-title">Run check — {{ corpus_name }}</h2>
+    </header>
+    <form class="cc-modal-form"
+          hx-post="/corpora/{{ corpus_id }}/run"
+          hx-target="#cc-modal-region"
+          hx-swap="innerHTML">
+      {% if error %}
+        <div class="cc-modal-error" role="alert">{{ error }}</div>
+      {% endif %}
+      <label class="cc-modal-field">
+        <span class="cc-modal-label">Pairwise contradiction detector</span>
+        <select name="pairwise">
+          <option value="" {% if pairwise == '' %}selected{% endif %}>
+            Use config default ({{ 'enabled' if config_pairwise_enabled else 'disabled' }})
+          </option>
+          <option value="true" {% if pairwise == 'true' %}selected{% endif %}>
+            Enable pairwise (NLI + judge)
+          </option>
+          <option value="false" {% if pairwise == 'false' %}selected{% endif %}>
+            Skip pairwise
+          </option>
+        </select>
+        <span class="cc-modal-hint">
+          Mirrors the CLI's <code>--pairwise / --no-pairwise</code> tri-state.
+        </span>
+      </label>
+      <label class="cc-modal-field cc-modal-field--checkbox">
+        <input type="checkbox" name="no_definitions" value="true"
+               {% if no_definitions %}checked{% endif %}>
+        <span class="cc-modal-label-inline">Skip definition pass</span>
+      </label>
+      <label class="cc-modal-field cc-modal-field--checkbox">
+        <input type="checkbox" name="deep" value="true"
+               {% if deep %}checked{% endif %}>
+        <span class="cc-modal-label-inline">
+          Multi-party / triangle pass (requires pairwise)
+        </span>
+      </label>
+      <label class="cc-modal-field">
+        <span class="cc-modal-label">Max cost (USD)</span>
+        <input type="number"
+               name="max_cost"
+               step="0.01"
+               min="0"
+               value="{{ max_cost if max_cost is not none else '' }}"
+               placeholder="leave blank to disable">
+        <span class="cc-modal-hint">
+          Hard ceiling on the conservative cost estimate. Run aborts before judge/NLI bootstrap if exceeded.
+        </span>
+      </label>
+      <footer class="cc-modal-actions">
+        <button type="submit" class="cc-button cc-button--primary">Run check</button>
+        <button type="button" class="cc-button"
+                onclick="document.getElementById('cc-modal-region').innerHTML = ''">Cancel</button>
+      </footer>
+    </form>
+  {% endif %}
+</dialog>
