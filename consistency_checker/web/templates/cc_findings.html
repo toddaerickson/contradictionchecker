@@ -1,0 +1,54 @@
+{% if active_corpus is none %}
+  <div class="cc-empty cc-main-empty">
+    <p class="cc-muted">No corpora yet. Create one to get started.</p>
+    <button type="button" class="cc-button" disabled title="Wired in Phase 2">+ New corpus</button>
+  </div>
+{% else %}
+  <header class="cc-main-head">
+    <div class="cc-main-head-row">
+      <h2 class="cc-main-title">{{ active_corpus.corpus_name }}</h2>
+      <div class="cc-main-meta">
+        {% if last_run is not none %}
+          <span>Last run: <time>{{ last_run.completed_at }}</time></span>
+          <span>·</span>
+        {% else %}
+          <span>No runs yet</span>
+          <span>·</span>
+        {% endif %}
+        <span>{{ findings|length }} finding{{ '' if findings|length == 1 else 's' }}</span>
+      </div>
+    </div>
+    <div class="cc-main-actions">
+      <button type="button" class="cc-button cc-button--primary" disabled title="Wired in Phase 3">Run check ▾</button>
+      <button type="button" class="cc-button" disabled title="Wired in Phase 4">Assertions</button>
+      <button type="button" class="cc-button" disabled title="Wired in Phase 4">Definitions</button>
+      <button type="button" class="cc-button" disabled title="Wired in Phase 4">Stats</button>
+    </div>
+  </header>
+
+  <section class="cc-findings" id="cc-findings">
+    {% if findings %}
+      <ol class="cc-findings-list">
+        {% for finding in findings %}
+          <li class="cc-finding">
+            <span class="cc-finding-kind">⚠ {{ finding.verdict|replace('_', ' ')|title }}</span>
+            <p class="cc-finding-text">{{ finding.label_or_quote }}</p>
+            <div class="cc-finding-meta">
+              <span>Confidence {{ "%.2f"|format(finding.confidence or 0.0) }}</span>
+              <span class="cc-finding-actions">
+                <button type="button" disabled title="Wired in Phase 5">✓ Resolved</button>
+                <button type="button" disabled title="Wired in Phase 5">✗ False positive</button>
+                <button type="button" disabled title="Wired in Phase 5">? Uncertain</button>
+              </span>
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <div class="cc-empty">
+        <p class="cc-muted">No findings yet.</p>
+        <button type="button" class="cc-button" disabled title="Wired in Phase 3">Run check</button>
+      </div>
+    {% endif %}
+  </section>
+{% endif %}

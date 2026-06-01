@@ -1,0 +1,264 @@
+/* Single-page shell styles (ADR-0017).
+ *
+ * Layered on top of cc_style.css. Reuses tokens (#111111 header,
+ * #c9450a accent, #f4f3f0 bg) so the visual language stays consistent
+ * across the flag transition. Phase 6 prunes dead rules from cc_style.css.
+ */
+
+.cc-collapsed-body {
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* --- Header (cost gauge + cog right-aligned) ------------------------------ */
+
+.cc-collapsed-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.cc-cost-gauge {
+  margin-left: auto;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+  color: var(--cc-header-fg);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cc-cost-spent,
+.cc-cost-ceiling {
+  font-family: "IBM Plex Mono", monospace;
+  color: #ffffff;
+}
+
+.cc-settings-cog {
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: var(--cc-header-fg);
+  font-size: 0.95rem;
+  padding: 0.25rem 0.55rem;
+  cursor: not-allowed;
+  font-family: inherit;
+}
+
+/* --- Shell grid (sidebar + main) ----------------------------------------- */
+
+.cc-shell {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  height: calc(100vh - 48px);
+  background: var(--cc-bg);
+}
+
+/* --- Sidebar ------------------------------------------------------------- */
+
+.cc-sidebar {
+  border-right: 1px solid var(--cc-border);
+  background: var(--cc-surface);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.cc-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid var(--cc-border);
+  position: sticky;
+  top: 0;
+  background: var(--cc-surface);
+  z-index: 1;
+}
+
+.cc-sidebar-title {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: var(--cc-muted);
+}
+
+.cc-corpus-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.cc-corpus-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.75rem 1rem;
+  text-decoration: none;
+  color: var(--cc-fg);
+  cursor: pointer;
+  border-bottom: 1px solid var(--cc-border);
+  border-left: 3px solid transparent;
+  transition: background 0.08s ease;
+}
+
+.cc-corpus-row:hover {
+  background: var(--cc-accent-soft);
+}
+
+.cc-corpus-row--active {
+  background: var(--cc-accent-soft);
+  border-left-color: var(--cc-accent);
+}
+
+.cc-corpus-name {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.cc-corpus-meta {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  color: var(--cc-muted);
+  display: flex;
+  gap: 0.4rem;
+}
+
+.cc-corpus-empty {
+  padding: 0.875rem 1rem;
+  font-size: 0.85rem;
+}
+
+/* --- Main pane ----------------------------------------------------------- */
+
+.cc-main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cc-main-head {
+  position: sticky;
+  top: 0;
+  background: var(--cc-bg);
+  border-bottom: 1px solid var(--cc-border);
+  padding: 0.875rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  z-index: 1;
+}
+
+.cc-main-head-row {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.cc-main-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.cc-main-meta {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.74rem;
+  color: var(--cc-muted);
+  display: flex;
+  gap: 0.4rem;
+}
+
+.cc-main-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+/* --- Findings list ------------------------------------------------------- */
+
+.cc-findings {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.cc-findings-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.cc-finding {
+  padding: 0.875rem 1.25rem;
+  border-bottom: 1px solid var(--cc-border);
+  background: var(--cc-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.cc-finding-kind {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  color: var(--cc-accent);
+  text-transform: uppercase;
+}
+
+.cc-finding-text {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.cc-finding-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.74rem;
+  color: var(--cc-muted);
+}
+
+.cc-finding-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.cc-finding-actions button {
+  font: inherit;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--cc-border-strong);
+  background: var(--cc-surface);
+  color: var(--cc-muted);
+  cursor: not-allowed;
+  border-radius: 2px;
+}
+
+/* --- Empty state --------------------------------------------------------- */
+
+.cc-empty {
+  padding: 2rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.cc-main-empty {
+  padding-top: 3rem;
+}
+
+/* --- Drawer + modal placeholders (Phases 2-4 wire them) ----------------- */
+
+.cc-drawer-region {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 600px;
+  background: var(--cc-surface);
+  border-left: 1px solid var(--cc-border-strong);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.08);
+  overflow-y: auto;
+  z-index: 10;
+}
