@@ -1,0 +1,22 @@
+<header class="cc-sidebar-head">
+  <span class="cc-sidebar-title">CORPORA</span>
+  <button class="cc-button cc-button--ghost" disabled title="Wired in Phase 2">+ New corpus</button>
+</header>
+<nav class="cc-corpus-list">
+  {% for corpus in corpora %}
+    <a class="cc-corpus-row {% if corpus.corpus_id == active_corpus_id %}cc-corpus-row--active{% endif %}"
+       hx-get="/corpora/{{ corpus.corpus_id }}/findings"
+       hx-target="#cc-main"
+       hx-swap="innerHTML"
+       hx-push-url="/?new_ui=1&corpus={{ corpus.corpus_id }}">
+      <div class="cc-corpus-name">{{ corpus.corpus_name }}</div>
+      <div class="cc-corpus-meta">
+        <span>{{ corpus.n_assertions }} facts</span>
+        <span>·</span>
+        <span>{{ corpus.n_runs }} run{{ '' if corpus.n_runs == 1 else 's' }}</span>
+      </div>
+    </a>
+  {% else %}
+    <div class="cc-corpus-empty cc-muted">No corpora yet.</div>
+  {% endfor %}
+</nav>

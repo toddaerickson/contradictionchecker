@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>contradiction-checker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/cc_style.css">
+    <link rel="stylesheet" href="/static/cc_collapsed.css">
+    <script src="/static/htmx.min.js" defer></script>
+  </head>
+  <body class="cc-collapsed-body">
+    <header class="cc-header cc-collapsed-header">
+      <h1 class="cc-header__title">contradiction-checker</h1>
+      <div class="cc-cost-gauge" id="cc-cost-gauge" title="Wired in Phase 5">
+        Cost spent: <span class="cc-cost-spent">--</span> / <span class="cc-cost-ceiling">--</span>
+      </div>
+      <button type="button" class="cc-settings-cog" disabled title="Settings drawer — out of scope for ADR-0017">⚙</button>
+    </header>
+    <div class="cc-shell">
+      <aside class="cc-sidebar" id="cc-sidebar">
+        {% include "cc_sidebar.html" %}
+      </aside>
+      <main class="cc-main" id="cc-main">
+        {% include "cc_findings.html" %}
+      </main>
+    </div>
+    <dialog id="cc-modal-region" class="cc-dialog"></dialog>
+    <div id="cc-drawer-region" class="cc-drawer-region" hidden></div>
+    <div id="cc-toast-region" class="cc-toast-region" role="status" aria-live="polite"></div>
+  </body>
+</html>

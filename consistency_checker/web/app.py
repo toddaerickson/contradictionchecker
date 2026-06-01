@@ -280,13 +280,199 @@ def create_app(
         store.migrate()
         return store, AuditLogger(store)
 
+    # --- ADR-0017 single-page shell helpers ------------------------------
+    #
+    # Phase 1: shell + sidebar + findings list behind ``?new_ui=1``. The
+    # New Corpus button, Run Check button, drawer buttons, verdict
+    # buttons, and cost gauge are placeholders — Phases 2-5 wire them.
+
+    _PAIR_FINDING_VERDICTS = ("contradiction", "numeric_short_circuit")
+    _DEFINITION_VERDICTS = ("definition_divergent",)
+
+    def _list_corpora_with_counts(store: AssertionStore) -> list[dict[str, Any]]:
+        """Sidebar rows: corpora + per-corpus (n_assertions, n_runs)."""
+        rows: list[dict[str, Any]] = []
+        for c in store.list_corpora():
+            n_assertions = store.stats(corpus_id=c.corpus_id)["assertions"]
+            n_runs_row = store._conn.execute(
+                "SELECT COUNT(*) FROM pipeline_runs WHERE corpus_id = ?",
+                (c.corpus_id,),
+            ).fetchone()
+            n_runs = int(n_runs_row[0]) if n_runs_row else 0
+            rows.append(
+                {
+                    "corpus_id": c.corpus_id,
+                    "corpus_name": c.corpus_name,
+                    "n_assertions": n_assertions,
+                    "n_runs": n_runs,
+                }
+            )
+        return rows
+
+    def _pick_active_corpus_id(
+        store: AssertionStore, corpora: list[dict[str, Any]], requested: str | None
+    ) -> str | None:
+        """Honor ``?corpus=<id>`` if it points at a real corpus.
+
+        Otherwise pick the corpus whose most recent run finished most
+        recently; ties and run-less corpora fall back to the first row
+        (already alphabetical via list_corpora's ORDER BY).
+        """
+        valid_ids = {c["corpus_id"] for c in corpora}
+        if requested and requested in valid_ids:
+            return requested
+        if not corpora:
+            return None
+        row = store._conn.execute(
+            "SELECT corpus_id FROM pipeline_runs "
+            "WHERE corpus_id IS NOT NULL AND finished_at IS NOT NULL "
+            "ORDER BY finished_at DESC LIMIT 1"
+        ).fetchone()
+        if row is not None and row[0] in valid_ids:
+            return str(row[0])
+        return str(corpora[0]["corpus_id"])
+
+    def _most_recent_run_for_corpus(store: AssertionStore, corpus_id: str) -> dict[str, Any] | None:
+        row = store._conn.execute(
+            "SELECT run_id, started_at, finished_at, run_status "
+            "FROM pipeline_runs WHERE corpus_id = ? "
+            "ORDER BY started_at DESC, run_id DESC LIMIT 1",
+            (corpus_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "run_id": row["run_id"],
+            "started_at": row["started_at"],
+            "completed_at": row["finished_at"] or "in progress",
+            "run_status": row["run_status"],
+        }
+
+    def _collect_findings_for_run(
+        store: AssertionStore, audit: AuditLogger, run_id: str
+    ) -> list[dict[str, Any]]:
+        """Pull pair findings (contradiction + numeric_short_circuit) and
+        definition_divergent findings for the run, hydrate doc labels, and
+        flatten to the shape ``cc_findings.html`` consumes.
+        """
+        raw_pair = [
+            f
+            for verdict in _PAIR_FINDING_VERDICTS
+            for f in audit.iter_findings(run_id=run_id, verdict=verdict)
+        ]
+        raw_def = [
+            f
+            for verdict in _DEFINITION_VERDICTS
+            for f in audit.iter_findings(
+                run_id=run_id,
+                verdict=verdict,
+                detector_type="definition_inconsistency",
+            )
+        ]
+        all_raw = raw_pair + raw_def
+        assertion_ids = [aid for raw in all_raw for aid in (raw.assertion_a_id, raw.assertion_b_id)]
+        assertions = store.get_assertions_bulk(assertion_ids)
+        doc_ids = list({a.doc_id for a in assertions.values()})
+        documents = store.get_documents_bulk(doc_ids)
+
+        out: list[dict[str, Any]] = []
+        for raw in all_raw:
+            a = assertions.get(raw.assertion_a_id)
+            b = assertions.get(raw.assertion_b_id)
+            if a is None or b is None:
+                continue
+            doc_a_label = _document_label(documents.get(a.doc_id), a.doc_id)
+            doc_b_label = _document_label(documents.get(b.doc_id), b.doc_id)
+            rationale_first = (raw.judge_rationale or "").splitlines()[:1]
+            if rationale_first:
+                label = rationale_first[0]
+            else:
+                label = (
+                    f"{doc_a_label}: {_truncate(a.assertion_text, 140)} ↔ "
+                    f"{doc_b_label}: {_truncate(b.assertion_text, 140)}"
+                )
+            out.append(
+                {
+                    "finding_id": raw.finding_id,
+                    "verdict": raw.judge_verdict or "uncertain",
+                    "confidence": raw.judge_confidence,
+                    "label_or_quote": label,
+                }
+            )
+        out.sort(key=lambda f: -(f["confidence"] or 0.0))
+        return out
+
+    def _shell_context(
+        store: AssertionStore, audit: AuditLogger, active_corpus_id: str | None
+    ) -> dict[str, Any]:
+        corpora = _list_corpora_with_counts(store)
+        resolved_id = _pick_active_corpus_id(store, corpora, active_corpus_id)
+        active_corpus = next((c for c in corpora if c["corpus_id"] == resolved_id), None)
+        last_run: dict[str, Any] | None = None
+        findings: list[dict[str, Any]] = []
+        if resolved_id is not None:
+            last_run = _most_recent_run_for_corpus(store, resolved_id)
+            if last_run is not None:
+                findings = _collect_findings_for_run(store, audit, last_run["run_id"])
+        return {
+            "corpora": corpora,
+            "active_corpus_id": resolved_id,
+            "active_corpus": active_corpus,
+            "last_run": last_run,
+            "findings": findings,
+        }
+
+    def _render_single_page_shell(
+        request: Request, *, active_corpus_id: str | None
+    ) -> HTMLResponse:
+        store, audit = _open_audit()
+        try:
+            ctx = _shell_context(store, audit, active_corpus_id)
+        finally:
+            store.close()
+        return templates.TemplateResponse(request, "cc_single.html", ctx)
+
+    @app.get("/corpora/{corpus_id}/findings", response_class=HTMLResponse)
+    def corpora_findings(request: Request, corpus_id: str) -> HTMLResponse:
+        """Main-pane fragment for an HTMX swap from the sidebar.
+
+        Returns only the ``cc_findings.html`` body — no ``<html>`` / ``<head>``
+        wrapper — because the caller targets ``#cc-main`` with
+        ``hx-swap="innerHTML"``.
+
+        404s on unknown ``corpus_id``: the path parameter is the resource
+        identity, so silently falling through to another corpus would hand
+        callers (stale HTMX links after a corpus deletion) a 200 with the
+        wrong data. The shell route ``GET /?new_ui=1&corpus=<id>`` is more
+        forgiving — there ``corpus`` is a query hint, not the identity.
+        """
+        store, audit = _open_audit()
+        try:
+            row = store._conn.execute(
+                "SELECT 1 FROM corpora WHERE corpus_id = ?", (corpus_id,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"corpus_id {corpus_id!r} not found")
+            ctx = _shell_context(store, audit, corpus_id)
+        finally:
+            store.close()
+        return templates.TemplateResponse(request, "cc_findings.html", ctx)
+
     @app.get("/", response_class=HTMLResponse)
     def index(
         request: Request,
         show_reviewed_contradiction: bool = False,
         show_reviewed_multi_party: bool = False,
+        new_ui: bool = False,
+        corpus: str | None = None,
     ) -> Response:
-        """Contradictions tab — the main page (ADR-0007)."""
+        """Contradictions tab — the main page (ADR-0007).
+
+        With ``?new_ui=1`` returns the ADR-0017 single-page shell instead;
+        ``?corpus=<id>`` selects which corpus the shell loads with.
+        """
+        if new_ui:
+            return _render_single_page_shell(request, active_corpus_id=corpus)
         store, audit = _open_audit()
         try:
             if store.stats()["documents"] == 0:
