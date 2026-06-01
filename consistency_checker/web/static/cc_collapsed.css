@@ -262,3 +262,60 @@
   overflow-y: auto;
   z-index: 10;
 }
+
+/* --- New Corpus modal (Phase 2) ---------------------------------------- */
+
+.cc-modal[open] {
+  width: min(500px, 92vw);
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--cc-border-strong);
+  border-radius: 6px;
+  background: var(--cc-surface);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  color: var(--cc-fg);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+}
+.cc-modal--error[open] { border-color: #c53030; }
+.cc-modal--success[open] { border-color: var(--cc-accent); }
+/* No `::backdrop` rule — the dialog is inserted with the `open` attribute
+   rather than via `dialog.showModal()`, so `::backdrop` would never fire.
+   Phase 4 owns drawer-style focus management; that PR can convert this
+   to `showModal()` + native backdrop if a visual overlay becomes
+   necessary. */
+
+.cc-modal-head { margin-bottom: 1rem; }
+.cc-modal-title { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.cc-modal-form { display: flex; flex-direction: column; gap: 0.85rem; }
+.cc-modal-field { display: flex; flex-direction: column; gap: 0.25rem; }
+.cc-modal-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  color: var(--cc-muted);
+  text-transform: uppercase;
+}
+.cc-modal-field input[type="text"],
+.cc-modal-field input[type="file"],
+.cc-modal-field select {
+  font: inherit;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--cc-border-strong);
+  border-radius: 4px;
+  background: var(--cc-bg);
+}
+.cc-modal-hint { font-size: 0.74rem; color: var(--cc-muted); }
+.cc-modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+.cc-modal-error {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #c53030;
+  border-radius: 4px;
+  color: #c53030;
+  background: #fff5f5;
+  font-size: 0.85rem;
+}
+.cc-modal-body p { margin: 0; }

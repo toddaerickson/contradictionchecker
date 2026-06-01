@@ -432,6 +432,273 @@ def create_app(
             store.close()
         return templates.TemplateResponse(request, "cc_single.html", ctx)
 
+    @app.get("/corpora/sidebar", response_class=HTMLResponse)
+    def corpora_sidebar(request: Request, active: str | None = Query(default=None)) -> HTMLResponse:
+        """Sidebar fragment used by the ``corpus-created`` HTMX trigger.
+
+        Returns the ``cc_sidebar.html`` partial — corpora list + new-corpus
+        button — without the surrounding ``<aside>`` so the caller can
+        ``hx-swap="innerHTML"`` into the existing sidebar shell. Honors
+        ``?active=<corpus_id>`` so a just-created corpus row gets the
+        active-row highlight on refresh.
+        """
+        store, _audit = _open_audit()
+        try:
+            corpora = _list_corpora_with_counts(store)
+            active_corpus_id = (
+                active if active and any(c["corpus_id"] == active for c in corpora) else None
+            )
+        finally:
+            store.close()
+        return templates.TemplateResponse(
+            request,
+            "cc_sidebar.html",
+            {"corpora": corpora, "active_corpus_id": active_corpus_id},
+        )
+
+    @app.get("/corpora/new/modal", response_class=HTMLResponse)
+    def corpora_new_modal(request: Request) -> HTMLResponse:
+        """Modal fragment for creating a new corpus + ingesting files."""
+        return templates.TemplateResponse(
+            request,
+            "cc_new_corpus_modal.html",
+            {
+                "allowed_extensions": sorted(_ALLOWED_EXTENSIONS),
+                "success": False,
+                "error": None,
+                "corpus_name": "",
+                "judge_provider": "moonshot",
+            },
+        )
+
+    def _render_new_corpus_modal(
+        request: Request,
+        *,
+        success: bool,
+        error: str | None,
+        status_code: int,
+        corpus_name: str = "",
+        judge_provider: str = "moonshot",
+        corpus_id: str | None = None,
+        n_assertions: int = 0,
+        n_files: int = 0,
+        hx_trigger: str | None = None,
+    ) -> HTMLResponse:
+        response = templates.TemplateResponse(
+            request,
+            "cc_new_corpus_modal.html",
+            {
+                "allowed_extensions": sorted(_ALLOWED_EXTENSIONS),
+                "success": success,
+                "error": error,
+                "corpus_name": corpus_name,
+                "judge_provider": judge_provider,
+                "corpus_id": corpus_id,
+                "n_assertions": n_assertions,
+                "n_files": n_files,
+            },
+            status_code=status_code,
+        )
+        if hx_trigger:
+            response.headers["HX-Trigger"] = hx_trigger
+        return response
+
+    @app.post("/corpora/new", response_class=HTMLResponse)
+    async def post_corpora_new(
+        request: Request,
+        corpus_name: str = Form(...),
+        judge_provider: str = Form("moonshot"),
+        files: list[UploadFile] | None = None,
+    ) -> HTMLResponse:
+        """Create a corpus row and optionally ingest uploaded files.
+
+        Wraps the existing corpus-creation + upload-ingest plumbing so the
+        ADR-0017 New Corpus modal can do both in one round-trip. Empty file
+        list is valid — empty corpora are a supported state.
+
+        On success returns the modal in its success state with an
+        ``HX-Trigger: corpus-created`` header so the sidebar refreshes.
+        """
+        corpus_name = (corpus_name or "").strip()
+        provider = (judge_provider or "").strip()
+
+        if not corpus_name or len(corpus_name) > 80:
+            return _render_new_corpus_modal(
+                request,
+                success=False,
+                error="Corpus name must be 1-80 characters.",
+                status_code=400,
+                corpus_name=corpus_name,
+                judge_provider=provider or "moonshot",
+            )
+        invalid_chars = set(r'\/:"*?<>|')
+        if any(c in corpus_name for c in invalid_chars):
+            return _render_new_corpus_modal(
+                request,
+                success=False,
+                error='Corpus name contains invalid characters: \\ / : " * ? < > |',
+                status_code=400,
+                corpus_name=corpus_name,
+                judge_provider=provider or "moonshot",
+            )
+        if provider not in {"moonshot", "anthropic"}:
+            return _render_new_corpus_modal(
+                request,
+                success=False,
+                error="Judge provider must be 'moonshot' or 'anthropic'.",
+                status_code=400,
+                corpus_name=corpus_name,
+                judge_provider="moonshot",
+            )
+
+        store = AssertionStore(config.db_path)
+        store.migrate()
+        duplicate = False
+        try:
+            existing = store._conn.execute(
+                "SELECT 1 FROM corpora WHERE corpus_name = ?", (corpus_name,)
+            ).fetchone()
+            if existing is not None:
+                duplicate = True
+            else:
+                corpus_path = config.data_dir / "corpora" / corpus_name
+                corpus_id = store.get_or_create_corpus(corpus_name, str(corpus_path), provider)
+        finally:
+            store.close()
+        if duplicate:
+            return _render_new_corpus_modal(
+                request,
+                success=False,
+                error=f"Corpus '{corpus_name}' already exists.",
+                status_code=409,
+                corpus_name=corpus_name,
+                judge_provider=provider,
+            )
+
+        upload_files = [f for f in (files or []) if f and f.filename]
+
+        if not upload_files:
+            return _render_new_corpus_modal(
+                request,
+                success=True,
+                error=None,
+                status_code=200,
+                corpus_name=corpus_name,
+                judge_provider=provider,
+                corpus_id=corpus_id,
+                n_assertions=0,
+                n_files=0,
+                hx_trigger="corpus-created",
+            )
+
+        upload_id = _generate_upload_id()
+        upload_dir = config.data_dir / "uploads" / upload_id
+        upload_dir.mkdir(parents=True, exist_ok=False)
+
+        saved: list[Path] = []
+        try:
+            for file in upload_files:
+                if not file.filename:
+                    continue
+                ext = Path(file.filename).suffix.lower()
+                if not ext:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="File has no extension; expected .txt, .md, .pdf, or .docx",
+                    )
+                if ext not in _ALLOWED_EXTENSIONS:
+                    raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext!r}")
+                content = await file.read(MAX_UPLOAD_BYTES + 1)
+                if len(content) > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="File too large (max 100 MB)")
+                target = upload_dir / Path(file.filename).name
+                target.write_bytes(content)
+                saved.append(target)
+        except HTTPException as exc:
+            shutil.rmtree(upload_dir, ignore_errors=True)
+            return _render_new_corpus_modal(
+                request,
+                success=False,
+                error=f"Upload rejected: {exc.detail}",
+                status_code=exc.status_code,
+                corpus_name=corpus_name,
+                judge_provider=provider,
+            )
+
+        store, faiss_store, embedder_inst = _open_stores()
+        ingest_error: tuple[int, str] | None = None
+        try:
+            extractor = _make_extractor()
+            try:
+                n_assertions = _ingest_uploaded_paths(
+                    saved,
+                    store=store,
+                    faiss_store=faiss_store,
+                    embedder=embedder_inst,
+                    extractor=extractor,
+                    config=config,
+                    corpus_id=corpus_id,
+                )
+            except CrossCorpusDocumentError as err:
+                names_by_id = {c.corpus_id: c.corpus_name for c in store.list_corpora()}
+                existing_name = names_by_id.get(err.existing_corpus_id, err.existing_corpus_id)
+                requested_name = names_by_id.get(err.requested_corpus_id, err.requested_corpus_id)
+                ingest_error = (
+                    409,
+                    (
+                        f"Document {err.doc_id} already exists under corpus "
+                        f"'{existing_name}' and cannot be re-uploaded into corpus "
+                        f"'{requested_name}'."
+                    ),
+                )
+                shutil.rmtree(upload_dir, ignore_errors=True)
+                store.delete_corpus(corpus_id)
+            except Exception as exc:
+                # PR #73 pattern: render a user-facing error modal instead of
+                # letting FastAPI propagate a 500 traceback into the HTMX swap
+                # target. Roll back the corpus row created above so the user
+                # can retry the same name; otherwise this empty ghost row would
+                # 409 every future attempt.
+                _log.exception("New-corpus ingest failed: %s", exc)
+                shutil.rmtree(upload_dir, ignore_errors=True)
+                store.delete_corpus(corpus_id)
+                ingest_error = (
+                    500,
+                    "Ingest failed unexpectedly. The corpus has been rolled back; you can retry.",
+                )
+        finally:
+            store.close()
+        if ingest_error is not None:
+            status_code, message = ingest_error
+            return _render_new_corpus_modal(
+                request,
+                success=False,
+                error=message,
+                status_code=status_code,
+                corpus_name=corpus_name,
+                judge_provider=provider,
+            )
+
+        _log.info(
+            "New corpus '%s' (%s): %d files saved, %d assertions extracted",
+            corpus_name,
+            corpus_id,
+            len(saved),
+            n_assertions,
+        )
+        return _render_new_corpus_modal(
+            request,
+            success=True,
+            error=None,
+            status_code=200,
+            corpus_name=corpus_name,
+            judge_provider=provider,
+            corpus_id=corpus_id,
+            n_assertions=n_assertions,
+            n_files=len(saved),
+            hx_trigger="corpus-created",
+        )
+
     @app.get("/corpora/{corpus_id}/findings", response_class=HTMLResponse)
     def corpora_findings(request: Request, corpus_id: str) -> HTMLResponse:
         """Main-pane fragment for an HTMX swap from the sidebar.

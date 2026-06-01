@@ -1,0 +1,65 @@
+<dialog class="cc-modal {% if success %}cc-modal--success{% elif error %}cc-modal--error{% endif %}" open>
+  {% if success %}
+    <header class="cc-modal-head">
+      <h2 class="cc-modal-title">Corpus created</h2>
+    </header>
+    <div class="cc-modal-body">
+      <p>
+        Corpus <strong>{{ corpus_name }}</strong> created
+        ({{ n_assertions }} assertion{{ '' if n_assertions == 1 else 's' }} extracted from
+        {{ n_files }} file{{ '' if n_files == 1 else 's' }}).
+      </p>
+    </div>
+    <footer class="cc-modal-actions">
+      <a class="cc-button cc-button--primary"
+         href="/?new_ui=1&corpus={{ corpus_id }}">View corpus</a>
+      <button type="button" class="cc-button"
+              onclick="document.getElementById('cc-modal-region').innerHTML = ''">Close</button>
+    </footer>
+  {% else %}
+    <header class="cc-modal-head">
+      <h2 class="cc-modal-title">New corpus</h2>
+    </header>
+    <form class="cc-modal-form"
+          hx-post="/corpora/new"
+          hx-target="#cc-modal-region"
+          hx-swap="innerHTML"
+          hx-encoding="multipart/form-data"
+          enctype="multipart/form-data">
+      {% if error %}
+        <div class="cc-modal-error" role="alert">{{ error }}</div>
+      {% endif %}
+      <label class="cc-modal-field">
+        <span class="cc-modal-label">Corpus name</span>
+        <input type="text"
+               name="corpus_name"
+               required
+               minlength="1"
+               maxlength="80"
+               value="{{ corpus_name or '' }}"
+               placeholder="e.g. atkins-v2"
+               autofocus>
+      </label>
+      <label class="cc-modal-field">
+        <span class="cc-modal-label">Judge provider</span>
+        <select name="judge_provider">
+          <option value="moonshot" {% if (judge_provider or 'moonshot') == 'moonshot' %}selected{% endif %}>moonshot</option>
+          <option value="anthropic" {% if judge_provider == 'anthropic' %}selected{% endif %}>anthropic</option>
+        </select>
+      </label>
+      <label class="cc-modal-field">
+        <span class="cc-modal-label">Files (optional)</span>
+        <input type="file"
+               name="files"
+               multiple
+               accept="{{ allowed_extensions|join(',') }}">
+        <span class="cc-modal-hint">Allowed: {{ allowed_extensions|join(', ') }}</span>
+      </label>
+      <footer class="cc-modal-actions">
+        <button type="submit" class="cc-button cc-button--primary">Create corpus + ingest</button>
+        <button type="button" class="cc-button"
+                onclick="document.getElementById('cc-modal-region').innerHTML = ''">Cancel</button>
+      </footer>
+    </form>
+  {% endif %}
+</dialog>
