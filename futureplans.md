@@ -264,6 +264,24 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
 
 (Move items here as they ship, keep a one-line note on which release.)
 
+- **Pre-flight cost ceiling + provider-aware estimate-cost defaults (commercial blocker #2, 2026-05-31)**
+  Branch: `feat/max-cost-ceiling`. ADR-0016. Plan:
+  `docs/superpowers/plans/2026-05-31-max-cost-ceiling.md`.
+  `Config.max_cost_usd: float | None` defaults to `None`; `--max-cost <USD>`
+  on `check` runs `estimate_cost()` as a pre-flight and raises
+  `CostCeilingExceeded` (CLI exit 2) BEFORE any NLI or judge bootstrap when
+  `est_cost_high > max_cost_usd` — no spend, no model download on an
+  over-budget run. New `pipeline.default_per_call_costs(judge_provider)`
+  returns `(0.003, 0.010)` for anthropic/openai, `(0.0001, 0.001)` for
+  moonshot, `(0.0, 0.0)` for fixture; `estimate_cost()` and the `check`
+  pre-flight both default `per_call_low/high` from the provider when
+  callers don't pass explicit overrides. CLI `estimate-cost` output widened
+  to four decimals so Moonshot's sub-cent numbers don't round to `$0.000`.
+  Conservative gate (uses `est_cost_high`, not `est_cost_low`) — false
+  positives possible, never false negatives. Resolves the "Moonshot
+  projections off by 1–2 orders of magnitude" and "no automatic ceiling"
+  failure modes recorded in ADR-0016's Context.
+
 - **Pairwise contradiction detector flipped to opt-in (2026-05-31)**
   Branch: `feat/pairwise-opt-in`. ADR-0015. Plan:
   `docs/superpowers/plans/2026-05-31-pairwise-opt-in.md`.

@@ -877,6 +877,145 @@ def test_estimate_cost_per_call_flags_flow_through(
     assert captured["per_call_high"] == 0.020
 
 
+# --- Task 4: --max-cost ceiling + provider-aware estimate-cost defaults ----
+
+
+def test_check_max_cost_flag_aborts_when_exceeded(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+    # judge_provider in write_config defaults to anthropic — per-call high $0.010.
+    # A single definition pair therefore projects to $0.010. With --max-cost 0.001
+    # the check aborts.
+
+    def fake_embedder(_cfg: Any) -> Any:
+        return HashEmbedder(dim=64)
+
+    def fake_judge(_cfg: Any) -> Any:
+        return FixtureJudge({})
+
+    class _SpyNliFactory:
+        def __init__(self, model_name: str | None = None) -> None:
+            self._inner = FixtureNliChecker({})
+
+        def score(self, premise: str, hypothesis: str) -> NliResult:
+            return self._inner.score(premise, hypothesis)
+
+        def release(self) -> None:
+            self._inner.release()
+
+    monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
+    monkeypatch.setattr("consistency_checker.cli.main.make_judge", fake_judge)
+    monkeypatch.setattr(
+        "consistency_checker.check.nli_checker.TransformerNliChecker", _SpyNliFactory
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--max-cost",
+            "0.001",
+            "--corpus",
+            "default",
+            "--config",
+            str(cfg_path),
+        ],
+    )
+    assert result.exit_code == 2
+    combined = strip_ansi((result.stdout or "") + (result.stderr or ""))
+    assert "exceeds --max-cost" in combined or "exceeds" in combined
+
+
+def test_check_max_cost_flag_under_budget_runs(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    def fake_embedder(_cfg: Any) -> Any:
+        return HashEmbedder(dim=64)
+
+    def fake_judge(_cfg: Any) -> Any:
+        return FixtureJudge({})
+
+    class _SpyNliFactory:
+        def __init__(self, model_name: str | None = None) -> None:
+            self._inner = FixtureNliChecker({})
+
+        def score(self, premise: str, hypothesis: str) -> NliResult:
+            return self._inner.score(premise, hypothesis)
+
+        def release(self) -> None:
+            self._inner.release()
+
+    monkeypatch.setattr("consistency_checker.cli.main.make_embedder", fake_embedder)
+    monkeypatch.setattr("consistency_checker.cli.main.make_judge", fake_judge)
+    monkeypatch.setattr(
+        "consistency_checker.check.nli_checker.TransformerNliChecker", _SpyNliFactory
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--max-cost",
+            "1000.0",
+            "--corpus",
+            "default",
+            "--config",
+            str(cfg_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+
+
+def test_estimate_cost_moonshot_provider_uses_moonshot_defaults(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused", judge_provider="moonshot")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    result = runner.invoke(
+        app,
+        ["estimate-cost", "--corpus", "default", "--config", str(cfg_path)],
+    )
+    assert result.exit_code == 0, result.stdout
+    # Moonshot defaults: 0.0001 low, 0.001 high.
+    assert "$0.0001 to $0.0010" in result.stdout or "$0.0001" in result.stdout
+
+
+def test_estimate_cost_explicit_overrides_win(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused", judge_provider="moonshot")
+    cfg = Config.from_yaml(cfg_path)
+    _seed_existing_store(cfg)
+
+    result = runner.invoke(
+        app,
+        [
+            "estimate-cost",
+            "--per-call-low",
+            "0.5",
+            "--per-call-high",
+            "0.6",
+            "--corpus",
+            "default",
+            "--config",
+            str(cfg_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    # Explicit overrides win even with moonshot provider.
+    assert "$0.5000" in result.stdout
+    assert "$0.6000" in result.stdout
+
+
 # --- org-scope flag + corpus warnings --------------------------------------
 
 

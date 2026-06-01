@@ -48,6 +48,15 @@ from consistency_checker.index.assertion_store import AssertionStore, CrossCorpu
 from consistency_checker.index.faiss_store import FaissStore
 from consistency_checker.logging_setup import configure as configure_logging
 from consistency_checker.pipeline import (
+    CostCeilingExceeded,
+    make_definition_checker,
+    make_embedder,
+    make_extractor,
+    make_judge,
+    make_multi_party_judge,
+    rebuild_faiss,
+)
+from consistency_checker.pipeline import (
     check as run_check,
 )
 from consistency_checker.pipeline import (
@@ -55,14 +64,6 @@ from consistency_checker.pipeline import (
 )
 from consistency_checker.pipeline import (
     ingest as run_ingest,
-)
-from consistency_checker.pipeline import (
-    make_definition_checker,
-    make_embedder,
-    make_extractor,
-    make_judge,
-    make_multi_party_judge,
-    rebuild_faiss,
 )
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Consistency checker CLI.")
@@ -299,6 +300,18 @@ def check(
             "— see ADR-0015 for the eval data behind that default)."
         ),
     ),
+    max_cost: float | None = typer.Option(
+        None,
+        "--max-cost",
+        min=0,
+        help=(
+            "Hard ceiling on estimated API spend in USD. Aborts the run before "
+            "any judge/NLI bootstrap if estimate-cost's high-end projection "
+            "exceeds this value. Conservative: false-positive aborts (a safe "
+            "run rejected) but never false-negatives. Omit to disable (or set "
+            "via Config.max_cost_usd). See ADR-0016."
+        ),
+    ),
 ) -> None:
     cfg = _load_config(config)
     if deep:
@@ -306,6 +319,8 @@ def check(
     cfg = cfg.model_copy(update={"org_scope_enabled": org_scope})
     if pairwise is not None:
         cfg = cfg.model_copy(update={"pairwise_enabled": pairwise})
+    if max_cost is not None:
+        cfg = cfg.model_copy(update={"max_cost_usd": max_cost})
     if cfg.enable_multi_party and not cfg.pairwise_enabled:
         raise typer.BadParameter(
             "--deep requires the pairwise gate output. Re-run with --pairwise."
@@ -351,20 +366,32 @@ def check(
             "max_triangles_per_run": cfg.max_triangles_per_run,
             "definitions_enabled": not no_definitions,
             "pairwise_enabled": cfg.pairwise_enabled,
+            "max_cost_usd": cfg.max_cost_usd,
         },
     )
-    result = run_check(
-        cfg,
-        store=store,
-        faiss_store=faiss_store,
-        nli_checker=nli,
-        judge=judge,
-        audit_logger=audit_logger,
-        multi_party_judge=multi_party,
-        definition_checker=definition_checker,
-        run_id=run_id,
-        corpus_id=corpus_id,
-    )
+    try:
+        result = run_check(
+            cfg,
+            store=store,
+            faiss_store=faiss_store,
+            nli_checker=nli,
+            judge=judge,
+            audit_logger=audit_logger,
+            multi_party_judge=multi_party,
+            definition_checker=definition_checker,
+            run_id=run_id,
+            corpus_id=corpus_id,
+        )
+    except CostCeilingExceeded as exc:
+        store.close()
+        typer.echo(
+            f"Estimated cost ${exc.estimated_high:.4f} exceeds --max-cost "
+            f"${exc.ceiling:.4f}. Options: --no-pairwise, --no-definitions, "
+            f"narrow the corpus with a more specific --corpus, or raise the "
+            f"ceiling.",
+            err=True,
+        )
+        raise typer.Exit(code=2) from exc
     store.close()
     deep_suffix = (
         f" / {result.n_triangles_judged} triangles / {result.n_multi_party_findings} multi-party"
@@ -400,15 +427,21 @@ def estimate_cost(
         "--corpus",
         help="Corpus name. Required (interactive picker on TTY).",
     ),
-    per_call_low: float = typer.Option(
-        0.003,
+    per_call_low: float | None = typer.Option(
+        None,
         "--per-call-low",
-        help="Low end of per-judge-call cost in USD; override to match your model.",
+        help=(
+            "Low end of per-judge-call cost in USD. Default: provider-specific "
+            "(anthropic/openai $0.003, moonshot $0.0001, fixture $0.000)."
+        ),
     ),
-    per_call_high: float = typer.Option(
-        0.010,
+    per_call_high: float | None = typer.Option(
+        None,
         "--per-call-high",
-        help="High end of per-judge-call cost in USD; override to match your model.",
+        help=(
+            "High end of per-judge-call cost in USD. Default: provider-specific "
+            "(anthropic/openai $0.010, moonshot $0.001, fixture $0.000)."
+        ),
     ),
     pairwise: bool | None = typer.Option(
         None,
@@ -468,7 +501,7 @@ def estimate_cost(
         f"  Total judge calls (ceiling):  {est.judge_calls_ceiling}\n"
         "\n"
         f"  Estimated API cost:  ${est.est_cost_low:.2f} to ${est.est_cost_high:.2f}\n"
-        f"  (assumes ${est.per_call_low:.3f} to ${est.per_call_high:.3f} per judge call;\n"
+        f"  (assumes ${est.per_call_low:.4f} to ${est.per_call_high:.4f} per judge call;\n"
         + footnote
     )
 

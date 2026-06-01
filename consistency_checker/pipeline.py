@@ -54,7 +54,7 @@ from consistency_checker.check.providers.openai import (
     OpenAIProvider,
 )
 from consistency_checker.check.triangle import Triangle, find_triangles
-from consistency_checker.config import Config
+from consistency_checker.config import Config, JudgeProvider
 from consistency_checker.corpus.chunker import chunk_document
 from consistency_checker.corpus.junk_filter import JunkAudit
 from consistency_checker.corpus.loader import load_corpus
@@ -108,6 +108,29 @@ class CostEstimate:
     est_cost_high: float
     per_call_low: float
     per_call_high: float
+
+
+class CostCeilingExceeded(Exception):
+    """Raised by :func:`check` when the pre-flight cost estimate exceeds
+    :attr:`Config.max_cost_usd`.
+
+    Attributes:
+        estimated_high: The high-end ``est_cost_high`` from :func:`estimate_cost`.
+        ceiling: The ``Config.max_cost_usd`` value the estimate exceeded.
+
+    The CLI catches this to produce a non-traceback error message. Library
+    callers can read both attributes to surface a user-facing diagnostic.
+    """
+
+    def __init__(self, *, estimated_high: float, ceiling: float) -> None:
+        self.estimated_high = estimated_high
+        self.ceiling = ceiling
+        super().__init__(str(self))
+
+    def __str__(self) -> str:
+        return (
+            f"Estimated cost ${self.estimated_high:.4f} exceeds max_cost_usd ${self.ceiling:.4f}."
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -496,6 +519,26 @@ def check(
             "--deep requires --pairwise; cannot run multi-party pass without the pairwise gate"
         )
 
+    # ADR-0016: pre-flight cost ceiling. Runs BEFORE update_run_status so an
+    # aborted run is never marked "running" in the audit DB (the CLI's
+    # begin_run leaves it "pending"; this preserves that). Pass
+    # definitions_enabled to mirror --no-definitions, otherwise a user who
+    # disabled definitions could still trigger a false abort from
+    # definition-pair costs that won't actually be spent.
+    if config.max_cost_usd is not None:
+        pre_estimate = estimate_cost(
+            config,
+            store=store,
+            faiss_store=faiss_store,
+            corpus_id=corpus_id,
+            definitions_enabled=definition_checker is not None,
+        )
+        if pre_estimate.est_cost_high > config.max_cost_usd:
+            raise CostCeilingExceeded(
+                estimated_high=pre_estimate.est_cost_high,
+                ceiling=config.max_cost_usd,
+            )
+
     audit_logger.update_run_status(run_id, "running")
 
     corpus_assertion_ids: set[str] = set(store.iter_assertion_ids(corpus_id=corpus_id))
@@ -649,14 +692,34 @@ def check(
 # --- cost estimate ----------------------------------------------------------
 
 
+_PER_CALL_COSTS: dict[str, tuple[float, float]] = {
+    "anthropic": (0.003, 0.010),
+    "openai": (0.003, 0.010),
+    "moonshot": (0.0001, 0.001),
+    "fixture": (0.0, 0.0),
+}
+
+
+def default_per_call_costs(provider: JudgeProvider) -> tuple[float, float]:
+    """Return (low, high) per-judge-call cost in USD for the given provider.
+
+    Anthropic and OpenAI calibrated against typical 1-2 KB input + 200-token
+    output (sonnet-tier / gpt-4-tier pricing as of 2026-05-31). Moonshot
+    (kimi-k2.6) measured at roughly 10-100x cheaper from in-house runs;
+    see ADR-0016 for the source of the numbers and the price-drift mitigation.
+    """
+    return _PER_CALL_COSTS[provider]
+
+
 def estimate_cost(
     config: Config,
     *,
     store: AssertionStore,
     faiss_store: FaissStore,
-    per_call_low: float = 0.003,
-    per_call_high: float = 0.010,
+    per_call_low: float | None = None,
+    per_call_high: float | None = None,
     corpus_id: str | None = None,
+    definitions_enabled: bool = True,
 ) -> CostEstimate:
     """Count judge calls a check run would make, without making any LLM calls.
 
@@ -667,7 +730,21 @@ def estimate_cost(
 
     When ``corpus_id`` is supplied the same FAISS post-filter applied by
     ``check()`` is used so the preview matches the actual run.
+
+    ``per_call_low`` / ``per_call_high`` default to provider-specific bounds
+    via :func:`default_per_call_costs` when ``None``. Explicit values win so
+    callers (and tests) can still pin exact dollar bounds.
+
+    Pass ``definitions_enabled=False`` to mirror ``check --no-definitions``;
+    the definition-pair count drops to 0 so the ceiling reflects what the
+    run will actually spend.
     """
+    provider_low, provider_high = default_per_call_costs(config.judge_provider)
+    if per_call_low is None:
+        per_call_low = provider_low
+    if per_call_high is None:
+        per_call_high = provider_high
+
     corpus_assertion_ids: set[str] | None = (
         set(store.iter_assertion_ids(corpus_id=corpus_id)) if corpus_id is not None else None
     )
@@ -691,11 +768,13 @@ def estimate_cost(
     # Route through DefinitionChecker so org-scope suppression matches the run.
     # The judge is a no-op stand-in — count_pairs never invokes it, and we
     # don't want to require API keys for a cost preview.
-    counter = DefinitionChecker(
-        judge=FixtureDefinitionJudge(fixtures={}),
-        org_scope_enabled=config.org_scope_enabled,
-    )
-    n_definition_pairs = counter.count_pairs(list(store.iter_definitions(corpus_id=corpus_id)))
+    n_definition_pairs = 0
+    if definitions_enabled:
+        counter = DefinitionChecker(
+            judge=FixtureDefinitionJudge(fixtures={}),
+            org_scope_enabled=config.org_scope_enabled,
+        )
+        n_definition_pairs = counter.count_pairs(list(store.iter_definitions(corpus_id=corpus_id)))
 
     judge_calls_ceiling = n_candidate_pairs + n_definition_pairs
     return CostEstimate(

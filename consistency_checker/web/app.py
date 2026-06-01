@@ -737,6 +737,7 @@ def create_app(
         # background task opens its own store. The embedder is not needed for
         # check (only for ingest), so open faiss directly to avoid the ~800 MB
         # model load that _open_stores() would trigger.
+        from consistency_checker.pipeline import CostCeilingExceeded
         from consistency_checker.pipeline import check as run_check
 
         store = AssertionStore(config.db_path)
@@ -799,6 +800,20 @@ def create_app(
                     definition_checker=def_checker,
                     run_id=run_id,
                     corpus_id=corpus_id,
+                )
+            except CostCeilingExceeded as exc:
+                # ADR-0016: surface the budget-guardrail outcome with a clean
+                # diagnostic instead of dumping a generic traceback into the
+                # UI's failure field.
+                _log.info("Run %s aborted by max_cost_usd ceiling: %s", run_id, exc)
+                audit_logger.update_run_status(
+                    run_id,
+                    "failed",
+                    error_message=(
+                        f"Estimated cost ${exc.estimated_high:.4f} exceeds "
+                        f"max_cost_usd ${exc.ceiling:.4f}. Raise the ceiling, "
+                        f"disable pairwise/definitions, or narrow the corpus."
+                    ),
                 )
             except Exception as exc:
                 _log.exception("Run %s failed: %s", run_id, exc)
