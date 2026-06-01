@@ -452,3 +452,36 @@ def test_check_no_ceiling_when_max_cost_usd_none(tmp_path: Path) -> None:
     assert run is not None
     assert run.run_status == "done"
     store.close()
+
+
+def test_check_no_definitions_does_not_count_definition_pairs_against_ceiling(
+    tmp_path: Path,
+) -> None:
+    """ADR-0016 follow-up: --no-definitions disables the definition pass, so
+    its projected cost must drop out of the pre-flight ceiling. Otherwise a
+    user who passed --no-definitions to dodge cost would still get a false
+    abort from definition-pair pricing they will never spend."""
+    store, faiss, cid, _ = _seed_def_pair_store(tmp_path)
+    cfg = _cost_ceiling_config(tmp_path).model_copy(
+        update={"max_cost_usd": 0.001, "judge_provider": "anthropic"}
+    )
+    logger = AuditLogger(store)
+    run_id = logger.begin_run(run_status="pending")
+
+    result = check(
+        cfg,
+        store=store,
+        faiss_store=faiss,
+        nli_checker=None,
+        judge=FixtureJudge({}),
+        audit_logger=logger,
+        definition_checker=None,  # mirrors CLI --no-definitions
+        run_id=run_id,
+        corpus_id=cid,
+    )
+
+    assert result.n_definition_pairs_judged == 0
+    run = logger.get_run(run_id)
+    assert run is not None
+    assert run.run_status == "done"
+    store.close()

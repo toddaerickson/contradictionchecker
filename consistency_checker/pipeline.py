@@ -521,13 +521,17 @@ def check(
 
     # ADR-0016: pre-flight cost ceiling. Runs BEFORE update_run_status so an
     # aborted run is never marked "running" in the audit DB (the CLI's
-    # begin_run leaves it "pending"; this preserves that).
+    # begin_run leaves it "pending"; this preserves that). Pass
+    # definitions_enabled to mirror --no-definitions, otherwise a user who
+    # disabled definitions could still trigger a false abort from
+    # definition-pair costs that won't actually be spent.
     if config.max_cost_usd is not None:
         pre_estimate = estimate_cost(
             config,
             store=store,
             faiss_store=faiss_store,
             corpus_id=corpus_id,
+            definitions_enabled=definition_checker is not None,
         )
         if pre_estimate.est_cost_high > config.max_cost_usd:
             raise CostCeilingExceeded(
@@ -715,6 +719,7 @@ def estimate_cost(
     per_call_low: float | None = None,
     per_call_high: float | None = None,
     corpus_id: str | None = None,
+    definitions_enabled: bool = True,
 ) -> CostEstimate:
     """Count judge calls a check run would make, without making any LLM calls.
 
@@ -729,6 +734,10 @@ def estimate_cost(
     ``per_call_low`` / ``per_call_high`` default to provider-specific bounds
     via :func:`default_per_call_costs` when ``None``. Explicit values win so
     callers (and tests) can still pin exact dollar bounds.
+
+    Pass ``definitions_enabled=False`` to mirror ``check --no-definitions``;
+    the definition-pair count drops to 0 so the ceiling reflects what the
+    run will actually spend.
     """
     provider_low, provider_high = default_per_call_costs(config.judge_provider)
     if per_call_low is None:
@@ -759,11 +768,13 @@ def estimate_cost(
     # Route through DefinitionChecker so org-scope suppression matches the run.
     # The judge is a no-op stand-in — count_pairs never invokes it, and we
     # don't want to require API keys for a cost preview.
-    counter = DefinitionChecker(
-        judge=FixtureDefinitionJudge(fixtures={}),
-        org_scope_enabled=config.org_scope_enabled,
-    )
-    n_definition_pairs = counter.count_pairs(list(store.iter_definitions(corpus_id=corpus_id)))
+    n_definition_pairs = 0
+    if definitions_enabled:
+        counter = DefinitionChecker(
+            judge=FixtureDefinitionJudge(fixtures={}),
+            org_scope_enabled=config.org_scope_enabled,
+        )
+        n_definition_pairs = counter.count_pairs(list(store.iter_definitions(corpus_id=corpus_id)))
 
     judge_calls_ceiling = n_candidate_pairs + n_definition_pairs
     return CostEstimate(

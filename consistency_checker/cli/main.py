@@ -366,6 +366,7 @@ def check(
             "max_triangles_per_run": cfg.max_triangles_per_run,
             "definitions_enabled": not no_definitions,
             "pairwise_enabled": cfg.pairwise_enabled,
+            "max_cost_usd": cfg.max_cost_usd,
         },
     )
     try:

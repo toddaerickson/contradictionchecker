@@ -244,3 +244,43 @@ def test_post_runs_accepts_deep_with_pairwise(
     )
     assert response.status_code == 303
     assert response.headers["location"].startswith("/tabs/stats?run_id=")
+
+
+# --- ADR-0016: cost ceiling -----------------------------------------------
+
+
+def test_run_check_records_cost_ceiling_failure_with_clean_diagnostic(
+    tmp_path: Path,
+) -> None:
+    """ADR-0016: a run that trips max_cost_usd must be marked 'failed' with a
+    user-friendly error_message naming the projected vs. ceiling values, not
+    a raw stack trace from the generic ``except Exception`` branch."""
+    cfg = _config(tmp_path).model_copy(
+        update={"judge_provider": "anthropic", "max_cost_usd": 0.001}
+    )
+    corpus_id = _seed_store(cfg)
+    app = create_app(
+        cfg,
+        extractor=FixtureExtractor({}),
+        embedder=HashEmbedder(dim=64),
+        nli_checker=FixtureNliChecker({}),
+        judge=FixtureJudge({}),
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/runs", data={"deep": "false", "corpus_id": corpus_id}, follow_redirects=False
+    )
+    assert response.status_code == 303
+    run_id = response.headers["location"].rsplit("=", 1)[1]
+
+    store = AssertionStore(cfg.db_path)
+    logger = AuditLogger(store)
+    run = logger.get_run(run_id)
+    store.close()
+    assert run is not None
+    assert run.run_status == "failed"
+    assert run.error_message is not None
+    assert "Estimated cost" in run.error_message
+    assert "max_cost_usd" in run.error_message
+    assert "$0.0010" in run.error_message
