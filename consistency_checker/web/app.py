@@ -626,7 +626,7 @@ def create_app(
             )
 
         store, faiss_store, embedder_inst = _open_stores()
-        cross_corpus_error: str | None = None
+        ingest_error: tuple[int, str] | None = None
         try:
             extractor = _make_extractor()
             try:
@@ -643,26 +643,38 @@ def create_app(
                 names_by_id = {c.corpus_id: c.corpus_name for c in store.list_corpora()}
                 existing_name = names_by_id.get(err.existing_corpus_id, err.existing_corpus_id)
                 requested_name = names_by_id.get(err.requested_corpus_id, err.requested_corpus_id)
-                cross_corpus_error = (
-                    f"Document {err.doc_id} already exists under corpus "
-                    f"'{existing_name}' and cannot be re-uploaded into corpus "
-                    f"'{requested_name}'."
+                ingest_error = (
+                    409,
+                    (
+                        f"Document {err.doc_id} already exists under corpus "
+                        f"'{existing_name}' and cannot be re-uploaded into corpus "
+                        f"'{requested_name}'."
+                    ),
                 )
                 shutil.rmtree(upload_dir, ignore_errors=True)
-            except Exception:
-                # ADR-0017 review: any other ingest failure must not leave the
-                # staged upload directory orphaned on disk. Re-raise so
-                # downstream error handling stays the same.
+                store.delete_corpus(corpus_id)
+            except Exception as exc:
+                # PR #73 pattern: render a user-facing error modal instead of
+                # letting FastAPI propagate a 500 traceback into the HTMX swap
+                # target. Roll back the corpus row created above so the user
+                # can retry the same name; otherwise this empty ghost row would
+                # 409 every future attempt.
+                _log.exception("New-corpus ingest failed: %s", exc)
                 shutil.rmtree(upload_dir, ignore_errors=True)
-                raise
+                store.delete_corpus(corpus_id)
+                ingest_error = (
+                    500,
+                    "Ingest failed unexpectedly. The corpus has been rolled back; you can retry.",
+                )
         finally:
             store.close()
-        if cross_corpus_error is not None:
+        if ingest_error is not None:
+            status_code, message = ingest_error
             return _render_new_corpus_modal(
                 request,
                 success=False,
-                error=cross_corpus_error,
-                status_code=409,
+                error=message,
+                status_code=status_code,
                 corpus_name=corpus_name,
                 judge_provider=provider,
             )

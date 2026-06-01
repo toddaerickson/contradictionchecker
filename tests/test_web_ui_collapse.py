@@ -341,6 +341,70 @@ def test_create_corpus_invalid_judge_provider_returns_400(tmp_path: Path) -> Non
     assert "HX-Trigger" not in resp.headers
 
 
+def test_create_corpus_ingest_failure_rolls_back_corpus_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If ingest raises after corpus creation, the empty corpus row must NOT
+    persist — otherwise the same name 409s on every retry."""
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("synthetic ingest failure")
+
+    monkeypatch.setattr("consistency_checker.web.app._ingest_uploaded_paths", _boom)
+
+    data = {"corpus_name": "rollback-me", "judge_provider": "moonshot"}
+    files = {"files": ("a.txt", b"some content", "text/plain")}
+    resp = client.post("/corpora/new", data=data, files=files)
+    assert resp.status_code == 500
+    assert "rolled back" in resp.text
+    assert "HX-Trigger" not in resp.headers
+
+    store = AssertionStore(cfg.db_path)
+    try:
+        rows = store._conn.execute(
+            "SELECT 1 FROM corpora WHERE corpus_name = ?", ("rollback-me",)
+        ).fetchall()
+        assert rows == []
+    finally:
+        store.close()
+
+
+def test_create_corpus_cross_corpus_collision_rolls_back_corpus_row(
+    tmp_path: Path,
+) -> None:
+    """Re-uploading a doc that already lives under another corpus must roll
+    back the new corpus row in addition to cleaning up the upload dir."""
+    cfg = _config(tmp_path)
+
+    # Seed an existing corpus + ingest one document so its content hash is in
+    # the store, then attempt to create a NEW corpus that uploads the same
+    # bytes. _ingest_uploaded_paths will raise CrossCorpusDocumentError.
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    existing_cid = store.get_or_create_corpus("existing", "/existing", "moonshot")
+    doc = Document.from_content("collision body", source_path="dup.txt", title="dup.txt")
+    store.add_document(doc, corpus_id=existing_cid)
+    store.close()
+
+    client = _client(cfg)
+    data = {"corpus_name": "victim-corpus", "judge_provider": "moonshot"}
+    files = {"files": ("dup.txt", b"collision body", "text/plain")}
+    resp = client.post("/corpora/new", data=data, files=files)
+    assert resp.status_code == 409
+    assert "HX-Trigger" not in resp.headers
+
+    store = AssertionStore(cfg.db_path)
+    try:
+        rows = store._conn.execute(
+            "SELECT 1 FROM corpora WHERE corpus_name = ?", ("victim-corpus",)
+        ).fetchall()
+        assert rows == []
+    finally:
+        store.close()
+
+
 def test_sidebar_refresh_endpoint_returns_fragment(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     _seed_one_corpus(cfg, name="Refresh-me")
