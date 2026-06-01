@@ -61,8 +61,8 @@ uv run consistency-check serve --open    # browser opens to http://127.0.0.1:800
 
 # 3b. CLI-only flow
 uv run consistency-check ingest path/to/corpus/
-uv run consistency-check estimate-cost               # rough API-spend ceiling before you commit
-uv run consistency-check check                       # add --pairwise for the NLI gate (off by default — see ADR-0015); --deep for triangle pass (requires --pairwise); --no-definitions to skip the definition stage
+uv run consistency-check estimate-cost               # rough API-spend ceiling before you commit; per-call defaults now follow your configured judge_provider (Moonshot/Kimi projects sub-cent — ~$0.0001–$0.001 per call — vs Anthropic/OpenAI ~$0.003–$0.010)
+uv run consistency-check check                       # add --pairwise for the NLI gate (off by default — see ADR-0015); --deep for triangle pass (requires --pairwise); --no-definitions to skip the definition stage; --max-cost <USD> aborts before judge bootstrap when the projection exceeds the ceiling (ADR-0016)
 uv run consistency-check report                      # writes data/store/reports/cc_report_<ts>_<run_id>.md
 uv run consistency-check export csv                  # writes data/store/reports/cc_assertions_<ts>.csv
 ```
@@ -123,6 +123,7 @@ Recorded as ADRs in [`docs/decisions/`](docs/decisions/README.md):
 - [0006 — Three-document conditional contradictions](docs/decisions/0006-three-doc-conditional.md): graph triangles on FAISS-similarity edges, opt-in via `--deep`.
 - [0007 — Web UI](docs/decisions/0007-web-ui.md): FastAPI + HTMX, server-rendered, `cc_`-prefixed templates.
 - [0015 — Pairwise contradiction detector becomes opt-in](docs/decisions/0015-pairwise-opt-in.md): pairwise off by default; enable per run with `--pairwise` or `pairwise_enabled: true`.
+- [0016 — Pre-flight cost ceiling for `check`](docs/decisions/0016-max-cost-ceiling.md): `--max-cost <USD>` / `max_cost_usd` aborts before judge bootstrap when the conservative projection exceeds the ceiling; `estimate-cost` defaults per-call costs from the configured `judge_provider` (Moonshot ~10–100× cheaper than Anthropic/OpenAI).
 
 ## Supported formats
 

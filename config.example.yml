@@ -43,3 +43,9 @@ chunk_overlap_chars: 0
 # Skipped entirely when pairwise is off (the dominant memory consumer doesn't
 # load). See CORPORATE_SETUP.md §4.5. Leave unset to skip the pre-flight.
 # max_memory_mb: 3000
+
+# Optional hard ceiling on estimated spend (USD). When set, `check` runs the
+# cost estimate as a pre-flight and aborts before NLI/judge bootstrap if the
+# conservative projection exceeds this value. The CLI flag `--max-cost <USD>`
+# overrides per run. Comment out or set to null to disable. See ADR-0016.
+# max_cost_usd: 5.00

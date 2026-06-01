@@ -262,6 +262,15 @@ First-run gotchas to expect:
   ADR-0015 — own-corpus eval on legal prose showed near-zero useful yield
   at high compute cost. Re-enable on numeric- or spec-heavy corpora where
   outright sign flips and quantity disagreements live.
+- **`uv run consistency-check check --max-cost <USD>`** is a budget
+  guardrail (ADR-0016). Set a hard ceiling (e.g. `--max-cost 5.00`) and
+  the pipeline runs `estimate-cost` as a pre-flight; if the conservative
+  projection exceeds the ceiling, `check` aborts before any NLI or judge
+  bootstrap (no spend, no model download). The same value can live in
+  `config.yml` as `max_cost_usd`. `estimate-cost` itself now defaults
+  per-call costs from your configured `judge_provider`, so Moonshot/Kimi
+  users see realistic sub-cent projections (~$0.0001–$0.001/call) instead
+  of the Anthropic/OpenAI tier (~$0.003–$0.010/call).
 - **`uv run consistency-check check --no-definitions`** disables the
   definition-inconsistency detector if you only want contradictions
   (and only makes sense paired with `--pairwise`).
