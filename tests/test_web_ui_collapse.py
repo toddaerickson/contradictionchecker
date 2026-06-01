@@ -180,6 +180,17 @@ def test_corpora_findings_fragment_returns_findings_only(tmp_path: Path) -> None
     assert "cc-main-head" in body
 
 
+def test_corpora_findings_fragment_404s_on_unknown_corpus_id(tmp_path: Path) -> None:
+    """Stale HTMX links (e.g. after a corpus deletion) must 404 rather than
+    silently return another corpus's findings. Path parameter = identity."""
+    cfg = _config(tmp_path)
+    _seed_one_corpus(cfg, name="Real corpus")
+    client = _client(cfg)
+    resp = client.get("/corpora/does-not-exist/findings")
+    assert resp.status_code == 404
+    assert "does-not-exist" in resp.text
+
+
 # --- 6) empty state when active corpus has no runs -----------------------
 
 

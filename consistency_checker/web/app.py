@@ -439,9 +439,20 @@ def create_app(
         Returns only the ``cc_findings.html`` body — no ``<html>`` / ``<head>``
         wrapper — because the caller targets ``#cc-main`` with
         ``hx-swap="innerHTML"``.
+
+        404s on unknown ``corpus_id``: the path parameter is the resource
+        identity, so silently falling through to another corpus would hand
+        callers (stale HTMX links after a corpus deletion) a 200 with the
+        wrong data. The shell route ``GET /?new_ui=1&corpus=<id>`` is more
+        forgiving — there ``corpus`` is a query hint, not the identity.
         """
         store, audit = _open_audit()
         try:
+            row = store._conn.execute(
+                "SELECT 1 FROM corpora WHERE corpus_id = ?", (corpus_id,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"corpus_id {corpus_id!r} not found")
             ctx = _shell_context(store, audit, corpus_id)
         finally:
             store.close()
