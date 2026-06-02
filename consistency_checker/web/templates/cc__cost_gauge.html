@@ -1,0 +1,10 @@
+{% if spent_usd is not none %}
+  Est. spent: <span class="cc-cost-spent">${{ "%.4f"|format(spent_usd) }}</span>
+  {% if max_cost is not none %}
+    / <span class="cc-cost-ceiling">${{ "%.4f"|format(max_cost) }}</span>
+  {% else %}
+    / <span class="cc-cost-ceiling">no limit</span>
+  {% endif %}
+{% else %}
+  Cost: <span class="cc-cost-spent">--</span> / <span class="cc-cost-ceiling">--</span>
+{% endif %}

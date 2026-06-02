@@ -15,8 +15,14 @@
   <body class="cc-collapsed-body">
     <header class="cc-header cc-collapsed-header">
       <h1 class="cc-header__title">contradiction-checker</h1>
-      <div class="cc-cost-gauge" id="cc-cost-gauge" title="Wired in Phase 5">
-        Cost spent: <span class="cc-cost-spent">--</span> / <span class="cc-cost-ceiling">--</span>
+      <div class="cc-cost-gauge" id="cc-cost-gauge"
+           hx-ext="sse"
+           {% if active_corpus_id %}sse-connect="/corpora/{{ active_corpus_id }}/progress"{% endif %}
+           sse-swap="cost_update"
+           hx-target="this"
+           hx-swap="innerHTML"
+           title="Estimated cost (upper bound) for the active corpus's most recent run.">
+        {% include "cc__cost_gauge.html" %}
       </div>
       <button type="button" class="cc-settings-cog" disabled title="Settings drawer — out of scope for ADR-0017">⚙</button>
     </header>
