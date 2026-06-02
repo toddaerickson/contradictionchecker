@@ -117,10 +117,10 @@ def _count_total_findings(
 ) -> int:
     """Total findings of the given detector type.
 
-    When ``corpus_id`` is None, counts across all runs (legacy /tabs
-    behaviour). When set, scopes to runs on that corpus so the per-corpus
-    drawer counter denominator matches the findings actually shown.
-    multi_party_findings lives in its own table.
+    When ``corpus_id`` is None, counts across all corpora (used by the
+    verdict-toast global count). When set, scopes to runs on that corpus
+    so the per-corpus drawer counter denominator matches the findings
+    actually shown. multi_party_findings lives in its own table.
     """
     if detector_type == "multi_party":
         if corpus_id is None:
@@ -332,9 +332,8 @@ def create_app(
 
     # --- ADR-0017 single-page shell helpers ------------------------------
     #
-    # Phase 1: shell + sidebar + findings list behind ``?new_ui=1``. The
-    # New Corpus button, Run Check button, drawer buttons, verdict
-    # buttons, and cost gauge are placeholders — Phases 2-5 wire them.
+    # The single-page shell (sidebar + findings list + New Corpus, Run
+    # Check, drawer, and verdict buttons + cost gauge) is the only UI.
 
     _PAIR_FINDING_VERDICTS = ("contradiction", "numeric_short_circuit")
     _DEFINITION_VERDICTS = ("definition_divergent",)
@@ -905,7 +904,7 @@ def create_app(
         404s on unknown ``corpus_id``: the path parameter is the resource
         identity, so silently falling through to another corpus would hand
         callers (stale HTMX links after a corpus deletion) a 200 with the
-        wrong data. The shell route ``GET /?new_ui=1&corpus=<id>`` is more
+        wrong data. The shell route ``GET /?corpus=<id>`` is more
         forgiving — there ``corpus`` is a query hint, not the identity.
         """
         if filter not in {"all", "open", "confirmed", "false_positive", "dismissed"}:
@@ -1065,9 +1064,8 @@ def create_app(
             # ADR-0017 review: mirror the CLI's begin_run config dict
             # exactly so audit-log replay sees one shape regardless of
             # whether the run was started from `consistency-check check`
-            # or the web Run Check modal. The legacy `POST /runs` route
-            # uses the same shape below — both routes are aligned to
-            # `cli/main.py` lines 357-370.
+            # or the web Run Check modal. Aligned with the CLI `begin_run`
+            # config in `cli/main.py`.
             run_id = audit.begin_run(
                 config={
                     "embedder_model": config.embedder_model,
@@ -1413,8 +1411,8 @@ def create_app(
             # (one verdict spans corpora by design — see migration 0009) so a
             # corpus-scoped numerator would require joining via the findings
             # table. Until that join is added, suppress the counter inside the
-            # drawer rather than show a mismatched ratio. The legacy
-            # /tabs/definitions route keeps the global counter for now.
+            # drawer rather than show a mismatched ratio. The global definition
+            # count is computed here via `_count_total_findings`.
             reviewed_count = None
             total_count = _count_total_findings(
                 store, "definition_inconsistency", corpus_id=corpus_id
@@ -1450,9 +1448,9 @@ def create_app(
         store, audit = _open_audit()
         try:
             _corpus_name_or_404(store, corpus_id)
-            # Per-corpus most-recent run, mirroring the SSE generator's query
-            # at line 985 so the drawer and the sidebar agree on which run
-            # they're describing.
+            # Per-corpus most-recent run, mirroring the query in
+            # ``_read_latest_run_snapshot`` (the SSE generator's helper) so the
+            # drawer and the sidebar agree on which run they're describing.
             row = store._conn.execute(
                 "SELECT run_id FROM pipeline_runs WHERE corpus_id = ? "
                 "ORDER BY started_at DESC, run_id DESC LIMIT 1",
@@ -1566,7 +1564,7 @@ def create_app(
         # pairwise / no_definitions / max_cost value, derive a per-run config so
         # the modal-driven flow respects those flags without mutating the
         # process-wide ``config``. None overrides leave the app-level value in
-        # effect, matching the legacy POST /runs flow.
+        # effect; the sole entry point is ``POST /corpora/{id}/run``.
         from consistency_checker.pipeline import CostCeilingExceeded
         from consistency_checker.pipeline import check as run_check
 
@@ -1798,8 +1796,9 @@ def create_app(
                 )
         finally:
             store.close()
-        # Caller has hx-target="#cc-tab-content" hx-swap="innerHTML"; we tell HTMX
-        # to redirect back to the current tab so it re-fetches fresh content.
+        # Callers (cc__verdict_toast.html, cc_findings.html) have
+        # hx-target="#cc-toast-region" hx-swap="afterbegin"; we tell HTMX to
+        # redirect back to the current URL so it re-fetches fresh content.
         referer = request.headers.get("HX-Current-URL") or request.headers.get("Referer", "/")
         response = HTMLResponse(content="")
         response.headers["HX-Redirect"] = referer
