@@ -5,7 +5,10 @@
       "Bash(ruff check *)",
       "Bash(pytest *)",
       "Bash(uv run pytest *)",
-      "Bash(uv run ruff check *)"
+      "Bash(uv run ruff check *)",
+      "Bash(ruff format --check *)",
+      "Bash(uv run ruff format --check *)",
+      "Bash(uv run mypy *)"
     ]
   },
   "hooks": {
