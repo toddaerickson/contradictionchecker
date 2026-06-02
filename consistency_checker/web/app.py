@@ -41,6 +41,7 @@ from consistency_checker.index.assertion_store import AssertionStore, CrossCorpu
 from consistency_checker.index.embedder import Embedder, embed_pending
 from consistency_checker.index.faiss_store import FaissStore
 from consistency_checker.logging_setup import get_logger
+from consistency_checker.pipeline import default_per_call_costs
 
 if TYPE_CHECKING:
     from consistency_checker.check.definition_judge import DefinitionJudge
@@ -384,11 +385,20 @@ def create_app(
         }
 
     def _collect_findings_for_run(
-        store: AssertionStore, audit: AuditLogger, run_id: str
-    ) -> list[dict[str, Any]]:
+        store: AssertionStore,
+        audit: AuditLogger,
+        run_id: str,
+        *,
+        filter: str = "all",
+    ) -> tuple[list[dict[str, Any]], dict[str, int]]:
         """Pull pair findings (contradiction + numeric_short_circuit) and
         definition_divergent findings for the run, hydrate doc labels, and
         flatten to the shape ``cc_findings.html`` consumes.
+
+        Returns ``(filtered_findings, counts)`` where ``counts`` has the
+        per-filter totals (all/open/confirmed/false_positive/dismissed)
+        across the unfiltered finding set so the filter chips can render
+        accurate totals regardless of which filter is active.
         """
         raw_pair = [
             f
@@ -404,14 +414,28 @@ def create_app(
                 detector_type="definition_inconsistency",
             )
         ]
-        all_raw = raw_pair + raw_def
-        assertion_ids = [aid for raw in all_raw for aid in (raw.assertion_a_id, raw.assertion_b_id)]
+        # Detector-type per raw row: pair findings (contradiction or
+        # numeric_short_circuit) all post against detector_type="contradiction"
+        # in the verdicts table; definition_divergent posts against
+        # "definition_inconsistency".
+        raw_with_dt: list[tuple[Any, str]] = [(r, "contradiction") for r in raw_pair] + [
+            (r, "definition_inconsistency") for r in raw_def
+        ]
+        assertion_ids = [
+            aid for raw, _dt in raw_with_dt for aid in (raw.assertion_a_id, raw.assertion_b_id)
+        ]
         assertions = store.get_assertions_bulk(assertion_ids)
         doc_ids = list({a.doc_id for a in assertions.values()})
         documents = store.get_documents_bulk(doc_ids)
 
+        keys = [
+            (":".join(sorted([raw.assertion_a_id, raw.assertion_b_id])), dt)
+            for raw, dt in raw_with_dt
+        ]
+        reviewer_verdicts = audit.get_reviewer_verdicts_bulk(keys)  # type: ignore[arg-type]
+
         out: list[dict[str, Any]] = []
-        for raw in all_raw:
+        for raw, detector_type in raw_with_dt:
             a = assertions.get(raw.assertion_a_id)
             b = assertions.get(raw.assertion_b_id)
             if a is None or b is None:
@@ -426,43 +450,117 @@ def create_app(
                     f"{doc_a_label}: {_truncate(a.assertion_text, 140)} ↔ "
                     f"{doc_b_label}: {_truncate(b.assertion_text, 140)}"
                 )
+            pair_key = ":".join(sorted([raw.assertion_a_id, raw.assertion_b_id]))
+            rv = reviewer_verdicts.get((pair_key, detector_type))
+            reviewer_verdict = rv.verdict if rv is not None else None
             out.append(
                 {
                     "finding_id": raw.finding_id,
                     "verdict": raw.judge_verdict or "uncertain",
                     "confidence": raw.judge_confidence,
                     "label_or_quote": label,
+                    "pair_key": pair_key,
+                    "detector_type": detector_type,
+                    "reviewer_verdict": reviewer_verdict,
+                    "reviewer_label": VERDICT_LABELS.get(reviewer_verdict)
+                    if reviewer_verdict is not None
+                    else None,
                 }
             )
         out.sort(key=lambda f: -(f["confidence"] or 0.0))
-        return out
+
+        # Compute counts BEFORE filtering so chips show real totals.
+        counts: dict[str, int] = {
+            "all": len(out),
+            "open": sum(1 for f in out if f["reviewer_verdict"] is None),
+            "confirmed": sum(1 for f in out if f["reviewer_verdict"] == "confirmed"),
+            "false_positive": sum(1 for f in out if f["reviewer_verdict"] == "false_positive"),
+            "dismissed": sum(1 for f in out if f["reviewer_verdict"] == "dismissed"),
+        }
+
+        if filter == "open":
+            filtered = [f for f in out if f["reviewer_verdict"] is None]
+        elif filter == "confirmed":
+            filtered = [f for f in out if f["reviewer_verdict"] == "confirmed"]
+        elif filter == "false_positive":
+            filtered = [f for f in out if f["reviewer_verdict"] == "false_positive"]
+        elif filter == "dismissed":
+            filtered = [f for f in out if f["reviewer_verdict"] == "dismissed"]
+        else:
+            filtered = out
+
+        return filtered, counts
+
+    def _compute_run_cost(run: Any, audit: AuditLogger) -> float:
+        """Upper-bound spend estimate for a run.
+
+        Schema has no measured ``spent_usd`` column (Phase 5 caveat in
+        ADR-0017), so multiply the count of judge calls (pair + definition)
+        by the provider's per-call HIGH bound. Same formula ADR-0016 uses
+        for the pre-flight ceiling gate; explicitly labelled an estimate
+        in the rendered gauge.
+
+        Definition-judge calls aren't stored on ``pipeline_runs`` directly,
+        so they're counted by querying the findings table for this run —
+        same source ``_live_counters`` uses.
+        """
+        _low, per_call_high = default_per_call_costs(config.judge_provider)
+        n_pairs = int(getattr(run, "n_pairs_judged", 0) or 0)
+        n_def = sum(
+            1
+            for _ in audit.iter_findings(
+                run_id=run.run_id, detector_type="definition_inconsistency"
+            )
+        )
+        return (n_pairs + n_def) * per_call_high
 
     def _shell_context(
-        store: AssertionStore, audit: AuditLogger, active_corpus_id: str | None
+        store: AssertionStore,
+        audit: AuditLogger,
+        active_corpus_id: str | None,
+        *,
+        filter: str = "all",
     ) -> dict[str, Any]:
         corpora = _list_corpora_with_counts(store)
         resolved_id = _pick_active_corpus_id(store, corpora, active_corpus_id)
         active_corpus = next((c for c in corpora if c["corpus_id"] == resolved_id), None)
         last_run: dict[str, Any] | None = None
         findings: list[dict[str, Any]] = []
+        counts: dict[str, int] = {
+            "all": 0,
+            "open": 0,
+            "confirmed": 0,
+            "false_positive": 0,
+            "dismissed": 0,
+        }
+        spent_usd: float | None = None
         if resolved_id is not None:
             last_run = _most_recent_run_for_corpus(store, resolved_id)
             if last_run is not None:
-                findings = _collect_findings_for_run(store, audit, last_run["run_id"])
+                findings, counts = _collect_findings_for_run(
+                    store, audit, last_run["run_id"], filter=filter
+                )
+                run_obj = audit.get_run(last_run["run_id"])
+                if run_obj is not None:
+                    spent_usd = _compute_run_cost(run_obj, audit)
         return {
             "corpora": corpora,
             "active_corpus_id": resolved_id,
             "active_corpus": active_corpus,
             "last_run": last_run,
             "findings": findings,
+            "filter": filter,
+            "counts": counts,
+            "spent_usd": spent_usd,
+            "max_cost": config.max_cost_usd,
         }
 
     def _render_single_page_shell(
-        request: Request, *, active_corpus_id: str | None
+        request: Request, *, active_corpus_id: str | None, filter: str = "all"
     ) -> HTMLResponse:
         store, audit = _open_audit()
         try:
-            ctx = _shell_context(store, audit, active_corpus_id)
+            ctx = _shell_context(store, audit, active_corpus_id, filter=filter)
         finally:
             store.close()
         return templates.TemplateResponse(request, "cc_single.html", ctx)
@@ -735,7 +833,11 @@ def create_app(
         )
 
     @app.get("/corpora/{corpus_id}/findings", response_class=HTMLResponse)
-    def corpora_findings(request: Request, corpus_id: str) -> HTMLResponse:
+    def corpora_findings(
+        request: Request,
+        corpus_id: str,
+        filter: str = "all",
+    ) -> HTMLResponse:
         """Main-pane fragment for an HTMX swap from the sidebar.
 
         Returns only the ``cc_findings.html`` body — no ``<html>`` / ``<head>``
@@ -748,6 +850,8 @@ def create_app(
         wrong data. The shell route ``GET /?new_ui=1&corpus=<id>`` is more
         forgiving — there ``corpus`` is a query hint, not the identity.
         """
+        if filter not in {"all", "open", "confirmed", "false_positive", "dismissed"}:
+            filter = "all"
         store, audit = _open_audit()
         try:
             row = store._conn.execute(
@@ -755,7 +859,7 @@ def create_app(
             ).fetchone()
             if row is None:
                 raise HTTPException(status_code=404, detail=f"corpus_id {corpus_id!r} not found")
-            ctx = _shell_context(store, audit, corpus_id)
+            ctx = _shell_context(store, audit, corpus_id, filter=filter)
         finally:
             store.close()
         return templates.TemplateResponse(request, "cc_findings.html", ctx)
@@ -952,6 +1056,31 @@ def create_app(
             hx_trigger="run-started",
         )
 
+    def _render_cost_gauge(snapshot: dict[str, Any] | None) -> str:
+        """Render the inline cost gauge HTML for one SSE snapshot.
+
+        Mirrors the cc__cost_gauge.html fragment but inline here so the SSE
+        path doesn't have to round-trip through Jinja per tick. ``spent_usd``
+        is the upper-bound estimate (judge calls * provider per-call high),
+        explicitly labelled an estimate per ADR-0017 Phase 5.
+        """
+        max_cost = config.max_cost_usd
+        if snapshot is None:
+            return (
+                'Cost: <span class="cc-cost-spent">--</span> / '
+                '<span class="cc-cost-ceiling">--</span>'
+            )
+        _low, per_call_high = default_per_call_costs(config.judge_provider)
+        n_pairs = int(snapshot.get("n_pairs_judged") or 0)
+        n_def = int(snapshot.get("n_definition_pairs_judged") or 0)
+        spent = (n_pairs + n_def) * per_call_high
+        ceiling = (
+            f'<span class="cc-cost-ceiling">${max_cost:.4f}</span>'
+            if max_cost is not None
+            else '<span class="cc-cost-ceiling">no limit</span>'
+        )
+        return f'Est. spent: <span class="cc-cost-spent">${spent:.4f}</span> / {ceiling}'
+
     def _render_progress_snapshot(snapshot: dict[str, Any]) -> str:
         """Render the inline progress bar HTML for one SSE snapshot.
 
@@ -1054,6 +1183,8 @@ def create_app(
                 payload = json.dumps(snapshot)
                 html = _render_progress_snapshot(snapshot)
                 yield f"event: snapshot\ndata: {html}\n\n"
+                cost_html = _render_cost_gauge(snapshot)
+                yield f"event: cost_update\ndata: {cost_html}\n\n"
                 # Also expose the raw JSON payload as a debug-friendly default
                 # event for downstream consumers (tests, future native JS).
                 yield f"data: {payload}\n\n"
@@ -1301,14 +1432,18 @@ def create_app(
         show_reviewed_multi_party: bool = False,
         new_ui: bool = False,
         corpus: str | None = None,
+        filter: str = "all",
     ) -> Response:
         """Contradictions tab — the main page (ADR-0007).
 
         With ``?new_ui=1`` returns the ADR-0017 single-page shell instead;
         ``?corpus=<id>`` selects which corpus the shell loads with.
+        ``?filter=open|confirmed|...`` narrows the findings list.
         """
         if new_ui:
-            return _render_single_page_shell(request, active_corpus_id=corpus)
+            if filter not in {"all", "open", "confirmed", "false_positive", "dismissed"}:
+                filter = "all"
+            return _render_single_page_shell(request, active_corpus_id=corpus, filter=filter)
         store, audit = _open_audit()
         try:
             if store.stats()["documents"] == 0:

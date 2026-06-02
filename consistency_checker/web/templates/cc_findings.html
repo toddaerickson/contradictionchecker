@@ -40,21 +40,69 @@
               hx-target="#cc-drawer-region"
               hx-swap="innerHTML">Stats</button>
     </div>
+    <div class="cc-filter-chips" role="tablist">
+      <a class="cc-chip {% if filter == 'all' %}cc-chip--active{% endif %}"
+         hx-get="/corpora/{{ active_corpus_id }}/findings?filter=all"
+         hx-target="#cc-main" hx-swap="innerHTML"
+         hx-push-url="/?new_ui=1&corpus={{ active_corpus_id }}&filter=all">All ({{ counts.all }})</a>
+      <a class="cc-chip {% if filter == 'open' %}cc-chip--active{% endif %}"
+         hx-get="/corpora/{{ active_corpus_id }}/findings?filter=open"
+         hx-target="#cc-main" hx-swap="innerHTML"
+         hx-push-url="/?new_ui=1&corpus={{ active_corpus_id }}&filter=open">Open ({{ counts.open }})</a>
+      <a class="cc-chip {% if filter == 'confirmed' %}cc-chip--active{% endif %}"
+         hx-get="/corpora/{{ active_corpus_id }}/findings?filter=confirmed"
+         hx-target="#cc-main" hx-swap="innerHTML"
+         hx-push-url="/?new_ui=1&corpus={{ active_corpus_id }}&filter=confirmed">Confirmed ({{ counts.confirmed }})</a>
+      <a class="cc-chip {% if filter == 'false_positive' %}cc-chip--active{% endif %}"
+         hx-get="/corpora/{{ active_corpus_id }}/findings?filter=false_positive"
+         hx-target="#cc-main" hx-swap="innerHTML"
+         hx-push-url="/?new_ui=1&corpus={{ active_corpus_id }}&filter=false_positive">FP ({{ counts.false_positive }})</a>
+      <a class="cc-chip {% if filter == 'dismissed' %}cc-chip--active{% endif %}"
+         hx-get="/corpora/{{ active_corpus_id }}/findings?filter=dismissed"
+         hx-target="#cc-main" hx-swap="innerHTML"
+         hx-push-url="/?new_ui=1&corpus={{ active_corpus_id }}&filter=dismissed">Dismissed ({{ counts.dismissed }})</a>
+    </div>
   </header>
 
   <section class="cc-findings" id="cc-findings">
     {% if findings %}
       <ol class="cc-findings-list">
         {% for finding in findings %}
-          <li class="cc-finding">
+          <li class="cc-finding" id="finding-{{ finding.finding_id }}">
             <span class="cc-finding-kind">⚠ {{ finding.verdict|replace('_', ' ')|title }}</span>
             <p class="cc-finding-text">{{ finding.label_or_quote }}</p>
             <div class="cc-finding-meta">
               <span>Confidence {{ "%.2f"|format(finding.confidence or 0.0) }}</span>
               <span class="cc-finding-actions">
-                <button type="button" disabled title="Wired in Phase 5">✓ Resolved</button>
-                <button type="button" disabled title="Wired in Phase 5">✗ False positive</button>
-                <button type="button" disabled title="Wired in Phase 5">? Uncertain</button>
+                {% if finding.reviewer_verdict %}
+                  <span class="cc-finding-marked">Marked {{ finding.reviewer_label }}</span>
+                  {# PR #77 review fix: the marked-card "undo" must CLEAR the
+                     verdict, so prior_verdict="" routes to
+                     audit.delete_reviewer_verdict. Sending the current
+                     verdict re-sets the same value and leaves the card
+                     stuck marked. #}
+                  <button type="button" class="cc-button cc-button--ghost"
+                          hx-post="/verdicts/undo"
+                          hx-vals='{"pair_key": "{{ finding.pair_key }}", "detector_type": "{{ finding.detector_type }}", "prior_verdict": ""}'
+                          hx-target="#cc-toast-region"
+                          hx-swap="afterbegin">undo</button>
+                {% else %}
+                  <button type="button" class="cc-button cc-button--small"
+                          hx-post="/verdicts"
+                          hx-vals='{"pair_key": "{{ finding.pair_key }}", "detector_type": "{{ finding.detector_type }}", "verdict": "confirmed"}'
+                          hx-target="#cc-toast-region"
+                          hx-swap="afterbegin">✓ Confirmed</button>
+                  <button type="button" class="cc-button cc-button--small"
+                          hx-post="/verdicts"
+                          hx-vals='{"pair_key": "{{ finding.pair_key }}", "detector_type": "{{ finding.detector_type }}", "verdict": "false_positive"}'
+                          hx-target="#cc-toast-region"
+                          hx-swap="afterbegin">✗ False positive</button>
+                  <button type="button" class="cc-button cc-button--small"
+                          hx-post="/verdicts"
+                          hx-vals='{"pair_key": "{{ finding.pair_key }}", "detector_type": "{{ finding.detector_type }}", "verdict": "dismissed"}'
+                          hx-target="#cc-toast-region"
+                          hx-swap="afterbegin">? Dismissed</button>
+                {% endif %}
               </span>
             </div>
           </li>

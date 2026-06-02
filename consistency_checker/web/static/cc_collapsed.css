@@ -295,6 +295,7 @@
 
 .cc-finding-actions {
   display: flex;
+  align-items: center;
   gap: 0.3rem;
 }
 
@@ -303,9 +304,56 @@
   padding: 0.2rem 0.55rem;
   border: 1px solid var(--cc-border-strong);
   background: var(--cc-surface);
-  color: var(--cc-muted);
-  cursor: not-allowed;
+  color: var(--cc-fg);
+  cursor: pointer;
   border-radius: 2px;
+}
+
+.cc-finding-actions button:hover {
+  background: var(--cc-accent-soft);
+}
+
+/* Phase 5: filter chips, small verdict buttons, marked-state label */
+
+.cc-filter-chips {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.cc-chip {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--cc-border-strong);
+  border-radius: 999px;
+  background: var(--cc-surface);
+  color: var(--cc-muted);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.cc-chip:hover {
+  background: var(--cc-accent-soft);
+  color: var(--cc-fg);
+}
+
+.cc-chip--active {
+  border-color: var(--cc-accent);
+  color: var(--cc-accent);
+  background: var(--cc-accent-soft);
+}
+
+.cc-button--small {
+  font-size: 0.74rem;
+  padding: 0.15rem 0.5rem;
+}
+
+.cc-finding-marked {
+  font-style: italic;
+  color: var(--cc-muted);
 }
 
 /* --- Empty state --------------------------------------------------------- */

@@ -1009,3 +1009,310 @@ def test_drawer_definitions_suppresses_global_reviewer_counter(tmp_path: Path) -
     assert resp.status_code == 200
     body = resp.text
     assert "of " not in body or "reviewed" not in body or "cc-progress-count" not in body
+
+
+# --- Phase 5: inline verdicts + filter chips + cost gauge (ADR-0017) ----
+
+
+def _moonshot_config(tmp_path: Path) -> Config:
+    """Cost-gauge tests need a non-fixture provider so per-call costs are > 0."""
+    return Config(
+        corpus_dir=tmp_path / "corpus",
+        judge_provider="moonshot",
+        judge_model="kimi-test",
+        data_dir=tmp_path / "store",
+        log_dir=tmp_path / "logs",
+        embedder_model="hash",
+        nli_model="fixture",
+        gate_similarity_threshold=-1.0,
+        nli_contradiction_threshold=0.0,
+    )
+
+
+def _pair_key_for_finding(cfg: Config, run_id: str) -> tuple[str, str]:
+    """Lookup pair_key + detector_type for the single finding seeded by helper."""
+    store = AssertionStore(cfg.db_path)
+    try:
+        audit = AuditLogger(store)
+        findings = list(audit.iter_findings(run_id=run_id))
+        assert len(findings) == 1
+        f = findings[0]
+        return ":".join(sorted([f.assertion_a_id, f.assertion_b_id])), "contradiction"
+    finally:
+        store.close()
+
+
+def test_finding_verdict_button_posts_inline(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid, run_id, _rationale = _seed_corpus_with_finding(cfg, name="Verdict-target")
+    pair_key, detector_type = _pair_key_for_finding(cfg, run_id)
+
+    client = _client(cfg)
+    resp = client.get(f"/?new_ui=1&corpus={cid}")
+    assert resp.status_code == 200
+    body = resp.text
+    assert 'hx-post="/verdicts"' in body
+    assert pair_key in body
+    assert '"detector_type": "contradiction"' in body
+    assert '"verdict": "confirmed"' in body
+
+    # POST the verdict and verify it was persisted.
+    resp2 = client.post(
+        "/verdicts",
+        data={
+            "pair_key": pair_key,
+            "detector_type": detector_type,
+            "verdict": "confirmed",
+        },
+    )
+    assert resp2.status_code == 200, resp2.text
+
+    store = AssertionStore(cfg.db_path)
+    try:
+        audit = AuditLogger(store)
+        rv = audit.get_reviewer_verdicts_bulk([(pair_key, "contradiction")])
+        assert (pair_key, "contradiction") in rv
+        assert rv[(pair_key, "contradiction")].verdict == "confirmed"
+    finally:
+        store.close()
+
+
+def test_finding_shows_marked_state_after_verdict_set(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid, run_id, _rationale = _seed_corpus_with_finding(cfg, name="Marked-corpus")
+    pair_key, _dt = _pair_key_for_finding(cfg, run_id)
+
+    store = AssertionStore(cfg.db_path)
+    try:
+        AuditLogger(store).set_reviewer_verdict(
+            pair_key=pair_key,
+            detector_type="contradiction",
+            verdict="false_positive",
+        )
+    finally:
+        store.close()
+
+    client = _client(cfg)
+    resp = client.get(f"/?new_ui=1&corpus={cid}")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "Marked" in body
+    # VERDICT_LABELS["false_positive"] == "Not an issue".
+    assert "Not an issue" in body
+    assert "undo" in body
+    assert 'hx-post="/verdicts/undo"' in body
+    # PR #77 review fix: the undo button MUST send prior_verdict="" so the
+    # verdict row is deleted. Sending the current verdict re-applies it.
+    assert '"prior_verdict": ""' in body
+
+
+def test_finding_undo_button_clears_reviewer_verdict(tmp_path: Path) -> None:
+    """End-to-end: pre-set a verdict, hit the undo URL with the empty
+    prior_verdict that the marked-card button sends, and assert the
+    reviewer_verdicts row is gone."""
+    cfg = _config(tmp_path)
+    _cid, run_id, _rationale = _seed_corpus_with_finding(cfg, name="Undo-clear")
+    pair_key, _dt = _pair_key_for_finding(cfg, run_id)
+
+    store = AssertionStore(cfg.db_path)
+    audit = AuditLogger(store)
+    audit.set_reviewer_verdict(
+        pair_key=pair_key, detector_type="contradiction", verdict="confirmed"
+    )
+    pre = audit.get_reviewer_verdicts_bulk([(pair_key, "contradiction")])
+    assert pre.get((pair_key, "contradiction")) is not None
+    store.close()
+
+    client = _client(cfg)
+    resp = client.post(
+        "/verdicts/undo",
+        data={
+            "pair_key": pair_key,
+            "detector_type": "contradiction",
+            "prior_verdict": "",
+        },
+    )
+    assert resp.status_code == 200
+
+    store = AssertionStore(cfg.db_path)
+    audit = AuditLogger(store)
+    post = audit.get_reviewer_verdicts_bulk([(pair_key, "contradiction")])
+    assert (pair_key, "contradiction") not in post
+    store.close()
+
+
+def test_filter_chip_open_excludes_marked_findings(tmp_path: Path) -> None:
+    """Seed two findings, mark one, filter=open shows only the unmarked one."""
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Two-findings")
+
+    # Seed two findings directly via the audit logger so we control both
+    # assertion pairs separately.
+    store = AssertionStore(cfg.db_path)
+    doc_a = Document.from_content("body a.", source_path="a.md", title="A")
+    doc_b = Document.from_content("body b.", source_path="b.md", title="B")
+    store.add_document(doc_a, corpus_id=cid)
+    store.add_document(doc_b, corpus_id=cid)
+    a1 = Assertion.build(doc_a.doc_id, "Revenue grew 12%.")
+    b1 = Assertion.build(doc_b.doc_id, "Revenue declined 5%.")
+    a2 = Assertion.build(doc_a.doc_id, "EBITDA up 8%.")
+    b2 = Assertion.build(doc_b.doc_id, "EBITDA down 3%.")
+    store.add_assertions([a1, b1, a2, b2])
+
+    audit = AuditLogger(store)
+    run_id = audit.begin_run(corpus_id=cid)
+    audit.record_finding(
+        run_id,
+        candidate=CandidatePair(a=a1, b=b1, score=0.9),
+        nli=NliResult.from_scores(p_contradiction=0.8, p_entailment=0.1, p_neutral=0.1),
+        verdict=JudgeVerdict(
+            assertion_a_id=a1.assertion_id,
+            assertion_b_id=b1.assertion_id,
+            verdict="contradiction",
+            confidence=0.91,
+            rationale="Revenue contradiction.",
+            evidence_spans=[],
+        ),
+    )
+    audit.record_finding(
+        run_id,
+        candidate=CandidatePair(a=a2, b=b2, score=0.9),
+        nli=NliResult.from_scores(p_contradiction=0.8, p_entailment=0.1, p_neutral=0.1),
+        verdict=JudgeVerdict(
+            assertion_a_id=a2.assertion_id,
+            assertion_b_id=b2.assertion_id,
+            verdict="contradiction",
+            confidence=0.85,
+            rationale="EBITDA contradiction.",
+            evidence_spans=[],
+        ),
+    )
+    audit.end_run(run_id, n_assertions=4, n_pairs_gated=2, n_pairs_judged=2, n_findings=2)
+
+    # Mark the first finding.
+    pair_key_1 = ":".join(sorted([a1.assertion_id, b1.assertion_id]))
+    audit.set_reviewer_verdict(
+        pair_key=pair_key_1, detector_type="contradiction", verdict="confirmed"
+    )
+    store.close()
+
+    client = _client(cfg)
+    resp = client.get(f"/?new_ui=1&corpus={cid}&filter=open")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "EBITDA contradiction." in body
+    assert "Revenue contradiction." not in body
+
+
+def test_filter_chip_confirmed_includes_only_confirmed(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid, run_id, _rationale = _seed_corpus_with_finding(cfg, name="Confirmed-only")
+    pair_key, _dt = _pair_key_for_finding(cfg, run_id)
+
+    store = AssertionStore(cfg.db_path)
+    try:
+        AuditLogger(store).set_reviewer_verdict(
+            pair_key=pair_key, detector_type="contradiction", verdict="confirmed"
+        )
+    finally:
+        store.close()
+
+    client = _client(cfg)
+    resp_confirmed = client.get(f"/?new_ui=1&corpus={cid}&filter=confirmed")
+    assert resp_confirmed.status_code == 200
+    body_conf = resp_confirmed.text
+    # The seeded rationale appears for the single (marked) finding.
+    assert "Opposite revenue signs" in body_conf
+
+    resp_fp = client.get(f"/?new_ui=1&corpus={cid}&filter=false_positive")
+    assert resp_fp.status_code == 200
+    body_fp = resp_fp.text
+    # No findings should match FP filter.
+    assert "Opposite revenue signs" not in body_fp
+
+
+def test_filter_chip_counts_match_actual_findings(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid, run_id, _rationale = _seed_corpus_with_finding(cfg, name="Count-corpus")
+    pair_key, _dt = _pair_key_for_finding(cfg, run_id)
+
+    # Mark the single finding as confirmed; counts should be all=1, open=0,
+    # confirmed=1, false_positive=0, dismissed=0.
+    store = AssertionStore(cfg.db_path)
+    try:
+        AuditLogger(store).set_reviewer_verdict(
+            pair_key=pair_key, detector_type="contradiction", verdict="confirmed"
+        )
+    finally:
+        store.close()
+
+    client = _client(cfg)
+    resp = client.get(f"/?new_ui=1&corpus={cid}")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "All (1)" in body
+    assert "Open (0)" in body
+    assert "Confirmed (1)" in body
+    assert "FP (0)" in body
+    assert "Dismissed (0)" in body
+
+
+def test_cost_gauge_renders_estimate_when_run_has_judged_pairs(tmp_path: Path) -> None:
+    cfg = _moonshot_config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Cost-corpus")
+    # Seed a run with n_pairs_judged=5 directly.
+    store = AssertionStore(cfg.db_path)
+    audit = AuditLogger(store)
+    run_id = audit.begin_run(corpus_id=cid)
+    audit.end_run(run_id, n_assertions=10, n_pairs_gated=5, n_pairs_judged=5, n_findings=0)
+    store.close()
+
+    client = _client(cfg)
+    resp = client.get(f"/?new_ui=1&corpus={cid}")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "Est. spent" in body
+    # moonshot per_call_high = 0.001; 5 * 0.001 = 0.0050 (rendered to 4 decimals).
+    assert "$0.0050" in body
+
+
+def test_cost_gauge_sse_emits_cost_update_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = _moonshot_config(tmp_path)
+    cid, run_id, _rationale = _seed_corpus_with_finding(cfg, name="Cost-sse")
+
+    # Flip the seeded run back to running so the SSE sees an in-progress run.
+    store = AssertionStore(cfg.db_path)
+    try:
+        with store._conn:
+            store._conn.execute(
+                "UPDATE pipeline_runs SET run_status = 'running', finished_at = NULL "
+                "WHERE run_id = ?",
+                (run_id,),
+            )
+    finally:
+        store.close()
+
+    from consistency_checker.web import app as app_module
+
+    monkeypatch.setattr(app_module, "PROGRESS_POLL_SECONDS", 0.0)
+    monkeypatch.setattr(app_module, "PROGRESS_MAX_ITERATIONS", 2)
+    monkeypatch.setattr(app_module, "PROGRESS_DONE_TAIL_SECONDS", 0.0)
+
+    client = _client(cfg)
+    chunks = _drain_sse(client, f"/corpora/{cid}/progress", max_events=8)
+    combined = "".join(chunks)
+    assert "event: cost_update" in combined
+    assert "Est. spent" in combined
+
+
+def test_cost_gauge_shows_dashes_when_no_active_corpus(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    resp = client.get("/?new_ui=1")
+    assert resp.status_code == 200
+    body = resp.text
+    # No corpora → no active corpus → gauge fragment renders the placeholder.
+    assert 'class="cc-cost-spent">--</span>' in body
+    assert 'class="cc-cost-ceiling">--</span>' in body
