@@ -11,7 +11,7 @@
        hx-get="/corpora/{{ corpus.corpus_id }}/findings"
        hx-target="#cc-main"
        hx-swap="innerHTML"
-       hx-push-url="/?new_ui=1&corpus={{ corpus.corpus_id }}">
+       hx-push-url="/?corpus={{ corpus.corpus_id }}">
       <div class="cc-corpus-name">{{ corpus.corpus_name }}</div>
       <div class="cc-corpus-meta">
         <span>{{ corpus.n_assertions }} facts</span>

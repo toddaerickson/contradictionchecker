@@ -1,8 +1,9 @@
-"""Tests for the Stats tab — step G4.
+"""Tests for the run-stats polling fragment (``GET /runs/{run_id}/stats``).
 
-The status inference uses ``finished_at IS NULL`` as a proxy for "running"
-until G5 ships the real ``run_status`` column. These tests exercise the
-inference + the live/final fragment shape + the HTMX self-polling wiring.
+ADR-0017 Phase 6 deleted the legacy ``GET /tabs/stats`` tab; the Stats drawer
+now renders via ``/corpora/{id}/drawer/stats`` (covered in
+``test_web_ui_collapse.py``). The self-polling ``/runs/{run_id}/stats``
+fragment survives — it's the drawer's live counter — so its coverage stays.
 """
 
 from __future__ import annotations
@@ -45,59 +46,6 @@ def _begin_run(cfg: Config, run_id: str) -> AuditLogger:
     return logger
 
 
-# --- empty state ----------------------------------------------------------
-
-
-def test_stats_tab_empty_state(tmp_path: Path) -> None:
-    client = _client(_config(tmp_path))
-    response = client.get("/tabs/stats")
-    assert response.status_code == 200
-    body = response.text
-    assert "Stats" in body
-    assert "No runs yet" in body
-
-
-# --- running state --------------------------------------------------------
-
-
-def test_stats_tab_running_state_renders_live_fragment(tmp_path: Path) -> None:
-    cfg = _config(tmp_path)
-    logger = _begin_run(cfg, run_id="g4runrun")
-    # Don't call end_run — finished_at stays None → status == "running".
-    client = _client(cfg)
-    response = client.get("/tabs/stats")
-    assert response.status_code == 200
-    body = response.text
-    assert "Run in progress" in body
-    # Live fragment is self-polling.
-    assert 'hx-trigger="every 2s"' in body
-    assert "/runs/g4runrun/stats" in body
-    assert "Run complete" not in body
-    # Counters dl is present.
-    assert "Assertions" in body and "Candidates screened" in body and "Findings" in body
-    del logger
-
-
-# --- done state ----------------------------------------------------------
-
-
-def test_stats_tab_done_state_renders_final_card(tmp_path: Path) -> None:
-    cfg = _config(tmp_path)
-    logger = _begin_run(cfg, run_id="g4rundone")
-    logger.end_run("g4rundone", n_assertions=12, n_pairs_gated=4, n_pairs_judged=2, n_findings=1)
-    client = _client(cfg)
-    response = client.get("/tabs/stats")
-    assert response.status_code == 200
-    body = response.text
-    assert "Run complete" in body
-    # Final fragment does NOT self-poll.
-    assert 'hx-trigger="every 2s"' not in body
-    assert "Run in progress" not in body
-    # Counters present.
-    assert "12" in body  # n_assertions
-    assert "View contradictions" in body
-
-
 # --- polling endpoint ----------------------------------------------------
 
 
@@ -135,21 +83,6 @@ def test_stats_polling_endpoint_404_for_unknown_run(tmp_path: Path) -> None:
     client = _client(_config(tmp_path))
     response = client.get("/runs/no_such_run/stats")
     assert response.status_code == 404
-
-
-# --- HTMX tab swap behaviour ---------------------------------------------
-
-
-def test_stats_tab_htmx_request_omits_base_chrome(tmp_path: Path) -> None:
-    cfg = _config(tmp_path)
-    _begin_run(cfg, run_id="g4chrome")
-    client = _client(cfg)
-    response = client.get("/tabs/stats", headers={"HX-Request": "true"})
-    assert response.status_code == 200
-    body = response.text
-    assert 'class="cc-tabs"' not in body
-    assert 'class="cc-header"' not in body
-    assert "Run in progress" in body
 
 
 # --- transition: running → done -----------------------------------------

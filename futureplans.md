@@ -264,6 +264,23 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
 
 (Move items here as they ship, keep a one-line note on which release.)
 
+- **UI collapse: single-page shell replaces the 7-tab UI (ADR-0017, Phase 6, 2026-06-02)**
+  Branch: `feat/ui-collapse-phase-6`. The ADR-0017 single-page shell
+  (`cc_single.html` — sidebar + findings + slide-over drawers + inline
+  verdicts + cost gauge) is now the default `GET /` response; the legacy
+  7-tab UI (`cc_base.html` + the `cc_contradictions`/`cc_ingest`/`cc_process`/
+  `cc_action_items`/`cc_documents` templates, the pair/multi-party diff
+  partials, and the `POST /uploads`, `GET /documents/{id}`, diff, and
+  `POST /runs` routes) was deleted. `?legacy=1` and every `/tabs/*` path now
+  return 410 Gone. Security dividend: the dead `consistency_checker/web/api/
+  runs.py` module (sole consumer was the deleted `cc_process.html` SSE view)
+  was removed. Closes two ADR-0011 gaps tracked in MEMORY: the **Action Items
+  query** (the never-wired `/tabs/action_items` placeholder is gone — its role
+  is served by the shell's filter chips) and **`/uploads` unification** (the
+  single corpus-scoped upload path is now `POST /corpora/new`). Still open:
+  **Findings CSV export** (item 9b above) and the `api/corpora.py`/
+  `findings_router`/`models/ui.py` decommission (separate follow-up).
+
 - **Pre-flight cost ceiling + provider-aware estimate-cost defaults (commercial blocker #2, 2026-05-31)**
   Branch: `feat/max-cost-ceiling`. ADR-0016. Plan:
   `docs/superpowers/plans/2026-05-31-max-cost-ceiling.md`.

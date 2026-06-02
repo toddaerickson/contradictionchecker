@@ -1,12 +1,14 @@
-"""Hermetic tests for the FastAPI web app — step G1.
+"""Hermetic tests for the web upload/ingest path.
 
-Uses ``FixtureExtractor`` + ``HashEmbedder`` so the upload + ingest path runs
-without external network or HF model downloads.
+ADR-0017 Phase 6 deleted the legacy ``GET /tabs/ingest`` tab and the
+``POST /uploads`` route. Corpus creation + ingest now flows exclusively
+through ``POST /corpora/new`` (the New Corpus modal). The per-request DoS
+caps live on that route, so their coverage stays here. Modal-shape and
+success-path coverage lives in ``test_web_ui_collapse.py``.
 """
 
 from __future__ import annotations
 
-import io
 from pathlib import Path
 
 import pytest
@@ -15,7 +17,7 @@ from fastapi.testclient import TestClient
 from consistency_checker.config import Config
 from consistency_checker.extract.atomic_facts import FixtureExtractor
 from consistency_checker.index.assertion_store import AssertionStore
-from consistency_checker.web.app import MAX_UPLOAD_BYTES, create_app
+from consistency_checker.web.app import create_app
 from tests.conftest import HashEmbedder
 
 
@@ -34,224 +36,13 @@ def _config(tmp_path: Path) -> Config:
 def _client(cfg: Config) -> TestClient:
     app = create_app(
         cfg,
-        # FixtureExtractor with an empty map → every chunk maps to an empty
-        # list, which makes _ingest_uploaded_paths a no-op for assertions but
-        # still exercises load → chunk → store paths end-to-end.
         extractor=FixtureExtractor({}),
         embedder=HashEmbedder(dim=64),
     )
     return TestClient(app)
 
 
-# --- routing -----------------------------------------------------------------
-
-
-def test_root_renders_contradictions_tab(tmp_path: Path) -> None:
-    """With no documents, index() redirects to the Ingest tab (U3)."""
-    client = _client(_config(tmp_path))
-    response = client.get("/", follow_redirects=False)
-    # 303 redirect to /tabs/ingest when corpus is empty.
-    assert response.status_code == 303
-    assert "/tabs/ingest" in response.headers["location"]
-
-
-def test_ingest_tab_renders_upload_form(tmp_path: Path) -> None:
-    client = _client(_config(tmp_path))
-    response = client.get("/tabs/ingest")
-    assert response.status_code == 200
-    body = response.text
-    # New design: file input is in section 03 — Documents
-    assert 'type="file"' in body
-    assert 'accept=".txt,.md,.pdf,.docx"' in body
-    # Judge Provider section is always present
-    assert "Judge Provider" in body
-
-
-def test_ingest_tab_renders_upload_indicator(tmp_path: Path) -> None:
-    """The ingest tab must include the file input and Start Processing button."""
-    client = _client(_config(tmp_path))
-    body = client.get("/tabs/ingest").text
-    assert 'id="cc-files"' in body
-    assert 'id="cc-start-btn"' in body
-    assert "Start Processing" in body
-
-
-def test_ingest_tab_htmx_request_omits_base_chrome(tmp_path: Path) -> None:
-    """An HX-Request hit returns a partial only, not the full page chrome."""
-    client = _client(_config(tmp_path))
-    response = client.get("/tabs/ingest", headers={"HX-Request": "true"})
-    assert response.status_code == 200
-    body = response.text
-    assert "Judge Provider" in body
-    # Base chrome (the <header>) is excluded so the swap target only gets content.
-    assert "<header" not in body
-    assert "<nav" not in body
-
-
-# --- POST /uploads -----------------------------------------------------------
-
-
-@pytest.fixture
-def configured_client(tmp_path: Path) -> tuple[TestClient, str]:
-    """Returns (client, corpus_id) — tests must pass corpus_id in upload POSTs."""
-    cfg = _config(tmp_path)
-
-    # Fixture extractor needs to be keyed by chunk_id, but the chunk_id depends
-    # on the loaded text. Pre-walk so the extractor returns one assertion per
-    # chunk we'll produce.
-    from consistency_checker.corpus.chunker import chunk_document
-    from consistency_checker.corpus.loader import load_path
-
-    sample = tmp_path / "_sample.txt"
-    sample.write_text("Revenue grew. Customer satisfaction held.")
-    loaded = load_path(sample)
-    chunks = chunk_document(loaded, max_chars=cfg.chunk_max_chars, overlap_chars=0)
-    fixtures = {c.chunk_id: [f"fact-{i}"] for i, c in enumerate(chunks)}
-    sample.unlink()
-
-    store = AssertionStore(cfg.db_path)
-    store.migrate()
-    corpus_id = store.get_or_create_corpus("test", str(tmp_path), "moonshot")
-    store.close()
-
-    app = create_app(
-        cfg,
-        extractor=FixtureExtractor(fixtures),
-        embedder=HashEmbedder(dim=64),
-    )
-    return TestClient(app), corpus_id
-
-
-def test_upload_saves_file_and_runs_ingest(
-    configured_client: tuple[TestClient, str], tmp_path: Path
-) -> None:
-    client, corpus_id = configured_client
-    cfg: Config = client.app.state.config  # type: ignore[attr-defined]
-    response = client.post(
-        "/uploads",
-        data={"corpus_id": corpus_id},
-        files={"files": ("doc.txt", b"Revenue grew. Customer satisfaction held.", "text/plain")},
-    )
-    assert response.status_code == 200, response.text
-    body = response.text
-    assert "Upload complete" in body
-    assert "doc.txt" in body
-
-    uploads = list((cfg.data_dir / "uploads").iterdir())
-    assert len(uploads) == 1
-    saved = uploads[0] / "doc.txt"
-    assert saved.exists()
-    assert saved.read_bytes() == b"Revenue grew. Customer satisfaction held."
-
-    store = AssertionStore(cfg.db_path)
-    n_assertions = store.stats()["assertions"]
-    store.close()
-    assert n_assertions > 0
-
-
-def test_upload_success_card_includes_run_button(
-    configured_client: tuple[TestClient, str],
-) -> None:
-    """G5 enables the Run / Check now button — it now POSTs to /runs."""
-    client, corpus_id = configured_client
-    response = client.post(
-        "/uploads",
-        data={"corpus_id": corpus_id},
-        files={"files": ("doc.txt", b"Anything.", "text/plain")},
-    )
-    assert response.status_code == 200
-    body = response.text
-    assert "Check for contradictions" in body
-    assert 'hx-post="/runs"' in body
-    assert 'name="deep"' in body  # the deep-mode checkbox is there
-
-
-def test_upload_with_no_file_part_rejected(tmp_path: Path) -> None:
-    """A POST without any file part fails fast at the framework validation
-    layer (422) rather than blowing up the ingest pipeline."""
-    cfg = _config(tmp_path)
-    app = create_app(cfg, extractor=FixtureExtractor({}), embedder=HashEmbedder(dim=64))
-    client = TestClient(app)
-    response = client.post("/uploads")
-    assert response.status_code == 422
-
-
-def test_upload_with_empty_filename_returns_error_card(tmp_path: Path) -> None:
-    """An empty filename slips past the framework but our route catches it."""
-    cfg = _config(tmp_path)
-    store = AssertionStore(cfg.db_path)
-    store.migrate()
-    corpus_id = store.get_or_create_corpus("test", str(tmp_path), "moonshot")
-    store.close()
-    app = create_app(cfg, extractor=FixtureExtractor({}), embedder=HashEmbedder(dim=64))
-    client = TestClient(app)
-    response = client.post(
-        "/uploads",
-        data={"corpus_id": corpus_id},
-        files={"files": ("blank.txt", b"", "application/octet-stream")},
-    )
-    # blank file content is fine — we still save it; "no files" only fires when
-    # every UploadFile has an empty .filename, which the framework now refuses.
-    assert response.status_code == 200
-
-
-# --- prior uploads listing --------------------------------------------------
-
-
-def test_ingest_tab_renders_corpus_selector(
-    configured_client: tuple[TestClient, str],
-) -> None:
-    """The Ingest tab always shows the corpus section (with HTMX load trigger)."""
-    client, _corpus_id = configured_client
-    response = client.get("/tabs/ingest")
-    assert response.status_code == 200
-    body = response.text
-    assert "cc-corpus-selector" in body
-    assert "/api/corpora" in body
-
-
-def test_upload_rejects_oversized_file(
-    configured_client: tuple[TestClient, str], tmp_path: Path
-) -> None:
-    client, corpus_id = configured_client
-    big = tmp_path / "big.txt"
-    big.write_bytes(b"x" * (MAX_UPLOAD_BYTES + 1))
-    with open(big, "rb") as f:
-        resp = client.post(
-            "/uploads",
-            data={"corpus_id": corpus_id},
-            files=[("files", ("big.txt", f, "text/plain"))],
-        )
-    assert resp.status_code == 413
-
-
-def test_upload_rejects_bad_extension(configured_client: tuple[TestClient, str]) -> None:
-    client, corpus_id = configured_client
-    with io.BytesIO(b"MZ") as f:
-        resp = client.post(
-            "/uploads",
-            data={"corpus_id": corpus_id},
-            files=[("files", ("bad.exe", f, "application/octet-stream"))],
-        )
-    assert resp.status_code == 400
-
-
-def test_upload_rejects_no_extension(configured_client: tuple[TestClient, str]) -> None:
-    client, corpus_id = configured_client
-    with io.BytesIO(b"content") as f:
-        resp = client.post(
-            "/uploads",
-            data={"corpus_id": corpus_id},
-            files=[("files", ("noext", f, "application/octet-stream"))],
-        )
-    assert resp.status_code == 400
-    assert (
-        "no extension" in resp.json()["detail"].lower()
-        or "extension" in resp.json()["detail"].lower()
-    )
-
-
-# --- per-request DoS caps (Task D) ------------------------------------------
+# --- per-request DoS caps on POST /corpora/new (Task D) ----------------------
 
 
 def _uploads_root(cfg: Config) -> Path:
@@ -270,54 +61,6 @@ def _corpus_names(cfg: Config) -> list[str]:
         return sorted(c.corpus_name for c in store.list_corpora())
     finally:
         store.close()
-
-
-def test_upload_rejects_too_many_files(
-    configured_client: tuple[TestClient, str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client, corpus_id = configured_client
-    cfg: Config = client.app.state.config  # type: ignore[attr-defined]
-    monkeypatch.setattr("consistency_checker.web.app.MAX_UPLOAD_FILES", 2)
-    files = [("files", (f"doc{i}.txt", b"small body.", "text/plain")) for i in range(3)]
-    resp = client.post("/uploads", data={"corpus_id": corpus_id}, files=files)
-    assert resp.status_code == 413
-    assert "many files" in resp.json()["detail"].lower()
-    # No staged upload dir may linger after the rejection.
-    assert _staged_dirs(cfg) == []
-
-
-def test_upload_rejects_total_bytes(
-    configured_client: tuple[TestClient, str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client, corpus_id = configured_client
-    cfg: Config = client.app.state.config  # type: ignore[attr-defined]
-    monkeypatch.setattr("consistency_checker.web.app.MAX_UPLOAD_TOTAL_BYTES", 10)
-    files = [
-        ("files", ("a.txt", b"x" * 8, "text/plain")),
-        ("files", ("b.txt", b"y" * 8, "text/plain")),
-    ]
-    resp = client.post("/uploads", data={"corpus_id": corpus_id}, files=files)
-    assert resp.status_code == 413
-    assert "too large" in resp.json()["detail"].lower()
-    assert _staged_dirs(cfg) == []
-
-
-def test_upload_under_caps_still_succeeds(
-    configured_client: tuple[TestClient, str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Regression guard: a normal small upload is unaffected by the caps."""
-    client, corpus_id = configured_client
-    monkeypatch.setattr("consistency_checker.web.app.MAX_UPLOAD_FILES", 5)
-    monkeypatch.setattr("consistency_checker.web.app.MAX_UPLOAD_TOTAL_BYTES", 4096)
-    resp = client.post(
-        "/uploads",
-        data={"corpus_id": corpus_id},
-        files={"files": ("doc.txt", b"Revenue grew. Customer satisfaction held.", "text/plain")},
-    )
-    assert resp.status_code == 200, resp.text
 
 
 def test_create_corpus_rejects_too_many_files(
@@ -386,6 +129,5 @@ def test_static_assets_served(tmp_path: Path) -> None:
     client = _client(_config(tmp_path))
     css = client.get("/static/cc_style.css")
     assert css.status_code == 200
-    assert "cc-tab" in css.text
     js = client.get("/static/htmx.min.js")
     assert js.status_code == 200

@@ -1,10 +1,15 @@
-"""Tests for the Documents + Assertions tabs — step G3."""
+"""Tests for the assertion-detail route.
+
+ADR-0017 Phase 6 deleted the legacy ``/tabs/documents``, ``/documents/{id}``,
+and ``/tabs/assertions`` browse routes (their content now lives in the
+single-page shell's per-corpus drawers). ``GET /assertions/{id}`` survives —
+the new UI links to it — so its coverage stays here.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from consistency_checker.config import Config
@@ -57,129 +62,6 @@ def _seed(tmp_path: Path, *, n_docs: int, assertions_per_doc: int) -> Config:
     return cfg
 
 
-# --- /tabs/documents -------------------------------------------------------
-
-
-def test_documents_tab_empty_state(tmp_path: Path) -> None:
-    client = _client(_config(tmp_path))
-    response = client.get("/tabs/documents")
-    assert response.status_code == 200
-    body = response.text
-    assert "Documents" in body
-    assert "No documents yet" in body
-
-
-def test_documents_tab_lists_seeded_documents(tmp_path: Path) -> None:
-    cfg = _seed(tmp_path, n_docs=3, assertions_per_doc=2)
-    client = _client(cfg)
-    response = client.get("/tabs/documents")
-    assert response.status_code == 200
-    body = response.text
-    assert "Doc 000" in body
-    assert "Doc 001" in body
-    assert "Doc 002" in body
-    assert "3 ingested document(s)" in body
-
-
-def test_documents_tab_pagination(tmp_path: Path) -> None:
-    """Page 1 shows the first 25, page 2 shows the rest."""
-    cfg = _seed(tmp_path, n_docs=27, assertions_per_doc=1)
-    client = _client(cfg)
-    page1 = client.get("/tabs/documents?page=1").text
-    page2 = client.get("/tabs/documents?page=2").text
-    assert "Page 1 of 2" in page1
-    assert "Page 2 of 2" in page2
-    # Page 1 has the Next button; page 2 does not.
-    assert "Next →" in page1
-    assert "Next →" not in page2
-    assert "← Prev" not in page1
-    assert "← Prev" in page2
-
-
-def test_documents_tab_htmx_partial_omits_chrome(tmp_path: Path) -> None:
-    cfg = _seed(tmp_path, n_docs=1, assertions_per_doc=1)
-    client = _client(cfg)
-    response = client.get("/tabs/documents", headers={"HX-Request": "true"})
-    assert response.status_code == 200
-    body = response.text
-    assert 'class="cc-tabs"' not in body
-    assert "Documents" in body
-
-
-# --- GET /documents/{id} ---------------------------------------------------
-
-
-def test_document_detail_partial_renders(tmp_path: Path) -> None:
-    cfg = _seed(tmp_path, n_docs=1, assertions_per_doc=3)
-    store = AssertionStore(cfg.db_path)
-    doc_id = next(iter(store.iter_documents())).doc_id
-    store.close()
-    client = _client(cfg)
-    response = client.get(f"/documents/{doc_id}")
-    assert response.status_code == 200
-    body = response.text
-    assert "Doc 000" in body
-    assert doc_id in body
-    # Preview shows the first few assertions.
-    assert "Assertion 0 from doc 0" in body
-    assert "3" in body  # n_assertions
-
-
-def test_document_detail_404_for_unknown(tmp_path: Path) -> None:
-    client = _client(_config(tmp_path))
-    response = client.get("/documents/no_such_doc")
-    assert response.status_code == 404
-
-
-# --- /tabs/assertions ------------------------------------------------------
-
-
-def test_assertions_tab_empty_state(tmp_path: Path) -> None:
-    client = _client(_config(tmp_path))
-    response = client.get("/tabs/assertions")
-    assert response.status_code == 200
-    body = response.text
-    assert "Assertions" in body
-    assert "No assertions extracted yet" in body
-
-
-def test_assertions_tab_lists_with_doc_labels(tmp_path: Path) -> None:
-    cfg = _seed(tmp_path, n_docs=2, assertions_per_doc=2)
-    client = _client(cfg)
-    response = client.get("/tabs/assertions")
-    assert response.status_code == 200
-    body = response.text
-    assert "4 assertion(s)" in body
-    assert "Doc 000" in body
-    assert "Doc 001" in body
-
-
-def test_assertions_tab_pagination(tmp_path: Path) -> None:
-    cfg = _seed(tmp_path, n_docs=2, assertions_per_doc=20)  # 40 total
-    client = _client(cfg)
-    page1 = client.get("/tabs/assertions?page=1").text
-    page2 = client.get("/tabs/assertions?page=2").text
-    assert "Page 1 of 2" in page1
-    assert "Page 2 of 2" in page2
-
-
-def test_assertions_tab_truncates_long_text(tmp_path: Path) -> None:
-    cfg = _config(tmp_path)
-    store = AssertionStore(cfg.db_path)
-    store.migrate()
-    _cid = store.get_or_create_corpus("test", "/test", "moonshot")
-    doc = Document.from_content("Body.", source_path="d.md", title="D")
-    store.add_document(doc, corpus_id=_cid)
-    long_text = "A" * 250
-    store.add_assertion(Assertion.build(doc.doc_id, long_text))
-    store.close()
-    client = _client(cfg)
-    response = client.get("/tabs/assertions")
-    body = response.text
-    assert "…" in body
-    assert "A" * 250 not in body  # full text isn't dumped
-
-
 # --- GET /assertions/{id} --------------------------------------------------
 
 
@@ -203,15 +85,3 @@ def test_assertion_detail_404_for_unknown(tmp_path: Path) -> None:
     client = _client(_config(tmp_path))
     response = client.get("/assertions/no_such_assertion")
     assert response.status_code == 404
-
-
-# --- pagination helper edge cases ------------------------------------------
-
-
-@pytest.mark.parametrize("page", [-3, 0, 1, 99])
-def test_documents_tab_handles_out_of_range_page(tmp_path: Path, page: int) -> None:
-    """Negative / out-of-range page numbers clamp into [1, n_pages]."""
-    cfg = _seed(tmp_path, n_docs=2, assertions_per_doc=1)
-    client = _client(cfg)
-    response = client.get(f"/tabs/documents?page={page}")
-    assert response.status_code == 200

@@ -1,10 +1,16 @@
-"""Tests for corpus-scoped upload and read routes (Task 10)."""
+"""Tests for corpus-scoped read routes.
+
+ADR-0017 Phase 6 deleted the legacy ``POST /uploads``, ``GET /tabs/stats``,
+and ``POST /runs`` routes. Upload + run are now ``POST /corpora/new`` and
+``POST /corpora/{id}/run`` (covered in test_web_ui_collapse.py). What remains
+worth asserting here is that the per-corpus Stats drawer scopes its banner to
+the selected corpus and does not bleed warnings from other corpora.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from consistency_checker.audit.logger import AuditLogger
@@ -41,72 +47,15 @@ def _make_client(cfg: Config) -> TestClient:
     return TestClient(app)
 
 
-@pytest.fixture
-def client_factory(
-    tmp_path: Path,
-) -> tuple[TestClient, AssertionStore]:
-    """Returns a (client, store) pair sharing the same db.
-
-    Callers are responsible for closing the store when done.
-    """
-
-    def _factory(
-        tmp: Path,
-    ) -> tuple[TestClient, AssertionStore]:
-        cfg = _config(tmp)
-        store = AssertionStore(cfg.db_path)
-        store.migrate()
-        client = _make_client(cfg)
-        return client, store
-
-    return _factory  # type: ignore[return-value]
-
-
 # ---------------------------------------------------------------------------
-# Upload requires corpus_id
+# Stats drawer scoped to selected corpus
 # ---------------------------------------------------------------------------
 
 
-def test_web_upload_requires_corpus_id(tmp_path: Path) -> None:
-    """POSTing without corpus_id must 400."""
-    cfg = _config(tmp_path)
-    client = _make_client(cfg)
-    r = client.post("/uploads", files=[("files", ("doc.txt", b"hello", "text/plain"))])
-    assert r.status_code == 400
-    assert "corpus" in r.text.lower()
-
-
-def test_web_upload_with_corpus_id_persists_link(tmp_path: Path) -> None:
-    """Upload with a real corpus_id; assert doc's corpus_id matches."""
-    cfg = _config(tmp_path)
-    store = AssertionStore(cfg.db_path)
-    store.migrate()
-    cid = store.get_or_create_corpus("atkins", "/atkins", "moonshot")
-    store.close()
-
-    client = _make_client(cfg)
-    r = client.post(
-        "/uploads",
-        data={"corpus_id": cid},
-        files=[("files", ("doc.txt", b"Atkins bylaws", "text/plain"))],
-    )
-    assert r.status_code in (200, 303), r.text
-
-    verify_store = AssertionStore(cfg.db_path)
-    try:
-        rows = verify_store._conn.execute("SELECT corpus_id FROM documents").fetchall()
-        assert rows and all(row[0] == cid for row in rows)
-    finally:
-        verify_store.close()
-
-
-# ---------------------------------------------------------------------------
-# Stats tab scoped to selected corpus
-# ---------------------------------------------------------------------------
-
-
-def test_stats_tab_filters_to_selected_corpus(tmp_path: Path) -> None:
-    """When ?corpus=<id> is set on the Stats tab, only that corpus's banner shows."""
+def test_stats_drawer_filters_to_selected_corpus(tmp_path: Path) -> None:
+    """The per-corpus Stats drawer (/corpora/{id}/drawer/stats) scopes its
+    org banner to that corpus only; a multi-org corpus fires the banner while
+    a single-org sibling stays silent."""
     cfg = _config(tmp_path)
     store = AssertionStore(cfg.db_path)
     store.migrate()
@@ -129,69 +78,17 @@ def test_stats_tab_filters_to_selected_corpus(tmp_path: Path) -> None:
     store.add_document(doc_b1, corpus_id=cid_b)
 
     logger = AuditLogger(store)
-    run_id = logger.begin_run()
+    run_id = logger.begin_run(corpus_id=cid_a)
     logger.end_run(run_id, n_assertions=0, n_pairs_gated=0, n_pairs_judged=0)
     store.close()
 
     client = _make_client(cfg)
-    r = client.get(f"/tabs/stats?corpus={cid_a}")
-    assert r.status_code == 200
-    # Corpus A has two orgs — the banner should fire.
-    assert "Corpus spans 2 organizations" in r.text
+    # Corpus A has two orgs — the drawer banner should fire.
+    r_a = client.get(f"/corpora/{cid_a}/drawer/stats")
+    assert r_a.status_code == 200
+    assert "Corpus spans 2 organizations" in r_a.text
 
-
-# ---------------------------------------------------------------------------
-# POST /runs corpus_id threading
-# ---------------------------------------------------------------------------
-
-
-def test_post_runs_without_corpus_id_returns_400(tmp_path: Path) -> None:
-    """Omitting corpus_id must return 400 — the run must not be started."""
-    cfg = _config(tmp_path)
-    client = _make_client(cfg)
-    r = client.post("/runs", data={"deep": "false"}, follow_redirects=False)
-    assert r.status_code == 422  # FastAPI validation error for missing required Form field
-
-
-def test_post_runs_with_corpus_id_scopes_run(tmp_path: Path) -> None:
-    """POST /runs with a real corpus_id returns 303 and the run is scoped to that corpus."""
-    from consistency_checker.extract.schema import Assertion
-    from consistency_checker.index.embedder import embed_pending
-    from consistency_checker.index.faiss_store import FaissStore
-
-    cfg = Config(
-        corpus_dir=tmp_path / "corpus",
-        judge_provider="fixture",
-        judge_model="test",
-        data_dir=tmp_path / "store",
-        log_dir=tmp_path / "logs",
-        embedder_model="hash",
-        nli_model="fixture",
-        gate_similarity_threshold=-1.0,
-        nli_contradiction_threshold=0.0,
-    )
-    store = AssertionStore(cfg.db_path)
-    store.migrate()
-    cid = store.get_or_create_corpus("atkins", "/atkins", "moonshot")
-    doc = Document.from_content("Body text.", source_path="doc.md", title="Doc")
-    store.add_document(doc, corpus_id=cid)
-    store.add_assertions([Assertion.build(doc.doc_id, "Revenue grew 12%.")])
-    embedder_inst = HashEmbedder(dim=64)
-    fs = FaissStore.open_or_create(
-        index_path=cfg.faiss_path,
-        id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
-        dim=embedder_inst.dim,
-    )
-    embed_pending(store, fs, embedder_inst)
-    store.close()
-
-    client = _make_client(cfg)
-    r = client.post("/runs", data={"deep": "false", "corpus_id": cid}, follow_redirects=False)
-    assert r.status_code in (202, 303), r.text
-
-    verify_store = AssertionStore(cfg.db_path)
-    audit = AuditLogger(verify_store)
-    run = audit.most_recent_run()
-    verify_store.close()
-    assert run is not None
-    assert run.corpus_id == cid
+    # Corpus B has one org — its banner must stay silent (no bleed from A).
+    r_b = client.get(f"/corpora/{cid_b}/drawer/stats")
+    assert r_b.status_code == 200
+    assert "Corpus spans" not in r_b.text

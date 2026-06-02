@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from consistency_checker.audit.logger import AuditLogger
@@ -59,37 +58,6 @@ def _make_client(cfg: Config) -> TestClient:
         judge=FixtureJudge({}),
     )
     return TestClient(app)
-
-
-@pytest.fixture
-def client_with_two_org_corpus(tmp_path: Path) -> TestClient:
-    cfg = _config(tmp_path)
-    _seed(cfg, org_labels=["Acme Corp", "Globex Inc"])
-    return _make_client(cfg)
-
-
-@pytest.fixture
-def client_with_single_org_corpus(tmp_path: Path) -> TestClient:
-    cfg = _config(tmp_path)
-    _seed(cfg, org_labels=["Acme Corp", "Acme Corp"])
-    return _make_client(cfg)
-
-
-def test_stats_tab_shows_corpus_banner_when_multi_org(
-    client_with_two_org_corpus: TestClient,
-) -> None:
-    r = client_with_two_org_corpus.get("/tabs/stats")
-    assert r.status_code == 200
-    assert "cc-banner" in r.text
-    assert "Corpus spans 2 organizations" in r.text
-
-
-def test_stats_tab_hides_banner_for_single_org(
-    client_with_single_org_corpus: TestClient,
-) -> None:
-    r = client_with_single_org_corpus.get("/tabs/stats")
-    assert r.status_code == 200
-    assert "Corpus spans" not in r.text
 
 
 def test_run_stats_fragment_shows_corpus_banner_when_multi_org(tmp_path: Path) -> None:
@@ -148,9 +116,10 @@ def test_run_stats_fragment_shows_suppressed_pair_count(tmp_path: Path) -> None:
     assert "2 cross-organization definition pair(s) were suppressed" in r.text
 
 
-def test_upload_route_persists_org_label_and_banner_renders(tmp_path: Path) -> None:
-    """Uploading two docs from distinct orgs via /uploads should populate
-    org_label so the Stats tab banner fires."""
+def test_new_corpus_route_persists_org_label_and_banner_renders(tmp_path: Path) -> None:
+    """Creating a corpus with two distinct-org docs via the surviving
+    ``POST /corpora/new`` path should populate org_label so the per-run Stats
+    banner (``/runs/{id}/stats``) fires. (ADR-0017 Phase 6 deleted /uploads.)"""
     cfg = _config(tmp_path)
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     AssertionStore(cfg.db_path).migrate()
@@ -159,6 +128,8 @@ def test_upload_route_persists_org_label_and_banner_renders(tmp_path: Path) -> N
         ("acme", "Acme Corp"): OrgIdentification(label="Acme Corp", reason="org_found"),
         ("globex", "Globex Inc"): OrgIdentification(label="Globex Inc", reason="org_found"),
     }
+    # org_grouping_enabled must be on for identify_org to run during ingest.
+    cfg = cfg.model_copy(update={"org_grouping_enabled": True})
     extractor = FixtureExtractor({}, org_fixtures=org_fixtures)
     app = create_app(
         cfg,
@@ -169,11 +140,6 @@ def test_upload_route_persists_org_label_and_banner_renders(tmp_path: Path) -> N
     )
     client = TestClient(app)
 
-    store_pre = AssertionStore(cfg.db_path)
-    store_pre.migrate()
-    cid = store_pre.get_or_create_corpus("test", str(cfg.corpus_dir), "moonshot")
-    store_pre.close()
-
     files = [
         ("files", ("acme.md", b"Acme Corp is a company. It does things.", "text/markdown")),
         (
@@ -181,7 +147,11 @@ def test_upload_route_persists_org_label_and_banner_renders(tmp_path: Path) -> N
             ("globex.md", b"Globex Inc is a company. It does other things.", "text/markdown"),
         ),
     ]
-    r = client.post("/uploads", data={"corpus_id": cid}, files=files)
+    r = client.post(
+        "/corpora/new",
+        data={"corpus_name": "orgmix", "judge_provider": "moonshot"},
+        files=files,
+    )
     assert r.status_code == 200, r.text
 
     store = AssertionStore(cfg.db_path)
@@ -194,6 +164,6 @@ def test_upload_route_persists_org_label_and_banner_renders(tmp_path: Path) -> N
         store.close()
     assert labels == ["Acme Corp", "Globex Inc"]
 
-    stats = client.get("/tabs/stats")
+    stats = client.get(f"/runs/{run_id}/stats")
     assert stats.status_code == 200
     assert "Corpus spans 2 organizations" in stats.text

@@ -5,8 +5,8 @@
           hx-vals='{"pair_key": "{{ pair_key }}",
                     "detector_type": "{{ detector_type }}",
                     "prior_verdict": "{{ prior_verdict|default('') }}"}'
-          hx-target="#cc-tab-content"
-          hx-swap="innerHTML">Undo</button>
+          hx-target="#cc-toast-region"
+          hx-swap="afterbegin">Undo</button>
   <button class="cc-toast-close"
           type="button"
           aria-label="Dismiss notification"

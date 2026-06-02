@@ -1,8 +1,15 @@
-"""Tests for POST /runs + background-task wiring — step G5.
+"""Tests for POST /corpora/{id}/run + background-task wiring.
+
+ADR-0017 Phase 6 deleted the legacy ``POST /runs`` route; the only run-start
+surface is now the per-corpus ``POST /corpora/{id}/run`` (the Run Check modal).
+It shares the same ``_run_check_in_background`` worker, so the behaviours that
+matter — done-state, deep→config propagation, the pairwise opt-in skip, the
+cost-ceiling failure diagnostic, and generic-failure masking — are exercised
+here against the surviving route.
 
 The FastAPI TestClient runs BackgroundTasks synchronously after the response
-returns, so the run row goes through pending → running → done within a
-single test invocation. That's exactly the property G5 needs to guarantee.
+returns, so the run row goes through pending → running → done within a single
+test invocation.
 """
 
 from __future__ import annotations
@@ -41,7 +48,7 @@ def _config(tmp_path: Path, *, pairwise_enabled: bool = True) -> Config:
 
 
 def _seed_store(cfg: Config) -> str:
-    """Seed the store with two docs and return the corpus_id."""
+    """Seed the store with two docs (embedded) and return the corpus_id."""
     store = AssertionStore(cfg.db_path)
     store.migrate()
     cid = store.get_or_create_corpus("test", "/test", "moonshot")
@@ -66,6 +73,14 @@ def _seed_store(cfg: Config) -> str:
     return cid
 
 
+def _latest_run(cfg: Config) -> object | None:
+    store = AssertionStore(cfg.db_path)
+    try:
+        return AuditLogger(store).most_recent_run()
+    finally:
+        store.close()
+
+
 @pytest.fixture
 def hermetic_client(tmp_path: Path) -> tuple[TestClient, Config, str]:
     cfg = _config(tmp_path)
@@ -80,92 +95,43 @@ def hermetic_client(tmp_path: Path) -> tuple[TestClient, Config, str]:
     return TestClient(app), cfg, corpus_id
 
 
-# --- POST /runs + background task ----------------------------------------
+# --- POST /corpora/{id}/run + background task ----------------------------
 
 
-def test_post_runs_redirects_non_htmx_caller(
-    hermetic_client: tuple[TestClient, Config, str],
-) -> None:
-    """Direct (non-HTMX) callers get a 303 to /tabs/stats?run_id=..."""
-    client, _cfg, corpus_id = hermetic_client
-    response = client.post(
-        "/runs", data={"deep": "false", "corpus_id": corpus_id}, follow_redirects=False
-    )
-    assert response.status_code == 303
-    location = response.headers["location"]
-    assert location.startswith("/tabs/stats?run_id=")
-
-
-def test_post_runs_returns_hx_redirect_for_htmx_caller(
+def test_post_run_returns_run_started_trigger(
     hermetic_client: tuple[TestClient, Config, str],
 ) -> None:
     client, _cfg, corpus_id = hermetic_client
-    response = client.post(
-        "/runs",
-        data={"deep": "false", "corpus_id": corpus_id},
-        headers={"HX-Request": "true"},
-    )
-    assert response.status_code == 202
-    assert "HX-Redirect" in response.headers
-    assert response.headers["HX-Redirect"].startswith("/tabs/stats?run_id=")
+    response = client.post(f"/corpora/{corpus_id}/run", data={"pairwise": "true", "deep": "false"})
+    assert response.status_code == 200, response.text
+    assert response.headers.get("HX-Trigger") == "run-started"
 
 
-def test_post_runs_creates_pending_row_immediately(
+def test_post_run_marks_done_after_completion(
     hermetic_client: tuple[TestClient, Config, str],
 ) -> None:
-    """The HTTP response returns before pipeline.check would have time to run
-    on a real corpus. The polled Stats fragment must already find the row."""
+    """TestClient runs the background task synchronously after the response,
+    so by the time we read the row the run has already completed."""
     client, cfg, corpus_id = hermetic_client
-    response = client.post(
-        "/runs", data={"deep": "false", "corpus_id": corpus_id}, follow_redirects=False
-    )
-    run_id = response.headers["location"].rsplit("=", 1)[1]
-    store = AssertionStore(cfg.db_path)
-    logger = AuditLogger(store)
-    run = logger.get_run(run_id)
-    store.close()
+    response = client.post(f"/corpora/{corpus_id}/run", data={"pairwise": "true", "deep": "false"})
+    assert response.status_code == 200, response.text
+    run = _latest_run(cfg)
     assert run is not None
-    # TestClient runs the background task synchronously after the response
-    # returns, so by the time we read, the run has already completed.
-    assert run.run_status == "done"
+    assert run.run_status == "done"  # type: ignore[attr-defined]
 
 
-def test_post_runs_background_task_marks_done_after_completion(
+def test_post_run_deep_propagates_to_config(
     hermetic_client: tuple[TestClient, Config, str],
 ) -> None:
-    client, _cfg, corpus_id = hermetic_client
-    response = client.post(
-        "/runs", data={"deep": "false", "corpus_id": corpus_id}, follow_redirects=False
-    )
-    run_id = response.headers["location"].rsplit("=", 1)[1]
-    # Stats polling endpoint should reflect a terminal state.
-    stats = client.get(f"/runs/{run_id}/stats")
-    assert stats.status_code == 200
-    assert "Run complete" in stats.text
-    assert 'hx-trigger="every 2s"' not in stats.text
-
-
-def test_post_runs_deep_propagates_to_pipeline(
-    hermetic_client: tuple[TestClient, Config, str],
-) -> None:
-    """When deep=true is posted, the background task should call
-    pipeline.check with multi_party_judge enabled. We assert via the
-    config_json recorded on the run row."""
+    """deep=true must land as ``enable_multi_party`` in the begin_run config
+    dict (CLI key vocabulary), proving it threads to the pipeline."""
     client, cfg, corpus_id = hermetic_client
-    response = client.post(
-        "/runs", data={"deep": "true", "corpus_id": corpus_id}, follow_redirects=False
-    )
-    run_id = response.headers["location"].rsplit("=", 1)[1]
-    store = AssertionStore(cfg.db_path)
-    logger = AuditLogger(store)
-    run = logger.get_run(run_id)
-    store.close()
+    response = client.post(f"/corpora/{corpus_id}/run", data={"pairwise": "true", "deep": "true"})
+    assert response.status_code == 200, response.text
+    run = _latest_run(cfg)
     assert run is not None
-    assert run.config_json is not None
-    # ADR-0017 review: web /runs aligned to CLI's begin_run dict shape —
-    # `deep` is no longer stored under that key, it lives as
-    # `enable_multi_party` to match `cli/main.py::check`.
-    assert '"enable_multi_party": true' in run.config_json
+    assert run.config_json is not None  # type: ignore[attr-defined]
+    assert '"enable_multi_party": true' in run.config_json  # type: ignore[attr-defined]
 
 
 # --- ADR-0015: pairwise opt-in -------------------------------------------
@@ -174,9 +140,9 @@ def test_post_runs_deep_propagates_to_pipeline(
 def test_run_check_skips_nli_when_pairwise_disabled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When config.pairwise_enabled=False, the background task must NOT
-    construct TransformerNliChecker. We monkeypatch its __init__ to raise
-    — the run should still complete cleanly."""
+    """With effective pairwise=false the background task must NOT construct
+    TransformerNliChecker. We monkeypatch its __init__ to raise — the run
+    should still complete cleanly via the definitions-only path."""
     cfg = _config(tmp_path, pairwise_enabled=False)
     corpus_id = _seed_store(cfg)
 
@@ -188,8 +154,6 @@ def test_run_check_skips_nli_when_pairwise_disabled(
         _boom,
     )
 
-    # Pass no nli_checker — the gate in _run_check_in_background must skip
-    # constructing one entirely.
     app = create_app(
         cfg,
         extractor=FixtureExtractor({}),
@@ -197,56 +161,12 @@ def test_run_check_skips_nli_when_pairwise_disabled(
         judge=FixtureJudge({}),
     )
     client = TestClient(app)
-    response = client.post(
-        "/runs", data={"deep": "false", "corpus_id": corpus_id}, follow_redirects=False
-    )
-    assert response.status_code == 303
-    run_id = response.headers["location"].rsplit("=", 1)[1]
-
-    store = AssertionStore(cfg.db_path)
-    logger = AuditLogger(store)
-    run = logger.get_run(run_id)
-    store.close()
+    # pairwise="" → fall back to config default (False).
+    response = client.post(f"/corpora/{corpus_id}/run", data={"pairwise": "", "deep": "false"})
+    assert response.status_code == 200, response.text
+    run = _latest_run(cfg)
     assert run is not None
-    assert run.run_status == "done"
-
-
-def test_post_runs_rejects_deep_without_pairwise(tmp_path: Path) -> None:
-    """deep=True under pairwise_enabled=False must 400 BEFORE creating a
-    run row, with a message that names the config knob to flip."""
-    cfg = _config(tmp_path, pairwise_enabled=False)
-    corpus_id = _seed_store(cfg)
-    app = create_app(
-        cfg,
-        extractor=FixtureExtractor({}),
-        embedder=HashEmbedder(dim=64),
-        judge=FixtureJudge({}),
-    )
-    client = TestClient(app)
-    response = client.post(
-        "/runs", data={"deep": "true", "corpus_id": corpus_id}, follow_redirects=False
-    )
-    assert response.status_code == 400
-    body = response.json()
-    assert "pairwise_enabled" in body["detail"]
-    # No phantom run row created.
-    store = AssertionStore(cfg.db_path)
-    logger = AuditLogger(store)
-    assert logger.most_recent_run() is None
-    store.close()
-
-
-def test_post_runs_accepts_deep_with_pairwise(
-    hermetic_client: tuple[TestClient, Config, str],
-) -> None:
-    """When pairwise_enabled=True (default for hermetic_client), deep=true
-    is accepted as before."""
-    client, _cfg, corpus_id = hermetic_client
-    response = client.post(
-        "/runs", data={"deep": "true", "corpus_id": corpus_id}, follow_redirects=False
-    )
-    assert response.status_code == 303
-    assert response.headers["location"].startswith("/tabs/stats?run_id=")
+    assert run.run_status == "done"  # type: ignore[attr-defined]
 
 
 # --- ADR-0016: cost ceiling -----------------------------------------------
@@ -256,8 +176,8 @@ def test_run_check_records_cost_ceiling_failure_with_clean_diagnostic(
     tmp_path: Path,
 ) -> None:
     """ADR-0016: a run that trips max_cost_usd must be marked 'failed' with a
-    user-friendly error_message naming the projected vs. ceiling values, not
-    a raw stack trace from the generic ``except Exception`` branch."""
+    user-friendly error_message naming the projected vs. ceiling values, not a
+    raw stack trace from the generic ``except Exception`` branch."""
     cfg = _config(tmp_path).model_copy(
         update={"judge_provider": "anthropic", "max_cost_usd": 0.001}
     )
@@ -271,25 +191,18 @@ def test_run_check_records_cost_ceiling_failure_with_clean_diagnostic(
     )
     client = TestClient(app)
 
-    response = client.post(
-        "/runs", data={"deep": "false", "corpus_id": corpus_id}, follow_redirects=False
-    )
-    assert response.status_code == 303
-    run_id = response.headers["location"].rsplit("=", 1)[1]
-
-    store = AssertionStore(cfg.db_path)
-    logger = AuditLogger(store)
-    run = logger.get_run(run_id)
-    store.close()
+    response = client.post(f"/corpora/{corpus_id}/run", data={"pairwise": "true", "deep": "false"})
+    assert response.status_code == 200, response.text
+    run = _latest_run(cfg)
     assert run is not None
-    assert run.run_status == "failed"
-    assert run.error_message is not None
-    assert "Estimated cost" in run.error_message
-    assert "max_cost_usd" in run.error_message
-    assert "$0.0010" in run.error_message
+    assert run.run_status == "failed"  # type: ignore[attr-defined]
+    assert run.error_message is not None  # type: ignore[attr-defined]
+    assert "Estimated cost" in run.error_message  # type: ignore[attr-defined]
+    assert "max_cost_usd" in run.error_message  # type: ignore[attr-defined]
+    assert "$0.0010" in run.error_message  # type: ignore[attr-defined]
 
 
-# --- TASK B: generic failures must not leak raw exception text ------------
+# --- generic failures must not leak raw exception text -------------------
 
 
 def test_generic_run_failure_does_not_leak_raw_exception_text(
@@ -307,19 +220,14 @@ def test_generic_run_failure_does_not_leak_raw_exception_text(
 
     monkeypatch.setattr("consistency_checker.pipeline.check", _boom)
 
-    response = client.post(
-        "/runs", data={"deep": "false", "corpus_id": corpus_id}, follow_redirects=False
-    )
-    assert response.status_code == 303
-    run_id = response.headers["location"].rsplit("=", 1)[1]
-
-    store = AssertionStore(cfg.db_path)
-    logger = AuditLogger(store)
-    run = logger.get_run(run_id)
-    store.close()
+    response = client.post(f"/corpora/{corpus_id}/run", data={"pairwise": "true", "deep": "false"})
+    assert response.status_code == 200, response.text
+    run = _latest_run(cfg)
     assert run is not None
-    assert run.run_status == "failed"
-    assert run.error_message is not None
-    assert "/home/secret" not in run.error_message
-    assert "data.db" not in run.error_message
-    assert run.error_message == "The check failed. See server logs for details."
+    assert run.run_status == "failed"  # type: ignore[attr-defined]
+    assert run.error_message is not None  # type: ignore[attr-defined]
+    assert "/home/secret" not in run.error_message  # type: ignore[attr-defined]
+    assert "data.db" not in run.error_message  # type: ignore[attr-defined]
+    assert (
+        run.error_message == "The check failed. See server logs for details."  # type: ignore[attr-defined]
+    )
