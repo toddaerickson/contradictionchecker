@@ -19,7 +19,11 @@
     <header class="cc-section-header">
       <h2>Definition inconsistencies</h2>
       <p class="cc-muted">
-        <a hx-get="/tabs/stats" hx-target="#cc-tab-content" hx-push-url="true" style="color:inherit"><code>{{ run.run_id }}</code></a>
+        {% if drawer_refresh_url %}
+          <code>{{ run.run_id }}</code>
+        {% else %}
+          <a hx-get="/tabs/stats" hx-target="#cc-tab-content" hx-push-url="true" style="color:inherit"><code>{{ run.run_id }}</code></a>
+        {% endif %}
       </p>
     </header>
 
@@ -32,10 +36,11 @@
                name="show_reviewed_definition_inconsistency"
                value="true"
                {% if show_reviewed %}checked{% endif %}
-               hx-get="/tabs/definitions"
+               hx-get="{{ drawer_refresh_url|default('/tabs/definitions') }}"
                hx-include="this"
-               hx-target="#cc-tab-content"
-               hx-push-url="true">
+               hx-target="{{ drawer_refresh_target|default('#cc-tab-content') }}"
+               hx-swap="{{ drawer_refresh_swap|default('outerHTML') }}"
+               {% if not drawer_refresh_url %}hx-push-url="true"{% endif %}>
         Show reviewed
       </label>
     </div>

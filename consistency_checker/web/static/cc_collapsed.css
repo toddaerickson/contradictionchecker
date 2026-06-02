@@ -322,19 +322,89 @@
   padding-top: 3rem;
 }
 
-/* --- Drawer + modal placeholders (Phases 2-4 wire them) ----------------- */
+/* --- Slide-over drawer (Phase 4) --------------------------------------- */
 
 .cc-drawer-region {
   position: fixed;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 600px;
+  left: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.cc-drawer-region[hidden] {
+  display: none;
+}
+
+.cc-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(17, 17, 17, 0.18);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.cc-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: min(600px, 92vw);
   background: var(--cc-surface);
   border-left: 1px solid var(--cc-border-strong);
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.08);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.12);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  animation: cc-drawer-slide-in 0.18s ease-out;
+}
+
+@keyframes cc-drawer-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.cc-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--cc-border);
+  background: var(--cc-surface);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.cc-drawer-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+}
+
+.cc-drawer-close {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--cc-muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 0.1rem 0.45rem;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.cc-drawer-close:hover {
+  background: var(--cc-accent-soft);
+  color: var(--cc-fg);
+}
+
+.cc-drawer-body {
+  flex: 1;
   overflow-y: auto;
-  z-index: 10;
+  padding: 0.75rem 1rem 1.25rem;
 }
 
 /* --- New Corpus modal (Phase 2) ---------------------------------------- */

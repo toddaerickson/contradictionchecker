@@ -789,3 +789,180 @@ def test_progress_sse_404s_on_unknown_corpus(tmp_path: Path) -> None:
     client = _client(cfg)
     resp = client.get("/corpora/does-not-exist/progress")
     assert resp.status_code == 404
+
+
+# --- Phase 4: Slide-over drawers (ADR-0017) -----------------------------
+
+
+def _seed_corpus_with_definition_finding(
+    cfg: Config, *, name: str = "Definitions corpus", term: str = "EBITDA"
+) -> tuple[str, str]:
+    """Seed a corpus + run with one definition_divergent finding. Returns
+    (corpus_id, term) so the assertion can check the rendered drawer."""
+    from consistency_checker.check.definition_checker import (
+        DefinitionFinding,
+        DefinitionPair,
+    )
+    from consistency_checker.check.definition_judge import DefinitionJudgeVerdict
+
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    cid = store.get_or_create_corpus(name, f"/{name}", "moonshot")
+    doc_a = Document.from_content("Alpha body.", source_path="alpha.md", title="Alpha")
+    doc_b = Document.from_content("Beta body.", source_path="beta.md", title="Beta")
+    store.add_document(doc_a, corpus_id=cid)
+    store.add_document(doc_b, corpus_id=cid)
+    a = Assertion.build(
+        doc_a.doc_id,
+        f"{term} excludes restructuring charges.",
+        kind="definition",
+        term=term,
+    )
+    b = Assertion.build(
+        doc_b.doc_id,
+        f"{term} includes restructuring charges.",
+        kind="definition",
+        term=term,
+    )
+    store.add_assertions([a, b])
+    audit = AuditLogger(store)
+    run_id = audit.begin_run(corpus_id=cid)
+    audit.record_definition_finding(
+        run_id,
+        finding=DefinitionFinding(
+            pair=DefinitionPair(a=a, b=b, canonical_term=term),
+            verdict=DefinitionJudgeVerdict(
+                assertion_a_id=a.assertion_id,
+                assertion_b_id=b.assertion_id,
+                verdict="definition_divergent",
+                confidence=0.88,
+                rationale=f"Different treatment of restructuring in {term}.",
+                evidence_spans=[],
+            ),
+        ),
+    )
+    audit.end_run(run_id, n_assertions=2, n_pairs_gated=1, n_pairs_judged=1, n_findings=1)
+    store.close()
+    return cid, term
+
+
+def test_drawer_buttons_wired_when_corpus_active(tmp_path: Path) -> None:
+    """The Assertions/Definitions/Stats buttons must point at the per-corpus
+    drawer routes and must NOT be disabled once a corpus is active."""
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Drawer-target")
+    client = _client(cfg)
+    resp = client.get("/?new_ui=1")
+    assert resp.status_code == 200
+    body = resp.text
+    assert f'hx-get="/corpora/{cid}/drawer/assertions"' in body
+    assert f'hx-get="/corpora/{cid}/drawer/definitions"' in body
+    assert f'hx-get="/corpora/{cid}/drawer/stats"' in body
+    # Phase 1 placeholder hint must be gone from the drawer button row.
+    assert 'title="Wired in Phase 4"' not in body
+
+
+def test_drawer_assertions_returns_fragment_with_close_button(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Assertions-drawer")
+    # Seed one assertion so the drawer's table has visible content.
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    doc = Document.from_content("Body.", source_path="a.md", title="A")
+    store.add_document(doc, corpus_id=cid)
+    seeded_text = "Revenue grew 12% in fiscal 2025."
+    store.add_assertions([Assertion.build(doc.doc_id, seeded_text)])
+    store.close()
+
+    client = _client(cfg)
+    resp = client.get(f"/corpora/{cid}/drawer/assertions")
+    assert resp.status_code == 200
+    body = resp.text
+    lower = body.lower()
+    assert "<html" not in lower
+    assert "<!doctype" not in lower
+    assert '<aside class="cc-drawer"' in body
+    assert "cc-drawer-close" in body
+    assert seeded_text in body
+
+
+def test_drawer_definitions_returns_fragment(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid, term = _seed_corpus_with_definition_finding(cfg, name="Def-drawer")
+    client = _client(cfg)
+    resp = client.get(f"/corpora/{cid}/drawer/definitions")
+    assert resp.status_code == 200
+    body = resp.text
+    lower = body.lower()
+    assert "<html" not in lower
+    assert '<aside class="cc-drawer"' in body
+    # The term + rendered confidence should appear in the drawer body.
+    assert term in body
+    assert "0.88" in body
+
+
+def test_drawer_stats_returns_fragment(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid, _run_id, _rationale = _seed_corpus_with_finding(cfg, name="Stats-drawer")
+    client = _client(cfg)
+    resp = client.get(f"/corpora/{cid}/drawer/stats")
+    assert resp.status_code == 200
+    body = resp.text
+    lower = body.lower()
+    assert "<html" not in lower
+    assert '<aside class="cc-drawer"' in body
+    # n_assertions=2 + n_findings=1 from _seed_corpus_with_finding.
+    assert "Stats" in body
+
+
+def test_drawer_404s_on_unknown_corpus(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    for view in ("assertions", "definitions", "stats"):
+        resp = client.get(f"/corpora/does-not-exist/drawer/{view}")
+        assert resp.status_code == 404, f"{view} should 404 on unknown corpus"
+
+
+def test_drawer_includes_focus_trap_script(tmp_path: Path) -> None:
+    """ADR-0017 line 47: drawer focus management is the explicit Phase 4
+    deliverable. The rendered fragment must include the keydown listener +
+    Escape handler + listener-cleanup path so accessibility doesn't silently
+    regress."""
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="A11y-drawer")
+    client = _client(cfg)
+    resp = client.get(f"/corpora/{cid}/drawer/assertions")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "addEventListener('keydown'" in body
+    assert "Escape" in body
+    assert "data-cc-drawer-backdrop" in body
+    # Listener-leak regression: every close path (X button, Esc, click
+    # outside, re-open) must route through close() so the document-level
+    # listeners are removed. The Phase-4 review caught the X-button
+    # onclick previously bypassing this; assert both halves now.
+    assert "removeEventListener('keydown'" in body
+    assert "removeEventListener('click'" in body
+    assert "window.__ccDrawerClose" in body
+
+
+def test_drawer_definitions_toggle_rewires_to_drawer_route(tmp_path: Path) -> None:
+    """The 'Show reviewed' toggle in cc_definitions.html hardcodes a legacy
+    /tabs/definitions hx-get targeting #cc-tab-content. Inside the drawer
+    both are wrong — the route must override them so the toggle refreshes
+    the drawer in-place instead of silently no-op'ing.
+
+    The toggle only renders when the corpus has at least one run, so seed
+    a run via the existing definition-finding helper used by other tests.
+    """
+    cfg = _config(tmp_path)
+    cid, _rid, _rationale = _seed_corpus_with_finding(cfg, name="Toggle-rewire")
+    client = _client(cfg)
+    resp = client.get(f"/corpora/{cid}/drawer/definitions")
+    assert resp.status_code == 200
+    body = resp.text
+    # Drawer-scoped refresh URL, not the legacy /tabs/definitions.
+    assert f"/corpora/{cid}/drawer/definitions" in body
+    assert 'hx-target="#cc-drawer-region"' in body
+    # Legacy target must NOT appear inside the rendered drawer fragment.
+    assert "#cc-tab-content" not in body
