@@ -55,6 +55,11 @@ WEB_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = WEB_DIR / "templates"
 STATIC_DIR = WEB_DIR / "static"
 
+# Raw exception text can carry absolute paths and provider/SDK error strings,
+# and the run's error_message is rendered verbatim in the failed-stats UI; keep
+# the stored value generic and route the detail to the logs instead.
+_GENERIC_FAILURE_MESSAGE = "The check failed. See server logs for details."
+
 
 VERDICT_LABELS: dict[str, str] = {
     "confirmed": "Real issue",
@@ -1803,7 +1808,11 @@ def create_app(
                 )
             except Exception as exc:
                 _log.warning("Run %s aborted at config validation: %s", run_id, exc)
-                audit_logger.update_run_status(run_id, "failed", error_message=str(exc))
+                audit_logger.update_run_status(
+                    run_id,
+                    "failed",
+                    error_message="Invalid run configuration. See server logs for details.",
+                )
                 return
 
             faiss_store = FaissStore.open_or_create(
@@ -1885,7 +1894,9 @@ def create_app(
                 )
             except Exception as exc:
                 _log.exception("Run %s failed: %s", run_id, exc)
-                audit_logger.update_run_status(run_id, "failed", error_message=str(exc))
+                audit_logger.update_run_status(
+                    run_id, "failed", error_message=_GENERIC_FAILURE_MESSAGE
+                )
         finally:
             store.close()
 

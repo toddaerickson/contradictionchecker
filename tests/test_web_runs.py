@@ -287,3 +287,39 @@ def test_run_check_records_cost_ceiling_failure_with_clean_diagnostic(
     assert "Estimated cost" in run.error_message
     assert "max_cost_usd" in run.error_message
     assert "$0.0010" in run.error_message
+
+
+# --- TASK B: generic failures must not leak raw exception text ------------
+
+
+def test_generic_run_failure_does_not_leak_raw_exception_text(
+    hermetic_client: tuple[TestClient, Config, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A generic pipeline failure carrying a filesystem path must be stored as
+    a generic, non-leaking message — the raw ``str(exc)`` (which can contain
+    absolute paths and provider text) must never reach the run's
+    ``error_message`` rendered verbatim in the UI."""
+    client, cfg, corpus_id = hermetic_client
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("/home/secret/data.db is locked")
+
+    monkeypatch.setattr("consistency_checker.pipeline.check", _boom)
+
+    response = client.post(
+        "/runs", data={"deep": "false", "corpus_id": corpus_id}, follow_redirects=False
+    )
+    assert response.status_code == 303
+    run_id = response.headers["location"].rsplit("=", 1)[1]
+
+    store = AssertionStore(cfg.db_path)
+    logger = AuditLogger(store)
+    run = logger.get_run(run_id)
+    store.close()
+    assert run is not None
+    assert run.run_status == "failed"
+    assert run.error_message is not None
+    assert "/home/secret" not in run.error_message
+    assert "data.db" not in run.error_message
+    assert run.error_message == "The check failed. See server logs for details."
