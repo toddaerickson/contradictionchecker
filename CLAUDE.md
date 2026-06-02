@@ -76,7 +76,7 @@ When testing pipeline behaviour, wire these in via the dependency-injection seam
 
 ## Where to put new code
 
-- New corpus loader (PDF, DOCX) → `consistency_checker/corpus/loader.py`. The stub raises `NotImplementedError`; lift the file extension out of `STUB_EXTENSIONS` and route to a real implementation.
+- New corpus loader (a new file type) → `consistency_checker/corpus/loader.py`. Register the extension → loader callable in the `LOADERS` dict; `load_path` dispatches on it and raises `ValueError` for unregistered extensions. (`.txt`/`.md`/`.pdf`/`.docx` are already wired; `.pdf`/`.docx` go through `unstructured`.)
 - New embedder → implement the `Embedder` Protocol in `consistency_checker/index/embedder.py`. The Protocol only requires `dim` and `embed_texts(texts) -> NDArray[np.float32]`.
 - New judge provider → implement `JudgeProvider` in `consistency_checker/check/providers/<name>.py`. Add it to the `make_judge()` factory in `pipeline.py` and a fresh ADR in `docs/decisions/`.
 - New schema fields → write a new migration `consistency_checker/index/migrations/NNNN_<name>.sql`. The migration loader picks it up by filename. Never edit existing migration files.

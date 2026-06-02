@@ -13,7 +13,6 @@ from consistency_checker.corpus.chunker import Chunk, chunk_document
 from consistency_checker.corpus.junk_filter import JunkAudit
 from consistency_checker.corpus.loader import (
     LOADERS,
-    STUB_EXTENSIONS,
     LoadedDocument,
     UnstructuredLoader,
     load_corpus,
@@ -75,11 +74,6 @@ def test_load_corpus_path_not_a_dir(tmp_path: Path) -> None:
     f.write_text("hi")
     with pytest.raises(NotADirectoryError):
         list(load_corpus(f))
-
-
-def test_stub_extensions_is_empty_after_d2() -> None:
-    """D2 wired UnstructuredLoader for .pdf and .docx — both are no longer stubs."""
-    assert len(STUB_EXTENSIONS) == 0
 
 
 def test_load_path_missing_file_raises(tmp_path: Path) -> None:

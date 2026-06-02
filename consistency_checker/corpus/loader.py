@@ -56,18 +56,6 @@ def _plaintext_loader(path: Path) -> LoadedDocument:
     return LoadedDocument(document=document, text=text)
 
 
-def _stub_loader(extension: str) -> FileLoader:
-    """Builds a loader that raises ``NotImplementedError`` for a stubbed extension."""
-
-    def _stub(path: Path) -> LoadedDocument:
-        raise NotImplementedError(
-            f"{extension} loader is registered as a stub. "
-            "Replace it via consistency_checker.corpus.loader.LOADERS to enable."
-        )
-
-    return _stub
-
-
 def _pdf_page_count(path: Path) -> int:
     """Page count for a PDF; returns 0 on any error (treated as "skip OCR")."""
     if path.suffix.lower() != ".pdf":
@@ -261,15 +249,6 @@ LOADERS: dict[str, FileLoader] = {
     ".docx": _unstructured_loader,
 }
 
-#: Extensions historically registered as stubs. Empty post-D2; retained so
-#: downstream tests that check the set don't break, and so :func:`load_corpus`
-#: can still surface a WARNING if a user re-registers a stub at runtime.
-STUB_EXTENSIONS: frozenset[str] = frozenset()
-
-
-def _is_stub(loader: FileLoader) -> bool:
-    return getattr(loader, "__name__", "") == "_stub"
-
 
 def load_path(
     path: Path | str,
@@ -281,9 +260,8 @@ def load_path(
 ) -> LoadedDocument:
     """Load a single document by path. Dispatches via :data:`LOADERS`.
 
-    Raises ``NotImplementedError`` for stubbed extensions, ``ValueError`` for
-    extensions with no registered loader, and ``FileNotFoundError`` for missing
-    paths.
+    Raises ``ValueError`` for extensions with no registered loader, and
+    ``FileNotFoundError`` for missing paths.
     """
     p = Path(path)
     if not p.exists():
@@ -291,10 +269,7 @@ def load_path(
     ext = p.suffix.lower()
     loader = LOADERS.get(ext)
     if loader is None:
-        raise ValueError(
-            f"Unsupported extension: {ext!r}. "
-            f"Registered: {sorted(LOADERS)}; stubbed: {sorted(STUB_EXTENSIONS)}."
-        )
+        raise ValueError(f"Unsupported extension: {ext!r}. Registered: {sorted(LOADERS)}.")
     if isinstance(loader, UnstructuredLoader):
         loader = loader.with_options(
             drop_junk_lines=junk_filter_enabled,
@@ -315,9 +290,7 @@ def load_corpus(
 ) -> Iterator[LoadedDocument]:
     """Walk ``corpus_dir`` recursively, yielding loaded documents.
 
-    Files with unregistered extensions are skipped silently (DEBUG log). Stub
-    extensions (``.pdf``, ``.docx`` until D2 lands) emit an explicit WARNING so
-    users see them rather than wondering where their files went.
+    Files with unregistered extensions are skipped silently (DEBUG log).
     """
     root = Path(corpus_dir)
     if not root.exists():
@@ -332,9 +305,6 @@ def load_corpus(
         loader = LOADERS.get(ext)
         if loader is None:
             _log.debug("Skipping %s — extension %s not registered", path, ext)
-            continue
-        if ext in STUB_EXTENSIONS and _is_stub(loader):
-            _log.warning("Skipping %s — %s loader not yet implemented", path, ext)
             continue
         yield load_path(
             path,

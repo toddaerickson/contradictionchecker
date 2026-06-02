@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import re
 import secrets
 import shutil
 import sqlite3
@@ -88,11 +89,6 @@ def _generate_upload_id() -> str:
     submit in the same wall-clock second.
     """
     return f"{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}_{secrets.token_hex(4)}"
-
-
-def _is_htmx(request: Request) -> bool:
-    """True when the request was issued by an HTMX swap (vs. a direct URL hit)."""
-    return request.headers.get("HX-Request", "").lower() == "true"
 
 
 def _document_label(doc: Any, fallback_doc_id: str) -> str:
@@ -266,6 +262,9 @@ _ALLOWED_EXTENSIONS = frozenset({".txt", ".md", ".pdf", ".docx"})
 # (``GET /?legacy=1`` and every ``GET /tabs/*`` route) now return 410 Gone
 # pointing at the single-page shell that replaced them.
 _LEGACY_GONE_BODY = "This UI was replaced. Visit / for the new interface."
+
+# pair_key is N segments of 16-hex joined by ':' (build_pair_key over 2+ ids).
+_PAIR_KEY_RE = re.compile(r"[0-9a-f]{16}(?::[0-9a-f]{16})+")
 
 
 def create_app(
@@ -1740,6 +1739,8 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"unknown detector_type {detector_type!r}")
         if verdict not in {"confirmed", "false_positive", "dismissed"}:
             raise HTTPException(status_code=400, detail=f"unknown verdict {verdict!r}")
+        if _PAIR_KEY_RE.fullmatch(pair_key) is None:
+            raise HTTPException(status_code=400, detail="invalid pair_key format")
 
         store, audit = _open_audit()
         try:
@@ -1776,6 +1777,8 @@ def create_app(
     ) -> HTMLResponse:
         if detector_type not in {"contradiction", "definition_inconsistency", "multi_party"}:
             raise HTTPException(status_code=400, detail=f"unknown detector_type {detector_type!r}")
+        if _PAIR_KEY_RE.fullmatch(pair_key) is None:
+            raise HTTPException(status_code=400, detail="invalid pair_key format")
         store, audit = _open_audit()
         try:
             if prior_verdict == "":
@@ -1803,23 +1806,6 @@ def create_app(
         response = HTMLResponse(content="")
         response.headers["HX-Redirect"] = referer
         return response
-
-    # Register API routes. Kept: the REST api/corpora routers (corpora_router,
-    # findings_router) are not used by the HTMX frontend but remain as the
-    # programmatic API surface — e.g. findings_router's POST
-    # /api/findings/{id}/verdict is exercised by tests/web/api/test_corpora.py.
-    # Their removal is a separate tracked follow-up.
-    # The api/runs.py module was deleted in Phase 6 (its only consumer was the
-    # legacy cc_process.html SSE view), so its routers are no longer included.
-    from consistency_checker.web.api.corpora import (
-        findings_router,
-    )
-    from consistency_checker.web.api.corpora import (
-        router as corpora_router,
-    )
-
-    app.include_router(corpora_router)
-    app.include_router(findings_router)
 
     return app
 
