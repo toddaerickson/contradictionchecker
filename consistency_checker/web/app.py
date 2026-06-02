@@ -9,15 +9,19 @@ mixed-app deployments; partials use ``cc__<name>.html``.
 
 from __future__ import annotations
 
+import asyncio
+import json
+import math
 import secrets
 import shutil
+from collections.abc import AsyncGenerator
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -57,6 +61,16 @@ VERDICT_LABELS: dict[str, str] = {
     "false_positive": "Not an issue",
     "dismissed": "Dismissed",
 }
+
+# ADR-0017 Phase 3: SSE progress polling cadence + cap. The cap is generous (1h)
+# so a long check doesn't kill the stream; tests monkeypatch these to make the
+# generator exit in deterministic, sub-second time.
+PROGRESS_POLL_SECONDS: float = 1.0
+PROGRESS_MAX_ITERATIONS: int = 3600
+# After a run transitions to done/failed (or when no run exists), keep streaming
+# for a short tail so the row settles cleanly in the sidebar before the SSE
+# extension closes. Tests set this to 0.
+PROGRESS_DONE_TAIL_SECONDS: float = 5.0
 
 
 def _generate_upload_id() -> str:
@@ -725,6 +739,346 @@ def create_app(
             store.close()
         return templates.TemplateResponse(request, "cc_findings.html", ctx)
 
+    # --- ADR-0017 Phase 3: Run Check modal + per-corpus SSE progress ------
+
+    def _corpus_name_or_404(store: AssertionStore, corpus_id: str) -> str:
+        row = store._conn.execute(
+            "SELECT corpus_name FROM corpora WHERE corpus_id = ?", (corpus_id,)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"corpus_id {corpus_id!r} not found")
+        return str(row[0])
+
+    def _render_new_run_modal(
+        request: Request,
+        *,
+        corpus_id: str,
+        corpus_name: str,
+        success: bool,
+        error: str | None,
+        status_code: int,
+        pairwise: str = "",
+        no_definitions: bool = False,
+        deep: bool = False,
+        max_cost: float | None = None,
+        run_id: str | None = None,
+        hx_trigger: str | None = None,
+    ) -> HTMLResponse:
+        response = templates.TemplateResponse(
+            request,
+            "cc_new_run_modal.html",
+            {
+                "corpus_id": corpus_id,
+                "corpus_name": corpus_name,
+                "config_pairwise_enabled": config.pairwise_enabled,
+                "success": success,
+                "error": error,
+                "pairwise": pairwise,
+                "no_definitions": no_definitions,
+                "deep": deep,
+                "max_cost": max_cost,
+                "run_id_short": (run_id[:8] if run_id else None),
+            },
+            status_code=status_code,
+        )
+        if hx_trigger:
+            response.headers["HX-Trigger"] = hx_trigger
+        return response
+
+    @app.get("/corpora/{corpus_id}/run/modal", response_class=HTMLResponse)
+    def corpora_run_modal(request: Request, corpus_id: str) -> HTMLResponse:
+        """Render the per-corpus Run Check modal pre-filled with defaults."""
+        store, _audit = _open_audit()
+        try:
+            corpus_name = _corpus_name_or_404(store, corpus_id)
+        finally:
+            store.close()
+        return _render_new_run_modal(
+            request,
+            corpus_id=corpus_id,
+            corpus_name=corpus_name,
+            success=False,
+            error=None,
+            status_code=200,
+        )
+
+    @app.post("/corpora/{corpus_id}/run", response_class=HTMLResponse)
+    def post_corpora_run(
+        request: Request,
+        corpus_id: str,
+        background_tasks: BackgroundTasks,
+        pairwise: str = Form(""),
+        no_definitions: bool = Form(False),
+        deep: bool = Form(False),
+        max_cost: float | None = Form(None),
+    ) -> HTMLResponse:
+        """Begin a check run for ``corpus_id``.
+
+        Mirrors ``POST /runs`` but scoped to the path-parameter corpus and
+        with the ADR-0017 modal toggles (pairwise tri-state, no_definitions,
+        max_cost) threaded through ``_run_check_in_background``.
+        """
+        pairwise = (pairwise or "").strip().lower()
+        if pairwise not in {"", "true", "false"}:
+            raise HTTPException(status_code=400, detail=f"unknown pairwise value {pairwise!r}")
+        # Validate max_cost: CLI uses typer.Option(min=0); the web layer must
+        # match. Negative or non-finite floats bypass the cost ceiling because
+        # `model_copy(update=...)` skips Pydantic field validators on
+        # frozen models, so the guard has to live here.
+        if max_cost is not None and (not math.isfinite(max_cost) or max_cost < 0):
+            raise HTTPException(
+                status_code=422,
+                detail="max_cost must be a finite non-negative number",
+            )
+
+        store, audit = _open_audit()
+        try:
+            corpus_name = _corpus_name_or_404(store, corpus_id)
+
+            # Reject double-submit: if a run is already pending/running on
+            # this corpus, return 409 before begin_run so we don't spawn
+            # parallel background tasks racing on the same SQLite + FAISS.
+            existing_active = store._conn.execute(
+                "SELECT run_id FROM pipeline_runs "
+                "WHERE corpus_id = ? AND run_status IN ('pending', 'running') LIMIT 1",
+                (corpus_id,),
+            ).fetchone()
+            if existing_active is not None:
+                return _render_new_run_modal(
+                    request,
+                    corpus_id=corpus_id,
+                    corpus_name=corpus_name,
+                    success=False,
+                    error="A run is already in progress on this corpus. Wait for it to finish.",
+                    status_code=409,
+                    pairwise=pairwise,
+                    no_definitions=no_definitions,
+                    deep=deep,
+                    max_cost=max_cost,
+                )
+
+            pairwise_override: bool | None = None if pairwise == "" else (pairwise == "true")
+            effective_pairwise = (
+                pairwise_override if pairwise_override is not None else config.pairwise_enabled
+            )
+            if deep and not effective_pairwise:
+                return _render_new_run_modal(
+                    request,
+                    corpus_id=corpus_id,
+                    corpus_name=corpus_name,
+                    success=False,
+                    error=(
+                        "'deep' (multi-party) requires the pairwise gate output. "
+                        "Enable pairwise_enabled in the server config or do not "
+                        "select 'deep'."
+                    ),
+                    status_code=400,
+                    pairwise=pairwise,
+                    no_definitions=no_definitions,
+                    deep=deep,
+                    max_cost=max_cost,
+                )
+
+            # ADR-0017 review: mirror the CLI's begin_run config dict
+            # exactly so audit-log replay sees one shape regardless of
+            # whether the run was started from `consistency-check check`
+            # or the web Run Check modal. The legacy `POST /runs` route
+            # uses the same shape below — both routes are aligned to
+            # `cli/main.py` lines 357-370.
+            run_id = audit.begin_run(
+                config={
+                    "embedder_model": config.embedder_model,
+                    "nli_model": config.nli_model,
+                    "judge_provider": config.judge_provider,
+                    "judge_model": config.judge_model,
+                    "nli_contradiction_threshold": config.nli_contradiction_threshold,
+                    "gate_top_k": config.gate_top_k,
+                    "gate_similarity_threshold": config.gate_similarity_threshold,
+                    "enable_multi_party": deep,
+                    "max_triangles_per_run": config.max_triangles_per_run,
+                    "definitions_enabled": not no_definitions,
+                    "pairwise_enabled": effective_pairwise,
+                    "max_cost_usd": (max_cost if max_cost is not None else config.max_cost_usd),
+                },
+                run_status="pending",
+                corpus_id=corpus_id,
+            )
+        finally:
+            store.close()
+
+        background_tasks.add_task(
+            _run_check_in_background,
+            run_id,
+            deep,
+            corpus_id,
+            pairwise_override=pairwise_override,
+            no_definitions=no_definitions,
+            max_cost_override=max_cost,
+        )
+
+        return _render_new_run_modal(
+            request,
+            corpus_id=corpus_id,
+            corpus_name=corpus_name,
+            success=True,
+            error=None,
+            status_code=200,
+            pairwise=pairwise,
+            no_definitions=no_definitions,
+            deep=deep,
+            max_cost=max_cost,
+            run_id=run_id,
+            hx_trigger="run-started",
+        )
+
+    def _render_progress_snapshot(snapshot: dict[str, Any]) -> str:
+        """Render the inline progress bar HTML for one SSE snapshot.
+
+        Server-side rendering keeps the sidebar JS-free: the htmx-sse
+        extension just innerHTML-swaps whatever we emit.
+        """
+        status = snapshot.get("status") or "pending"
+        gated = snapshot.get("n_pairs_gated") or 0
+        judged = snapshot.get("n_pairs_judged") or 0
+        findings = snapshot.get("n_findings") or 0
+        pct = 0
+        if gated and judged:
+            pct = max(0, min(100, round(100 * judged / gated)))
+        elif status == "done":
+            pct = 100
+        # Fall back to a safe literal — `status` flows from the SQLite
+        # run_status column and is innerHTML'd by the sidebar; an unknown
+        # value (future migration, manual DB write) must not become an
+        # XSS sink. The autoescape applies to template renders, not to
+        # raw HTML strings concatenated here.
+        status_label = {
+            "pending": "Queued",
+            "running": "Running",
+            "done": "Done",
+            "failed": "Failed",
+        }.get(status, "Unknown")
+        modifier = ""
+        if status == "done":
+            modifier = " cc-progress-bar--done"
+        elif status == "failed":
+            modifier = " cc-progress-bar--failed"
+        return (
+            '<div class="cc-progress-label">'
+            f"{status_label} · {judged}/{gated} judged · {findings} findings"
+            "</div>"
+            f'<div class="cc-progress-bar{modifier}">'
+            f'<div class="cc-progress-bar__fill" style="width: {pct}%"></div>'
+            "</div>"
+        )
+
+    def _read_latest_run_snapshot(corpus_id: str) -> dict[str, Any] | None:
+        """Open a short-lived store and return the most recent run snapshot.
+
+        Each call uses its own connection so we don't hold a SQLite handle
+        open inside the async generator across ``await asyncio.sleep``.
+        Returns ``None`` when the corpus has no runs at all.
+        """
+        store, audit = _open_audit()
+        try:
+            row = store._conn.execute(
+                "SELECT run_id FROM pipeline_runs WHERE corpus_id = ? "
+                "ORDER BY started_at DESC, run_id DESC LIMIT 1",
+                (corpus_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            run = audit.get_run(str(row[0]))
+            if run is None:
+                return None
+            counters = _live_counters(run, audit)
+            return {
+                "type": "snapshot",
+                "run_id": run.run_id,
+                "status": run.run_status,
+                "n_pairs_gated": counters["n_pairs_gated"],
+                "n_pairs_judged": counters["n_pairs_judged"],
+                "n_findings": counters["n_findings"],
+                "n_definition_pairs_judged": counters["n_definition_pairs_judged"],
+                "started_at": counters["started_at"],
+                "finished_at": counters["finished_at"],
+            }
+        finally:
+            store.close()
+
+    async def _progress_sse_generator(corpus_id: str) -> AsyncGenerator[str, None]:
+        """Emit one snapshot per poll until the active run terminates.
+
+        Wraps the body in try/except so a SQLite error mid-stream (lock
+        contention, disk full) doesn't drop the connection silently and
+        trigger an infinite EventSource reconnect loop on the client.
+        """
+        max_iter = PROGRESS_MAX_ITERATIONS
+        poll_seconds = PROGRESS_POLL_SECONDS
+        tail_seconds = PROGRESS_DONE_TAIL_SECONDS
+        terminal_emits = 0
+        # Cap the post-terminal tail by integer ticks of the poll interval so
+        # the tests' poll_seconds=0 setting doesn't spin a busy loop.
+        max_terminal_emits = max(1, round(tail_seconds / poll_seconds)) if poll_seconds > 0 else 1
+
+        try:
+            for _ in range(max_iter):
+                snapshot = _read_latest_run_snapshot(corpus_id)
+                if snapshot is None:
+                    # No run yet, or corpus has none. Tell the client we're
+                    # done so it doesn't hold the connection open.
+                    yield "data: " + _render_progress_snapshot({"status": "pending"}) + "\n\n"
+                    yield 'event: done\ndata: {"type":"done"}\n\n'
+                    return
+
+                payload = json.dumps(snapshot)
+                html = _render_progress_snapshot(snapshot)
+                yield f"event: snapshot\ndata: {html}\n\n"
+                # Also expose the raw JSON payload as a debug-friendly default
+                # event for downstream consumers (tests, future native JS).
+                yield f"data: {payload}\n\n"
+
+                if snapshot["status"] in {"done", "failed"}:
+                    terminal_emits += 1
+                    if terminal_emits >= max_terminal_emits:
+                        yield 'event: done\ndata: {"type":"done"}\n\n'
+                        return
+
+                await asyncio.sleep(poll_seconds)
+        except Exception as exc:
+            _log.exception("SSE progress generator failed for corpus %s: %s", corpus_id, exc)
+            # Emit an `error` event so the client knows the stream died for
+            # a server-side reason, then a `done` so the EventSource closes
+            # cleanly instead of looping.
+            yield 'event: error\ndata: {"type":"error","message":"server error"}\n\n'
+
+        # Exhausted the iteration cap (or hit the except above) — close cleanly.
+        yield 'event: done\ndata: {"type":"done"}\n\n'
+
+    @app.get("/corpora/{corpus_id}/progress")
+    async def corpora_progress(corpus_id: str) -> StreamingResponse:
+        """Per-corpus SSE channel for run progress (ADR-0017 Phase 3).
+
+        404s on unknown ``corpus_id`` rather than streaming an empty channel,
+        so stale sidebar rows surface their bug instead of hanging silently.
+
+        Declared ``async def`` so the inner ``asyncio.sleep`` inside the
+        generator yields to the event loop instead of blocking a thread-pool
+        worker on each poll tick.
+        """
+        store, _audit = _open_audit()
+        try:
+            _corpus_name_or_404(store, corpus_id)
+        finally:
+            store.close()
+        return StreamingResponse(
+            _progress_sse_generator(corpus_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
+
     @app.get("/", response_class=HTMLResponse)
     def index(
         request: Request,
@@ -1185,65 +1539,111 @@ def create_app(
             store.close()
         return templates.TemplateResponse(request, "cc__assertion_detail.html", context)
 
-    def _run_check_in_background(run_id: str, deep: bool, corpus_id: str) -> None:
+    def _run_check_in_background(
+        run_id: str,
+        deep: bool,
+        corpus_id: str,
+        *,
+        pairwise_override: bool | None = None,
+        no_definitions: bool = False,
+        max_cost_override: float | None = None,
+    ) -> None:
         # SQLite handles can't safely be shared across threads, so the
         # background task opens its own store. The embedder is not needed for
         # check (only for ingest), so open faiss directly to avoid the ~800 MB
         # model load that _open_stores() would trigger.
+        #
+        # ADR-0017 Phase 3 overrides: when the Run Check modal posts an explicit
+        # pairwise / no_definitions / max_cost value, derive a per-run config so
+        # the modal-driven flow respects those flags without mutating the
+        # process-wide ``config``. None overrides leave the app-level value in
+        # effect, matching the legacy POST /runs flow.
         from consistency_checker.pipeline import CostCeilingExceeded
         from consistency_checker.pipeline import check as run_check
 
         store = AssertionStore(config.db_path)
         store.migrate()
+        audit_logger = AuditLogger(store)
         try:
+            # Belt-and-suspenders: the POST route rejects non-finite /
+            # negative max_cost, but Pydantic's model_copy(update=...) skips
+            # field validators on frozen models, so a stray legacy caller
+            # could otherwise smuggle a bad value past Config.max_cost_usd's
+            # ge=0 constraint. Re-run validators via model_validate on the
+            # merged values and treat any failure as a clean "failed" run
+            # (not a silent process-level crash).
+            try:
+                updates: dict[str, Any] = {"enable_multi_party": deep}
+                if pairwise_override is not None:
+                    updates["pairwise_enabled"] = pairwise_override
+                if max_cost_override is not None:
+                    if not math.isfinite(max_cost_override) or max_cost_override < 0:
+                        raise ValueError(
+                            f"max_cost_override {max_cost_override} is invalid "
+                            "(must be a finite non-negative number)."
+                        )
+                    updates["max_cost_usd"] = max_cost_override
+                effective_cfg = config.model_validate(
+                    {**config.model_dump(), **updates},
+                )
+            except Exception as exc:
+                _log.warning("Run %s aborted at config validation: %s", run_id, exc)
+                audit_logger.update_run_status(run_id, "failed", error_message=str(exc))
+                return
+
             faiss_store = FaissStore.open_or_create(
-                index_path=config.faiss_path,
-                id_map_path=config.faiss_path.with_suffix(".idmap.json"),
+                index_path=effective_cfg.faiss_path,
+                id_map_path=effective_cfg.faiss_path.with_suffix(".idmap.json"),
             )
-            audit_logger = AuditLogger(store)
             try:
                 # ADR-0015: only construct the NLI checker when the pairwise
                 # pass is enabled. Skipping it avoids the ~800 MB model
                 # download / RSS hit for operators who only want the
                 # definition pass.
                 nli_inst: NliChecker | None = None
-                if config.pairwise_enabled:
+                if effective_cfg.pairwise_enabled:
                     if nli_checker is None:
                         from consistency_checker.check.nli_checker import (
                             TransformerNliChecker,
                         )
 
-                        nli_inst = TransformerNliChecker(model_name=config.nli_model)
+                        nli_inst = TransformerNliChecker(model_name=effective_cfg.nli_model)
                     else:
                         nli_inst = nli_checker
                 if judge is None:
                     from consistency_checker.pipeline import make_judge
 
-                    judge_inst: Judge = make_judge(config)
+                    judge_inst: Judge = make_judge(effective_cfg)
                 else:
                     judge_inst = judge
                 mp_judge = multi_party_judge
                 if mp_judge is None and deep:
                     from consistency_checker.pipeline import make_multi_party_judge
 
-                    mp_judge = make_multi_party_judge(config)
+                    mp_judge = make_multi_party_judge(effective_cfg)
 
                 from consistency_checker.check.definition_checker import (
                     DefinitionChecker,
                 )
 
-                if definition_judge is not None:
-                    def_checker: DefinitionChecker | None = DefinitionChecker(
+                def_checker: DefinitionChecker | None
+                if no_definitions:
+                    # Mirror CLI's `--no-definitions`: skip the definition pass
+                    # entirely (the pipeline treats `definition_checker=None`
+                    # as "definitions disabled").
+                    def_checker = None
+                elif definition_judge is not None:
+                    def_checker = DefinitionChecker(
                         judge=definition_judge,
-                        org_scope_enabled=config.org_scope_enabled,
+                        org_scope_enabled=effective_cfg.org_scope_enabled,
                     )
                 else:
                     from consistency_checker.pipeline import make_definition_checker
 
-                    def_checker = make_definition_checker(config)
+                    def_checker = make_definition_checker(effective_cfg)
 
                 run_check(
-                    config.model_copy(update={"enable_multi_party": deep}),
+                    effective_cfg,
                     store=store,
                     faiss_store=faiss_store,
                     nli_checker=nli_inst,
@@ -1300,12 +1700,18 @@ def create_app(
                 )
             run_id = audit.begin_run(
                 config={
-                    "deep": deep,
                     "embedder_model": config.embedder_model,
                     "nli_model": config.nli_model,
                     "judge_provider": config.judge_provider,
                     "judge_model": config.judge_model,
+                    "nli_contradiction_threshold": config.nli_contradiction_threshold,
+                    "gate_top_k": config.gate_top_k,
+                    "gate_similarity_threshold": config.gate_similarity_threshold,
+                    "enable_multi_party": deep,
+                    "max_triangles_per_run": config.max_triangles_per_run,
+                    "definitions_enabled": True,
                     "pairwise_enabled": config.pairwise_enabled,
+                    "max_cost_usd": config.max_cost_usd,
                 },
                 run_status="pending",
                 corpus_id=corpus_id,

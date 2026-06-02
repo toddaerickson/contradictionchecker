@@ -426,3 +426,366 @@ def test_sidebar_refresh_honors_active_param(tmp_path: Path) -> None:
     resp = client.get(f"/corpora/sidebar?active={cid}")
     assert resp.status_code == 200
     assert "cc-corpus-row--active" in resp.text
+
+
+# --- Phase 3: Run Check modal + per-corpus SSE (ADR-0017) ---------------
+
+
+def test_findings_button_wired_to_run_modal(tmp_path: Path) -> None:
+    """The findings-pane Run check button targets the per-corpus modal route."""
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Run-me")
+    client = _client(cfg)
+    resp = client.get("/?new_ui=1")
+    assert resp.status_code == 200
+    body = resp.text
+    assert f'hx-get="/corpora/{cid}/run/modal"' in body
+    # The Phase-1 placeholder hint must be gone from the Run check button row.
+    assert 'title="Wired in Phase 3"' not in body
+
+
+def test_run_modal_route_returns_dialog_fragment(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Modal-corpus")
+    client = _client(cfg)
+    resp = client.get(f"/corpora/{cid}/run/modal")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "<dialog" in body.lower()
+    assert 'name="pairwise"' in body
+    assert 'name="no_definitions"' in body
+    assert 'name="deep"' in body
+    assert 'name="max_cost"' in body
+    assert f'hx-post="/corpora/{cid}/run"' in body
+    # No full-page wrapper.
+    assert "<html" not in body.lower()
+
+
+def test_run_modal_404s_on_unknown_corpus(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    resp = client.get("/corpora/does-not-exist/run/modal")
+    assert resp.status_code == 404
+
+
+def _seed_ingested_corpus(cfg: Config, *, name: str = "Bg-run") -> str:
+    """Seed a corpus with two embedded assertions so FAISS exists on disk.
+
+    The check background task opens FAISS without a ``dim`` arg, which
+    requires the index to already exist — that only happens after ingest
+    has embedded at least one assertion. Use this for tests that POST a run.
+    """
+    from consistency_checker.index.embedder import embed_pending
+    from consistency_checker.index.faiss_store import FaissStore
+
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    cid = store.get_or_create_corpus(name, f"/{name}", "moonshot")
+    doc_a = Document.from_content("Alpha body.", source_path="a.md", title="A")
+    doc_b = Document.from_content("Beta body.", source_path="b.md", title="B")
+    store.add_document(doc_a, corpus_id=cid)
+    store.add_document(doc_b, corpus_id=cid)
+    store.add_assertions(
+        [
+            Assertion.build(doc_a.doc_id, "Revenue grew 12%."),
+            Assertion.build(doc_b.doc_id, "Revenue declined 5%."),
+        ]
+    )
+    embedder = HashEmbedder(dim=64)
+    fs = FaissStore.open_or_create(
+        index_path=cfg.faiss_path,
+        id_map_path=cfg.faiss_path.with_suffix(".idmap.json"),
+        dim=embedder.dim,
+    )
+    embed_pending(store, fs, embedder)
+    store.close()
+    return cid
+
+
+def test_post_run_starts_background_task(tmp_path: Path) -> None:
+    """POST /corpora/<id>/run begins a run row + emits run-started trigger."""
+    cfg = _config(tmp_path)
+    cid = _seed_ingested_corpus(cfg, name="Bg-run")
+    client = _client(cfg)
+    resp = client.post(
+        f"/corpora/{cid}/run",
+        data={"pairwise": "false", "no_definitions": "true", "max_cost": ""},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers.get("HX-Trigger") == "run-started"
+    assert "Run started" in resp.text or "started" in resp.text.lower()
+
+    store = AssertionStore(cfg.db_path)
+    try:
+        rows = store._conn.execute(
+            "SELECT run_id, corpus_id, run_status FROM pipeline_runs WHERE corpus_id = ?",
+            (cid,),
+        ).fetchall()
+        assert len(rows) == 1
+        # Background tasks run after the response in TestClient — by the time
+        # we read here the run has either reached "done" (definitions only,
+        # nothing to judge) or remained "pending"/"running". Either way the
+        # row exists with the right corpus_id, which is what this test asserts.
+        assert rows[0]["corpus_id"] == cid
+    finally:
+        store.close()
+
+
+def test_post_run_begin_run_config_matches_cli_shape(tmp_path: Path) -> None:
+    """ADR-0017 review: web /corpora/{id}/run's begin_run config dict must
+    mirror the CLI's keys so audit-log replay sees one shape regardless of
+    which surface started the run."""
+    cfg = _config(tmp_path)
+    cid = _seed_ingested_corpus(cfg, name="Replay-parity")
+    client = _client(cfg)
+    resp = client.post(
+        f"/corpora/{cid}/run",
+        data={"pairwise": "true", "no_definitions": "false", "deep": "true"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    store = AssertionStore(cfg.db_path)
+    try:
+        row = store._conn.execute(
+            "SELECT config_json FROM pipeline_runs WHERE corpus_id = ?", (cid,)
+        ).fetchone()
+        assert row is not None
+        cfg_json = row["config_json"]
+        # CLI key vocabulary — not "deep" or "no_definitions".
+        assert '"enable_multi_party": true' in cfg_json
+        assert '"definitions_enabled": true' in cfg_json
+        assert '"pairwise_enabled": true' in cfg_json
+        # Quoted key check — bare "deep"/"no_definitions" would false-fail on
+        # any future model name or value that contains those substrings.
+        assert '"deep":' not in cfg_json
+        assert '"no_definitions":' not in cfg_json
+        # Missing-from-Phase-3 fields the review caught.
+        assert "nli_contradiction_threshold" in cfg_json
+        assert "gate_top_k" in cfg_json
+        assert "gate_similarity_threshold" in cfg_json
+        assert "max_triangles_per_run" in cfg_json
+        assert "max_cost_usd" in cfg_json
+    finally:
+        store.close()
+
+
+def test_post_run_deep_without_pairwise_rejected(tmp_path: Path) -> None:
+    """deep=true with effective pairwise=false renders a 400 error in-modal."""
+    cfg = _config(tmp_path)
+    # cfg.pairwise_enabled defaults to False; pass pairwise="" so the config
+    # default kicks in and deep is rejected.
+    cid = _seed_one_corpus(cfg, name="Deep-no-pair")
+    client = _client(cfg)
+    resp = client.post(
+        f"/corpora/{cid}/run",
+        data={"pairwise": "", "deep": "true"},
+    )
+    assert resp.status_code == 400
+    body = resp.text
+    assert "deep" in body.lower()
+    assert "pairwise" in body.lower()
+    # No run row created on a 400.
+    store = AssertionStore(cfg.db_path)
+    try:
+        rows = store._conn.execute(
+            "SELECT 1 FROM pipeline_runs WHERE corpus_id = ?", (cid,)
+        ).fetchall()
+        assert rows == []
+    finally:
+        store.close()
+
+
+def test_post_run_404s_on_unknown_corpus(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    resp = client.post(
+        "/corpora/does-not-exist/run",
+        data={"pairwise": "false"},
+    )
+    assert resp.status_code == 404
+
+
+def test_post_run_rejects_negative_max_cost(tmp_path: Path) -> None:
+    """Web layer must match the CLI's min=0 guard on --max-cost."""
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Neg-cost")
+    client = _client(cfg)
+    resp = client.post(
+        f"/corpora/{cid}/run",
+        data={"pairwise": "false", "max_cost": "-1.0"},
+    )
+    assert resp.status_code == 422
+    body = resp.json()
+    assert "max_cost" in str(body)
+
+
+def test_post_run_rejects_infinite_max_cost(tmp_path: Path) -> None:
+    """inf bypasses the cost ceiling check; the web route must refuse it."""
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Inf-cost")
+    client = _client(cfg)
+    resp = client.post(
+        f"/corpora/{cid}/run",
+        data={"pairwise": "false", "max_cost": "inf"},
+    )
+    assert resp.status_code == 422
+
+
+def test_post_run_rejects_concurrent_run_on_same_corpus(tmp_path: Path) -> None:
+    """Second submit while a run is pending/running returns 409 and does
+    NOT spawn a parallel background task (which would race on FAISS)."""
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Busy-corpus")
+
+    # Manually seed a 'running' run row to simulate an in-flight check.
+    store = AssertionStore(cfg.db_path)
+    AuditLogger(store).begin_run(corpus_id=cid, run_status="running")
+    store.close()
+
+    client = _client(cfg)
+    resp = client.post(
+        f"/corpora/{cid}/run",
+        data={"pairwise": "false"},
+    )
+    assert resp.status_code == 409
+    assert "in progress" in resp.text.lower()
+
+    # No second run row created.
+    store = AssertionStore(cfg.db_path)
+    try:
+        rows = store._conn.execute(
+            "SELECT run_id FROM pipeline_runs WHERE corpus_id = ?", (cid,)
+        ).fetchall()
+        assert len(rows) == 1
+    finally:
+        store.close()
+
+
+def test_progress_sse_unknown_status_renders_safe_label(tmp_path: Path) -> None:
+    """If a future migration adds a run_status value we don't recognise,
+    the rendered HTML must not interpolate the raw string into the SSE
+    payload (defence against XSS via the sidebar innerHTML swap)."""
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Mystery-status")
+
+    # Seed a run, then mutate the run_status to a string that would be
+    # dangerous if interpolated raw.
+    store = AssertionStore(cfg.db_path)
+    rid = AuditLogger(store).begin_run(corpus_id=cid, run_status="pending")
+    store._conn.execute(
+        "UPDATE pipeline_runs SET run_status = ? WHERE run_id = ?",
+        ("<script>alert(1)</script>", rid),
+    )
+    store._conn.commit()
+    store.close()
+
+    # Force-finite SSE so the test doesn't hang.
+    import consistency_checker.web.app as app_module
+
+    poll = app_module.PROGRESS_POLL_SECONDS
+    max_iter = app_module.PROGRESS_MAX_ITERATIONS
+    tail = app_module.PROGRESS_DONE_TAIL_SECONDS
+    app_module.PROGRESS_POLL_SECONDS = 0
+    app_module.PROGRESS_MAX_ITERATIONS = 1
+    app_module.PROGRESS_DONE_TAIL_SECONDS = 0
+    try:
+        client = _client(cfg)
+        with client.stream("GET", f"/corpora/{cid}/progress") as resp:
+            chunks = []
+            for chunk in resp.iter_text():
+                chunks.append(chunk)
+                if len(chunks) >= 3:
+                    break
+            body = "".join(chunks)
+        # The htmx-sse extension only innerHTML-swaps named events that
+        # match `sse-swap="snapshot"`. Defence-in-depth: the rendered HTML
+        # fragment for the `snapshot` event must NEVER contain raw status
+        # text from the DB. (The unnamed JSON debug event is consumed only
+        # by tests/native JS that parse JSON, so its contents are out of
+        # scope for this XSS check.)
+        snapshot_event_html = "".join(
+            block for block in body.split("\n\n") if block.startswith("event: snapshot")
+        )
+        assert "<script>" not in snapshot_event_html
+        assert "Unknown" in snapshot_event_html
+    finally:
+        app_module.PROGRESS_POLL_SECONDS = poll
+        app_module.PROGRESS_MAX_ITERATIONS = max_iter
+        app_module.PROGRESS_DONE_TAIL_SECONDS = tail
+
+
+def _drain_sse(client: TestClient, url: str, *, max_events: int = 4) -> list[str]:
+    """Read SSE chunks from ``url`` until we either see a 'done' event or hit
+    ``max_events`` raw chunks. Returns the list of UTF-8 chunks."""
+    chunks: list[str] = []
+    with client.stream("GET", url) as resp:
+        assert resp.status_code == 200
+        for chunk in resp.iter_text():
+            chunks.append(chunk)
+            if "event: done" in chunk or len(chunks) >= max_events:
+                break
+    return chunks
+
+
+def test_progress_sse_emits_snapshot_for_active_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An in-progress run should produce at least one snapshot event with the
+    run_id payload before the stream closes."""
+    cfg = _config(tmp_path)
+    cid, run_id, _rationale = _seed_corpus_with_finding(cfg)
+    # Force the most-recent run back to "running" so the SSE generator
+    # treats it as in-progress.
+    store = AssertionStore(cfg.db_path)
+    try:
+        with store._conn:
+            store._conn.execute(
+                "UPDATE pipeline_runs SET run_status = 'running', finished_at = NULL "
+                "WHERE run_id = ?",
+                (run_id,),
+            )
+    finally:
+        store.close()
+
+    # Make the generator finite + fast: poll once, cap tail at one tick.
+    from consistency_checker.web import app as app_module
+
+    monkeypatch.setattr(app_module, "PROGRESS_POLL_SECONDS", 0.0)
+    monkeypatch.setattr(app_module, "PROGRESS_MAX_ITERATIONS", 2)
+    monkeypatch.setattr(app_module, "PROGRESS_DONE_TAIL_SECONDS", 0.0)
+
+    client = _client(cfg)
+    chunks = _drain_sse(client, f"/corpora/{cid}/progress", max_events=6)
+    combined = "".join(chunks)
+    assert "event: snapshot" in combined
+    assert run_id in combined
+    assert '"status": "running"' in combined
+
+
+def test_progress_sse_emits_done_then_closes_for_finished_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A done run should emit one final snapshot + a 'done' event, then close."""
+    cfg = _config(tmp_path)
+    cid, _run_id, _rationale = _seed_corpus_with_finding(cfg)
+    # Seeded run is already in 'done' state via end_run().
+
+    from consistency_checker.web import app as app_module
+
+    monkeypatch.setattr(app_module, "PROGRESS_POLL_SECONDS", 0.0)
+    monkeypatch.setattr(app_module, "PROGRESS_MAX_ITERATIONS", 4)
+    monkeypatch.setattr(app_module, "PROGRESS_DONE_TAIL_SECONDS", 0.0)
+
+    client = _client(cfg)
+    chunks = _drain_sse(client, f"/corpora/{cid}/progress", max_events=8)
+    combined = "".join(chunks)
+    assert "event: snapshot" in combined
+    assert "event: done" in combined
+    assert '"status": "done"' in combined
+
+
+def test_progress_sse_404s_on_unknown_corpus(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    resp = client.get("/corpora/does-not-exist/progress")
+    assert resp.status_code == 404

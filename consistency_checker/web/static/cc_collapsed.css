@@ -126,6 +126,80 @@
   font-size: 0.85rem;
 }
 
+/* --- Per-corpus SSE progress (Phase 3) ---------------------------------- */
+
+.cc-corpus-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.cc-corpus-progress:empty {
+  display: none;
+}
+
+.cc-progress-bar {
+  position: relative;
+  height: 4px;
+  width: 100%;
+  background: var(--cc-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.cc-progress-bar__fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--cc-accent);
+  transition: width 0.25s ease;
+}
+
+.cc-progress-bar--failed .cc-progress-bar__fill {
+  background: #c53030;
+}
+
+.cc-progress-bar--done .cc-progress-bar__fill {
+  background: #2f855a;
+}
+
+.cc-progress-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.68rem;
+  color: var(--cc-muted);
+  letter-spacing: 0.04em;
+}
+
+/* --- Run Check modal (Phase 3) ----------------------------------------- */
+
+.cc-modal-field--checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cc-modal-label-inline {
+  font-size: 0.88rem;
+  color: var(--cc-fg);
+}
+
+.cc-modal-field input[type="number"] {
+  font: inherit;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--cc-border-strong);
+  border-radius: 4px;
+  background: var(--cc-bg);
+}
+
+.cc-modal-body code {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.85rem;
+  background: var(--cc-accent-soft);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+
 /* --- Main pane ----------------------------------------------------------- */
 
 .cc-main {

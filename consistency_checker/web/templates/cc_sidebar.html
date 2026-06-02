@@ -18,6 +18,11 @@
         <span>·</span>
         <span>{{ corpus.n_runs }} run{{ '' if corpus.n_runs == 1 else 's' }}</span>
       </div>
+      <div class="cc-corpus-progress"
+           hx-ext="sse"
+           sse-connect="/corpora/{{ corpus.corpus_id }}/progress"
+           sse-swap="snapshot"
+           sse-close="done"></div>
     </a>
   {% else %}
     <div class="cc-corpus-empty cc-muted">No corpora yet.</div>

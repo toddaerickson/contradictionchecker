@@ -22,7 +22,11 @@
       </div>
     </div>
     <div class="cc-main-actions">
-      <button type="button" class="cc-button cc-button--primary" disabled title="Wired in Phase 3">Run check ▾</button>
+      <button type="button" class="cc-button cc-button--primary"
+              hx-get="/corpora/{{ active_corpus_id }}/run/modal"
+              hx-target="#cc-modal-region"
+              hx-swap="innerHTML"
+              {% if not active_corpus_id %}disabled{% endif %}>Run check ▾</button>
       <button type="button" class="cc-button" disabled title="Wired in Phase 4">Assertions</button>
       <button type="button" class="cc-button" disabled title="Wired in Phase 4">Definitions</button>
       <button type="button" class="cc-button" disabled title="Wired in Phase 4">Stats</button>
@@ -50,7 +54,10 @@
     {% else %}
       <div class="cc-empty">
         <p class="cc-muted">No findings yet.</p>
-        <button type="button" class="cc-button" disabled title="Wired in Phase 3">Run check</button>
+        <button type="button" class="cc-button"
+                hx-get="/corpora/{{ active_corpus_id }}/run/modal"
+                hx-target="#cc-modal-region"
+                hx-swap="innerHTML">Run check</button>
       </div>
     {% endif %}
   </section>

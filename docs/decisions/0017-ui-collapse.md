@@ -30,6 +30,7 @@ Cost was also just promoted to a first-class concern via ADR-0016 (`--max-cost`,
 - New routes return HTML fragments to HTMX. No React; no SPA framework.
 - Each phase ships behind `?new_ui=1`. Phase 6 flips the default to on, deletes the legacy templates, and deletes the `/uploads` route.
 - Stack stays HTMX + Jinja templates + plain CSS. New styles land in `cc_collapsed.css`, layered on top of `cc_style.css` until Phase 6 prunes dead rules.
+- **SSE consumed via the htmx-sse extension** (`static/htmx-sse.min.js`, ~370 lines vendored from htmx@1.9.12). Rationale per the "no net complexity" guardrail: an inline `<script>` using the native `EventSource` would also work, but the sidebar already wires every other event through HTMX attributes (`hx-get`, `hx-trigger="corpus-created from:body"`, `hx-swap`). Adding declarative `hx-ext="sse"` + `sse-connect` + `sse-swap` on the corpus row keeps the wiring consistent — readers don't have to flip between attribute-driven HTMX and imperative DOM event handlers to follow the live-update flow. A future Phase-6 audit may revisit and inline if the file proves load-bearing for nothing else, but Phase 3 keeps the declarative pattern intact.
 
 ## Alternatives considered
 
