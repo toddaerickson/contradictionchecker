@@ -71,22 +71,6 @@ class DefinitionCheckResult:
         return len(self.suppressed_pairs)
 
 
-def _group_by_canonical_term(
-    definitions: Sequence[tuple[Assertion, str]],
-) -> dict[str, list[tuple[Assertion, str]]]:
-    """Backwards-compat helper used by ``estimate_cost`` for pair-count math."""
-    groups: dict[str, list[tuple[Assertion, str]]] = {}
-    for entry in definitions:
-        d, _org_key = entry
-        if d.kind != "definition" or d.term is None:
-            continue
-        canonical = canonicalize_term(d.term)
-        if not canonical:
-            continue
-        groups.setdefault(canonical, []).append(entry)
-    return groups
-
-
 class DefinitionChecker:
     """Orchestrates term-grouping → pair-enumeration → judge for definitions."""
 

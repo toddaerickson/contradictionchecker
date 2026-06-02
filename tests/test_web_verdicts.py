@@ -15,6 +15,9 @@ from consistency_checker.index.assertion_store import AssertionStore
 from consistency_checker.web.app import create_app
 from tests.conftest import HashEmbedder
 
+# A well-formed pair_key: ":".join(sorted([a_id, b_id])) of two 16-char sha256 hex ids.
+VALID_PAIR_KEY = "0123456789abcdef:fedcba9876543210"
+
 
 @pytest.fixture
 def app_client(tmp_path: Path) -> tuple[TestClient, Config]:
@@ -45,7 +48,7 @@ def test_post_verdicts_inserts_row(
     resp = client.post(
         "/verdicts",
         data={
-            "pair_key": "a:b",
+            "pair_key": VALID_PAIR_KEY,
             "detector_type": "contradiction",
             "verdict": "confirmed",
             "prior_verdict": "",
@@ -55,7 +58,7 @@ def test_post_verdicts_inserts_row(
     assert resp.status_code == 200
     store = AssertionStore(cfg.db_path)
     rows = store._conn.execute(
-        "SELECT verdict FROM reviewer_verdicts WHERE pair_key = ?", ("a:b",)
+        "SELECT verdict FROM reviewer_verdicts WHERE pair_key = ?", (VALID_PAIR_KEY,)
     ).fetchall()
     assert len(rows) == 1
     assert rows[0]["verdict"] == "confirmed"
@@ -69,7 +72,7 @@ def test_post_verdicts_response_contains_oob_swaps(
     resp = client.post(
         "/verdicts",
         data={
-            "pair_key": "a:b",
+            "pair_key": VALID_PAIR_KEY,
             "detector_type": "contradiction",
             "verdict": "confirmed",
             "prior_verdict": "",
@@ -90,7 +93,7 @@ def test_post_verdicts_rejects_bogus_verdict(
     resp = client.post(
         "/verdicts",
         data={
-            "pair_key": "a:b",
+            "pair_key": VALID_PAIR_KEY,
             "detector_type": "contradiction",
             "verdict": "banana",
             "prior_verdict": "",
@@ -107,7 +110,7 @@ def test_post_verdicts_rejects_bogus_detector_type(
     resp = client.post(
         "/verdicts",
         data={
-            "pair_key": "a:b",
+            "pair_key": VALID_PAIR_KEY,
             "detector_type": "bogus",
             "verdict": "confirmed",
             "prior_verdict": "",
@@ -125,7 +128,7 @@ def test_post_verdicts_undo_first_click_case_deletes(
     client.post(
         "/verdicts",
         data={
-            "pair_key": "a:b",
+            "pair_key": VALID_PAIR_KEY,
             "detector_type": "contradiction",
             "verdict": "confirmed",
             "prior_verdict": "",
@@ -135,7 +138,7 @@ def test_post_verdicts_undo_first_click_case_deletes(
     resp = client.post(
         "/verdicts/undo",
         data={
-            "pair_key": "a:b",
+            "pair_key": VALID_PAIR_KEY,
             "detector_type": "contradiction",
             "prior_verdict": "",
         },
@@ -156,7 +159,7 @@ def test_post_verdicts_undo_rejudge_case_restores_prior(
     client.post(
         "/verdicts",
         data={
-            "pair_key": "a:b",
+            "pair_key": VALID_PAIR_KEY,
             "detector_type": "contradiction",
             "verdict": "confirmed",
             "prior_verdict": "",
@@ -166,7 +169,7 @@ def test_post_verdicts_undo_rejudge_case_restores_prior(
     client.post(
         "/verdicts",
         data={
-            "pair_key": "a:b",
+            "pair_key": VALID_PAIR_KEY,
             "detector_type": "contradiction",
             "verdict": "false_positive",
             "prior_verdict": "confirmed",
@@ -176,7 +179,7 @@ def test_post_verdicts_undo_rejudge_case_restores_prior(
     resp = client.post(
         "/verdicts/undo",
         data={
-            "pair_key": "a:b",
+            "pair_key": VALID_PAIR_KEY,
             "detector_type": "contradiction",
             "prior_verdict": "confirmed",
         },
@@ -185,7 +188,7 @@ def test_post_verdicts_undo_rejudge_case_restores_prior(
     assert resp.status_code == 200
     store = AssertionStore(cfg.db_path)
     row = store._conn.execute(
-        "SELECT verdict FROM reviewer_verdicts WHERE pair_key = ?", ("a:b",)
+        "SELECT verdict FROM reviewer_verdicts WHERE pair_key = ?", (VALID_PAIR_KEY,)
     ).fetchone()
     assert row["verdict"] == "confirmed"
     store.close()
@@ -198,10 +201,46 @@ def test_post_verdicts_undo_rejects_bogus_prior_verdict(
     resp = client.post(
         "/verdicts/undo",
         data={
-            "pair_key": "a:b",
+            "pair_key": VALID_PAIR_KEY,
             "detector_type": "contradiction",
             "prior_verdict": "banana",
         },
         headers={"HX-Request": "true"},
     )
     assert resp.status_code == 400
+
+
+def test_post_verdicts_rejects_malformed_pair_key(
+    app_client: tuple[TestClient, Config],
+) -> None:
+    """A pair_key that isn't ^[0-9a-f]{16}:[0-9a-f]{16}$ is rejected with 400."""
+    client, cfg = app_client
+    resp = client.post(
+        "/verdicts",
+        data={
+            "pair_key": "nope",
+            "detector_type": "contradiction",
+            "verdict": "confirmed",
+            "prior_verdict": "",
+        },
+        headers={"HX-Request": "true"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "invalid pair_key format"
+    store = AssertionStore(cfg.db_path)
+    count = store._conn.execute("SELECT COUNT(*) FROM reviewer_verdicts").fetchone()[0]
+    assert count == 0  # rejected before any DB write
+    store.close()
+
+    # A well-formed pair_key on the same endpoint still succeeds.
+    ok = client.post(
+        "/verdicts",
+        data={
+            "pair_key": VALID_PAIR_KEY,
+            "detector_type": "contradiction",
+            "verdict": "confirmed",
+            "prior_verdict": "",
+        },
+        headers={"HX-Request": "true"},
+    )
+    assert ok.status_code == 200

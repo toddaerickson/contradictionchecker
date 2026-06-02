@@ -34,7 +34,6 @@ if TYPE_CHECKING:
 _log = get_logger(__name__)
 
 RunStatus = Literal["pending", "running", "done", "failed"]
-TERMINAL_RUN_STATUSES: frozenset[RunStatus] = frozenset({"done", "failed"})
 
 
 @dataclass(frozen=True, slots=True)
