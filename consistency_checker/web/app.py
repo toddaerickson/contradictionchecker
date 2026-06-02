@@ -14,6 +14,7 @@ import json
 import math
 import secrets
 import shutil
+import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import replace
 from datetime import datetime
@@ -591,6 +592,24 @@ def create_app(
                 judge_provider="moonshot",
             )
 
+        # Derive the path from a freshly minted id, never the raw name: the
+        # name validator above lets ".." and bare dot-names through, so a
+        # name-based path could escape data_dir/corpora. Everywhere else the
+        # corpus directory is reconstructed from the id (corpora.py, the REST
+        # create_corpus), so the stored path must match data_dir/corpora/<id>.
+        corpus_id = uuid.uuid4().hex
+        corpora_root = (config.data_dir / "corpora").resolve()
+        corpus_path = config.data_dir / "corpora" / corpus_id
+        if not corpus_path.resolve().is_relative_to(corpora_root):
+            return _render_new_corpus_modal(
+                request,
+                success=False,
+                error="Could not derive a safe corpus path.",
+                status_code=400,
+                corpus_name=corpus_name,
+                judge_provider=provider,
+            )
+
         store = AssertionStore(config.db_path)
         store.migrate()
         duplicate = False
@@ -601,8 +620,13 @@ def create_app(
             if existing is not None:
                 duplicate = True
             else:
-                corpus_path = config.data_dir / "corpora" / corpus_name
-                corpus_id = store.get_or_create_corpus(corpus_name, str(corpus_path), provider)
+                with store._conn:
+                    store._conn.execute(
+                        "INSERT INTO corpora "
+                        "(corpus_id, corpus_name, corpus_path, judge_provider) "
+                        "VALUES (?, ?, ?, ?)",
+                        (corpus_id, corpus_name, str(corpus_path), provider),
+                    )
         finally:
             store.close()
         if duplicate:

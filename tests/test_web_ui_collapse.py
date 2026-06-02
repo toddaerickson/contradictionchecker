@@ -311,6 +311,62 @@ def test_create_corpus_success_without_files(tmp_path: Path) -> None:
         store.close()
 
 
+@pytest.mark.parametrize("evil_name", ["..", "...", "."])
+def test_create_corpus_path_traversal_name_stored_as_id_path(
+    tmp_path: Path, evil_name: str
+) -> None:
+    """A dot-name that the char validator lets through must NOT leak into the
+    stored corpus_path. The path must be the id-based one and resolve under
+    data_dir/corpora — never escape to data_dir or embed the raw name."""
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    data = {"corpus_name": evil_name, "judge_provider": "moonshot"}
+    resp = client.post("/corpora/new", data=data)
+    assert resp.status_code == 200, resp.text
+
+    corpora_root = (cfg.data_dir / "corpora").resolve()
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    try:
+        rows = store._conn.execute(
+            "SELECT corpus_id, corpus_path FROM corpora WHERE corpus_name = ?",
+            (evil_name,),
+        ).fetchall()
+        assert len(rows) == 1
+        corpus_id = rows[0]["corpus_id"]
+        stored_path = Path(rows[0]["corpus_path"])
+        assert stored_path == cfg.data_dir / "corpora" / corpus_id
+        assert evil_name not in stored_path.parts
+        assert stored_path.resolve().is_relative_to(corpora_root)
+        assert stored_path.resolve() != corpora_root
+    finally:
+        store.close()
+
+
+def test_create_corpus_normal_name_stored_as_id_path(tmp_path: Path) -> None:
+    """A benign name still produces an id-based path under data_dir/corpora."""
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    data = {"corpus_name": "Plain Corpus", "judge_provider": "moonshot"}
+    resp = client.post("/corpora/new", data=data)
+    assert resp.status_code == 200, resp.text
+
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    try:
+        rows = store._conn.execute(
+            "SELECT corpus_id, corpus_path FROM corpora WHERE corpus_name = ?",
+            ("Plain Corpus",),
+        ).fetchall()
+        assert len(rows) == 1
+        corpus_id = rows[0]["corpus_id"]
+        stored_path = Path(rows[0]["corpus_path"])
+        assert stored_path == cfg.data_dir / "corpora" / corpus_id
+        assert "Plain Corpus" not in stored_path.parts
+    finally:
+        store.close()
+
+
 def test_create_corpus_duplicate_name_returns_409(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     _seed_one_corpus(cfg, name="dup-corpus")
