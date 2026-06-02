@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -261,6 +261,11 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB per file
 MAX_UPLOAD_FILES = 100  # files per request
 MAX_UPLOAD_TOTAL_BYTES = 500 * 1024 * 1024  # 500 MB per request (aggregate)
 _ALLOWED_EXTENSIONS = frozenset({".txt", ".md", ".pdf", ".docx"})
+
+# ADR-0017 Phase 6: the legacy 7-tab UI is gone. Its entry points
+# (``GET /?legacy=1`` and every ``GET /tabs/*`` route) now return 410 Gone
+# pointing at the single-page shell that replaced them.
+_LEGACY_GONE_BODY = "This UI was replaced. Visit / for the new interface."
 
 
 def create_app(
@@ -1286,10 +1291,10 @@ def create_app(
 
     # --- ADR-0017 Phase 4: per-corpus slide-over drawers --------------------
     #
-    # The drawer routes reuse the existing tab templates (cc_assertions.html,
-    # cc_definitions.html, cc_stats.html) by wrapping them in cc_drawer.html.
-    # Each tab template extends cc_base.html only when ``htmx`` is falsy, so
-    # the include-as-fragment path drops cleanly into the drawer body.
+    # The drawer routes render the body templates (cc_assertions.html,
+    # cc_definitions.html, cc_stats.html) by wrapping them in cc_drawer.html
+    # via {% include body_template %}. Since Phase 6 deleted the legacy tab
+    # shell, these templates are drawer-body fragments only.
 
     DRAWER_PAGE_SIZE = 25
 
@@ -1481,238 +1486,21 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     def index(
         request: Request,
-        show_reviewed_contradiction: bool = False,
-        show_reviewed_multi_party: bool = False,
-        new_ui: bool = False,
+        legacy: bool = False,
         corpus: str | None = None,
         filter: str = "all",
     ) -> Response:
-        """Contradictions tab — the main page (ADR-0007).
+        """Main page — the ADR-0017 single-page shell (now the default).
 
-        With ``?new_ui=1`` returns the ADR-0017 single-page shell instead;
-        ``?corpus=<id>`` selects which corpus the shell loads with.
-        ``?filter=open|confirmed|...`` narrows the findings list.
+        ``?corpus=<id>`` selects which corpus the shell loads with and
+        ``?filter=open|confirmed|...`` narrows the findings list. ``?legacy=1``
+        is a tombstone for the deleted 7-tab UI and returns 410 Gone.
         """
-        if new_ui:
-            if filter not in {"all", "open", "confirmed", "false_positive", "dismissed"}:
-                filter = "all"
-            return _render_single_page_shell(request, active_corpus_id=corpus, filter=filter)
-        store, audit = _open_audit()
-        try:
-            if store.stats()["documents"] == 0:
-                store.close()
-                if _is_htmx(request):
-                    resp: Response = Response(status_code=200)
-                    resp.headers["HX-Redirect"] = "/tabs/ingest"
-                    return resp
-                return Response(status_code=303, headers={"Location": "/tabs/ingest"})
-            run = audit.most_recent_run()
-            pair_findings: list[dict[str, Any]] = []
-            multi_party_findings: list[dict[str, Any]] = []
-            if run is not None:
-                raw_pair_findings = [
-                    *audit.iter_findings(run_id=run.run_id, verdict="contradiction"),
-                    *audit.iter_findings(run_id=run.run_id, verdict="numeric_short_circuit"),
-                ]
-                assertion_ids = [
-                    aid
-                    for raw in raw_pair_findings
-                    for aid in (raw.assertion_a_id, raw.assertion_b_id)
-                ]
-                assertions = store.get_assertions_bulk(assertion_ids)
-                doc_ids = list({a.doc_id for a in assertions.values()})
-                documents = store.get_documents_bulk(doc_ids)
-
-                # Bulk-fetch reviewer verdicts for all pair findings.
-                all_pair_keys = [
-                    ":".join(sorted([raw.assertion_a_id, raw.assertion_b_id]))
-                    for raw in raw_pair_findings
-                ]
-                pair_reviewer_verdicts = audit.get_reviewer_verdicts_bulk(
-                    [(pk, "contradiction") for pk in all_pair_keys]
-                )
-
-                for raw in raw_pair_findings:
-                    a = assertions.get(raw.assertion_a_id)
-                    b = assertions.get(raw.assertion_b_id)
-                    if a is None or b is None:
-                        continue
-                    pair_key = ":".join(sorted([raw.assertion_a_id, raw.assertion_b_id]))
-                    rv = pair_reviewer_verdicts.get((pair_key, "contradiction"))
-                    if rv is not None and not show_reviewed_contradiction:
-                        continue
-                    reviewer_verdict = rv.verdict if rv is not None else None
-                    pair_findings.append(
-                        {
-                            "finding_id": raw.finding_id,
-                            "verdict": raw.judge_verdict,
-                            "confidence": raw.judge_confidence,
-                            "doc_a_label": _document_label(documents.get(a.doc_id), a.doc_id),
-                            "doc_b_label": _document_label(documents.get(b.doc_id), b.doc_id),
-                            "rationale_first_line": (raw.judge_rationale or "").splitlines()[:1],
-                            "pair_key": pair_key,
-                            "reviewer_verdict": reviewer_verdict,
-                            "reviewer_label": VERDICT_LABELS.get(reviewer_verdict)
-                            if reviewer_verdict is not None
-                            else None,
-                        }
-                    )
-                pair_findings.sort(key=lambda f: -(f["confidence"] or 0.0))
-
-                # Bulk-fetch reviewer verdicts for all multi-party findings.
-                raw_mp_findings = list(
-                    audit.iter_multi_party_findings(
-                        run_id=run.run_id, verdict="multi_party_contradiction"
-                    )
-                )
-                all_mp_keys = [":".join(sorted(mp.assertion_ids)) for mp in raw_mp_findings]
-                mp_reviewer_verdicts = audit.get_reviewer_verdicts_bulk(
-                    [(pk, "multi_party") for pk in all_mp_keys]
-                )
-
-                for mp in raw_mp_findings:
-                    mp_key = ":".join(sorted(mp.assertion_ids))
-                    rv_mp = mp_reviewer_verdicts.get((mp_key, "multi_party"))
-                    if rv_mp is not None and not show_reviewed_multi_party:
-                        continue
-                    reviewer_verdict_mp = rv_mp.verdict if rv_mp is not None else None
-                    multi_party_findings.append(
-                        {
-                            "finding_id": mp.finding_id,
-                            "confidence": mp.judge_confidence,
-                            "rationale_first_line": ((mp.judge_rationale or "").splitlines()[:1]),
-                            "n_docs": len({d for d in mp.doc_ids}),
-                            "pair_key": mp_key,
-                            "reviewer_verdict": reviewer_verdict_mp,
-                            "reviewer_label": VERDICT_LABELS.get(reviewer_verdict_mp)
-                            if reviewer_verdict_mp is not None
-                            else None,
-                        }
-                    )
-                multi_party_findings.sort(key=lambda f: -(f["confidence"] or 0.0))
-
-            pair_reviewed = sum(
-                audit.count_reviewer_verdicts(detector_type="contradiction").values()
-            )
-            pair_total = _count_total_findings(store, "contradiction")
-            mp_reviewed = sum(audit.count_reviewer_verdicts(detector_type="multi_party").values())
-            mp_total = _count_total_findings(store, "multi_party")
-            # Corpus to scope a re-run against: use the run's corpus when available,
-            # otherwise fall back to the most recently created corpus.
-            run_corpus_id: str | None = run.corpus_id if run is not None else None
-            if run_corpus_id is None:
-                row = store._conn.execute(
-                    "SELECT corpus_id FROM corpora ORDER BY created_at DESC LIMIT 1"
-                ).fetchone()
-                run_corpus_id = row[0] if row else None
-        finally:
-            store.close()
-
-        return templates.TemplateResponse(
-            request,
-            "cc_contradictions.html",
-            {
-                "htmx": _is_htmx(request),
-                "active_tab": "contradictions",
-                "run": {
-                    "run_id": run.run_id,
-                    "n_assertions": run.n_assertions,
-                    "n_pairs_judged": run.n_pairs_judged,
-                }
-                if run is not None
-                else None,
-                "run_corpus_id": run_corpus_id,
-                "pair_findings": pair_findings,
-                "multi_party_findings": multi_party_findings,
-                "show_reviewed_contradiction": show_reviewed_contradiction,
-                "show_reviewed_multi_party": show_reviewed_multi_party,
-                "pair_reviewed": pair_reviewed,
-                "pair_total": pair_total,
-                "mp_reviewed": mp_reviewed,
-                "mp_total": mp_total,
-            },
-        )
-
-    @app.get("/findings/{finding_id}/diff", response_class=HTMLResponse)
-    def pair_diff(request: Request, finding_id: str) -> HTMLResponse:
-        store, audit = _open_audit()
-        try:
-            finding = audit.get_finding(finding_id)
-            if finding is None:
-                raise HTTPException(status_code=404, detail=f"finding {finding_id} not found")
-            a = store.get_assertion(finding.assertion_a_id)
-            b = store.get_assertion(finding.assertion_b_id)
-            if a is None or b is None:
-                raise HTTPException(
-                    status_code=404, detail="assertion referenced by finding not found"
-                )
-            doc_a = store.get_document(a.doc_id)
-            doc_b = store.get_document(b.doc_id)
-            context = {
-                "finding": {
-                    "finding_id": finding.finding_id,
-                    "verdict": finding.judge_verdict,
-                    "confidence": finding.judge_confidence,
-                    "rationale": finding.judge_rationale,
-                    "evidence_spans": finding.evidence_spans,
-                    "nli_p_contradiction": finding.nli_p_contradiction,
-                    "gate_score": finding.gate_score,
-                },
-                "side_a": {
-                    "assertion_text": a.assertion_text,
-                    "doc_label": _document_label(doc_a, a.doc_id),
-                },
-                "side_b": {
-                    "assertion_text": b.assertion_text,
-                    "doc_label": _document_label(doc_b, b.doc_id),
-                },
-            }
-        finally:
-            store.close()
-        return templates.TemplateResponse(request, "cc__pair_diff.html", context)
-
-    @app.get("/multi_party_findings/{finding_id}/diff", response_class=HTMLResponse)
-    def multi_party_diff(request: Request, finding_id: str) -> HTMLResponse:
-        store, audit = _open_audit()
-        try:
-            mp = audit.get_multi_party_finding(finding_id)
-            if mp is None:
-                raise HTTPException(
-                    status_code=404, detail=f"multi-party finding {finding_id} not found"
-                )
-            sides: list[dict[str, Any]] = []
-            for label, aid in zip(("A", "B", "C"), mp.assertion_ids[:3], strict=False):
-                assertion = store.get_assertion(aid)
-                if assertion is None:
-                    sides.append({"label": label, "assertion_text": "(missing)", "doc_label": aid})
-                    continue
-                doc = store.get_document(assertion.doc_id)
-                sides.append(
-                    {
-                        "label": label,
-                        "assertion_text": assertion.assertion_text,
-                        "doc_label": _document_label(doc, assertion.doc_id),
-                    }
-                )
-            min_edge = (
-                min(score for _, _, score in mp.triangle_edge_scores)
-                if mp.triangle_edge_scores
-                else None
-            )
-            context = {
-                "finding": {
-                    "finding_id": mp.finding_id,
-                    "verdict": mp.judge_verdict,
-                    "confidence": mp.judge_confidence,
-                    "rationale": mp.judge_rationale,
-                    "evidence_spans": mp.evidence_spans,
-                    "min_edge_score": min_edge,
-                },
-                "sides": sides,
-            }
-        finally:
-            store.close()
-        return templates.TemplateResponse(request, "cc__multi_party_diff.html", context)
+        if legacy:
+            return PlainTextResponse(_LEGACY_GONE_BODY, status_code=410)
+        if filter not in {"all", "open", "confirmed", "false_positive", "dismissed"}:
+            filter = "all"
+        return _render_single_page_shell(request, active_corpus_id=corpus, filter=filter)
 
     PAGE_SIZE = 25
 
@@ -1731,188 +1519,6 @@ def create_app(
             "total": total,
             "page_size": PAGE_SIZE,
         }
-
-    @app.get("/tabs/documents", response_class=HTMLResponse)
-    def tab_documents(
-        request: Request,
-        page: int = 1,
-        corpus: str | None = Query(default=None),
-    ) -> HTMLResponse:
-        store, _audit = _open_audit()
-        try:
-            total = store.stats(corpus_id=corpus)["documents"]
-            pag = _pagination(page=page, total=total)
-            offset = (pag["page"] - 1) * PAGE_SIZE
-            rows = [
-                {
-                    "doc_id": d.doc_id,
-                    "title": d.title or d.source_path,
-                    "source_path": d.source_path,
-                    "ingested_at": d.ingested_at.isoformat(timespec="seconds")
-                    if d.ingested_at
-                    else "",
-                    "doc_type": d.doc_type or "",
-                }
-                for d in store.iter_documents(limit=PAGE_SIZE, offset=offset, corpus_id=corpus)
-            ]
-        finally:
-            store.close()
-        return templates.TemplateResponse(
-            request,
-            "cc_documents.html",
-            {
-                "htmx": _is_htmx(request),
-                "active_tab": "documents",
-                "documents": rows,
-                "pagination": pag,
-            },
-        )
-
-    @app.get("/documents/{doc_id}", response_class=HTMLResponse)
-    def document_detail(request: Request, doc_id: str) -> HTMLResponse:
-        store, _audit = _open_audit()
-        try:
-            doc = store.get_document(doc_id)
-            if doc is None:
-                raise HTTPException(status_code=404, detail=f"document {doc_id} not found")
-            n_assertions = sum(1 for _ in store.iter_assertions(doc_id=doc_id))
-            preview_assertions = [
-                a.assertion_text for a in store.iter_assertions(doc_id=doc_id, limit=5)
-            ]
-            context = {
-                "doc": {
-                    "doc_id": doc.doc_id,
-                    "title": doc.title or doc.source_path,
-                    "source_path": doc.source_path,
-                    "doc_type": doc.doc_type or "",
-                    "doc_date": doc.doc_date or "",
-                    "ingested_at": doc.ingested_at.isoformat(timespec="seconds")
-                    if doc.ingested_at
-                    else "",
-                    "metadata_json": doc.metadata_json,
-                },
-                "n_assertions": n_assertions,
-                "preview_assertions": preview_assertions,
-            }
-        finally:
-            store.close()
-        return templates.TemplateResponse(request, "cc__document_detail.html", context)
-
-    @app.get("/tabs/assertions", response_class=HTMLResponse)
-    def tab_assertions(
-        request: Request,
-        page: int = 1,
-        corpus: str | None = Query(default=None),
-    ) -> HTMLResponse:
-        store, _audit = _open_audit()
-        try:
-            total = store.stats(corpus_id=corpus)["assertions"]
-            pag = _pagination(page=page, total=total)
-            offset = (pag["page"] - 1) * PAGE_SIZE
-            page_assertions = list(
-                store.iter_assertions(limit=PAGE_SIZE, offset=offset, corpus_id=corpus)
-            )
-            documents = store.get_documents_bulk([a.doc_id for a in page_assertions])
-            rows = [
-                {
-                    "assertion_id": a.assertion_id,
-                    "doc_label": _document_label(documents.get(a.doc_id), a.doc_id),
-                    "text_preview": _truncate(a.assertion_text, 100),
-                }
-                for a in page_assertions
-            ]
-        finally:
-            store.close()
-        return templates.TemplateResponse(
-            request,
-            "cc_assertions.html",
-            {
-                "htmx": _is_htmx(request),
-                "active_tab": "assertions",
-                "assertions": rows,
-                "pagination": pag,
-            },
-        )
-
-    @app.get("/tabs/definitions", response_class=HTMLResponse)
-    def tab_definitions(
-        request: Request,
-        show_reviewed_definition_inconsistency: bool = False,
-    ) -> HTMLResponse:
-        """Definition-inconsistencies tab (ADR-0009)."""
-        store, audit = _open_audit()
-        try:
-            run = audit.most_recent_run()
-            findings: list[dict[str, Any]] = []
-            if run is not None:
-                raw = list(
-                    audit.iter_findings(
-                        run_id=run.run_id,
-                        verdict="definition_divergent",
-                        detector_type="definition_inconsistency",
-                    )
-                )
-                assertion_ids = [aid for r in raw for aid in (r.assertion_a_id, r.assertion_b_id)]
-                assertions = store.get_assertions_bulk(assertion_ids)
-                doc_ids = list({a.doc_id for a in assertions.values()})
-                documents = store.get_documents_bulk(doc_ids)
-
-                all_pair_keys = [
-                    ":".join(sorted([r.assertion_a_id, r.assertion_b_id])) for r in raw
-                ]
-                reviewer_verdicts = audit.get_reviewer_verdicts_bulk(
-                    [(pk, "definition_inconsistency") for pk in all_pair_keys]
-                )
-
-                for r in raw:
-                    a = assertions.get(r.assertion_a_id)
-                    b = assertions.get(r.assertion_b_id)
-                    if a is None or b is None:
-                        continue
-                    pair_key = ":".join(sorted([r.assertion_a_id, r.assertion_b_id]))
-                    rv = reviewer_verdicts.get((pair_key, "definition_inconsistency"))
-                    if rv is not None and not show_reviewed_definition_inconsistency:
-                        continue
-                    reviewer_verdict = rv.verdict if rv is not None else None
-                    findings.append(
-                        {
-                            "finding_id": r.finding_id,
-                            "term": a.term or "",
-                            "confidence": r.judge_confidence,
-                            "doc_a_label": _document_label(documents.get(a.doc_id), a.doc_id),
-                            "doc_b_label": _document_label(documents.get(b.doc_id), b.doc_id),
-                            "def_a_text": a.assertion_text,
-                            "def_b_text": b.assertion_text,
-                            "rationale": r.judge_rationale or "",
-                            "pair_key": pair_key,
-                            "reviewer_verdict": reviewer_verdict,
-                            "reviewer_label": VERDICT_LABELS.get(reviewer_verdict)
-                            if reviewer_verdict is not None
-                            else None,
-                        }
-                    )
-                findings.sort(key=lambda f: (f["term"].lower(), -(f["confidence"] or 0.0)))
-
-            reviewed_count = sum(
-                audit.count_reviewer_verdicts(detector_type="definition_inconsistency").values()
-            )
-            total_count = _count_total_findings(store, "definition_inconsistency")
-        finally:
-            store.close()
-
-        return templates.TemplateResponse(
-            request,
-            "cc_definitions.html",
-            {
-                "htmx": _is_htmx(request),
-                "active_tab": "definitions",
-                "run": {"run_id": run.run_id} if run is not None else None,
-                "findings": findings,
-                "show_reviewed": show_reviewed_definition_inconsistency,
-                "reviewed_count": reviewed_count,
-                "total_count": total_count,
-            },
-        )
 
     @app.get("/assertions/{assertion_id}", response_class=HTMLResponse)
     def assertion_detail(request: Request, assertion_id: str) -> HTMLResponse:
@@ -2083,93 +1689,6 @@ def create_app(
         finally:
             store.close()
 
-    @app.post("/runs", response_class=HTMLResponse)
-    def post_runs(
-        request: Request,
-        background_tasks: BackgroundTasks,
-        corpus_id: str = Form(...),
-        deep: bool = Form(False),
-    ) -> Response:
-        store, audit = _open_audit()
-        try:
-            # Validate corpus_id exists before starting the run.
-            row = store._conn.execute(
-                "SELECT corpus_id FROM corpora WHERE corpus_id = ?", (corpus_id,)
-            ).fetchone()
-            if row is None:
-                raise HTTPException(status_code=400, detail=f"corpus_id {corpus_id!r} not found")
-            if deep and not config.pairwise_enabled:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "'deep' (multi-party) requires the pairwise gate output. "
-                        "Enable pairwise_enabled in the server config or do not "
-                        "select 'deep'."
-                    ),
-                )
-            run_id = audit.begin_run(
-                config={
-                    "embedder_model": config.embedder_model,
-                    "nli_model": config.nli_model,
-                    "judge_provider": config.judge_provider,
-                    "judge_model": config.judge_model,
-                    "nli_contradiction_threshold": config.nli_contradiction_threshold,
-                    "gate_top_k": config.gate_top_k,
-                    "gate_similarity_threshold": config.gate_similarity_threshold,
-                    "enable_multi_party": deep,
-                    "max_triangles_per_run": config.max_triangles_per_run,
-                    "definitions_enabled": True,
-                    "pairwise_enabled": config.pairwise_enabled,
-                    "max_cost_usd": config.max_cost_usd,
-                },
-                run_status="pending",
-                corpus_id=corpus_id,
-            )
-        finally:
-            store.close()
-
-        background_tasks.add_task(_run_check_in_background, run_id, deep, corpus_id)
-
-        target = f"/tabs/stats?run_id={run_id}"
-        if _is_htmx(request):
-            response = Response(status_code=202)
-            response.headers["HX-Redirect"] = target
-            return response
-        return Response(
-            status_code=303,
-            headers={"Location": target},
-        )
-
-    @app.get("/tabs/stats", response_class=HTMLResponse)
-    def tab_stats(
-        request: Request,
-        corpus: str | None = Query(default=None),
-    ) -> HTMLResponse:
-        store, audit = _open_audit()
-        try:
-            run = audit.most_recent_run()
-            status = _infer_run_status(run)
-            counters = _live_counters(run, audit) if run is not None else None
-            banner = _corpus_banner_context(
-                store,
-                config,
-                run_id=run.run_id if run is not None else None,
-                corpus_id=corpus,
-            )
-        finally:
-            store.close()
-        return templates.TemplateResponse(
-            request,
-            "cc_stats.html",
-            {
-                "htmx": _is_htmx(request),
-                "active_tab": "stats",
-                "status": status,
-                "counters": counters,
-                **banner,
-            },
-        )
-
     @app.get("/runs/{run_id}/stats", response_class=HTMLResponse)
     def run_stats_fragment(
         request: Request,
@@ -2200,54 +1719,16 @@ def create_app(
             {"status": status, "counters": counters, **banner},
         )
 
-    @app.get("/tabs/ingest", response_class=HTMLResponse)
-    def tab_ingest(request: Request) -> HTMLResponse:
-        store, _audit = _open_audit()
-        try:
-            conn = store._conn
-            rows = conn.execute(
-                "SELECT corpus_id, corpus_name FROM corpora ORDER BY created_at DESC"
-            ).fetchall()
-            corpora = [{"corpus_id": r[0], "corpus_name": r[1]} for r in rows]
-        finally:
-            store.close()
-        return templates.TemplateResponse(
-            request,
-            "cc_ingest.html",
-            {
-                "htmx": _is_htmx(request),
-                "active_tab": "ingest",
-                "corpora": corpora,
-            },
-        )
+    @app.get("/tabs/{tab}", response_class=PlainTextResponse)
+    def legacy_tab_gone(tab: str) -> PlainTextResponse:
+        """ADR-0017 Phase 6 tombstone for the deleted 7-tab UI.
 
-    @app.get("/tabs/action_items", response_class=HTMLResponse)
-    def tab_action_items(request: Request) -> HTMLResponse:
-        # For now: query findings + multi_party_findings, combine, pass to template
-        # findings list: each item needs finding_id, finding_type, text_preview, verdict, confidence, user_verdict
-        return templates.TemplateResponse(
-            request,
-            "cc_action_items.html",
-            {
-                "htmx": _is_htmx(request),
-                "active_tab": "action_items",
-                "findings": [],  # TODO: wire up real query
-            },
-        )
-
-    @app.get("/tabs/process", response_class=HTMLResponse)
-    def tab_process(request: Request, run_id: str = "") -> HTMLResponse:
-        return templates.TemplateResponse(
-            request,
-            "cc_process.html",
-            {
-                "htmx": _is_htmx(request),
-                "active_tab": "process",
-                "run_id": run_id,
-                "corpus_name": "",
-                "judge_provider": "",
-            },
-        )
+        Every former tab (documents, assertions, definitions, stats, ingest,
+        action_items, process) now lives in the single-page shell or its
+        drawers. The live per-corpus routes are ``/corpora/{id}/drawer/*`` and
+        ``/runs/{id}/stats`` — none of which match this ``/tabs/{tab}`` path.
+        """
+        return PlainTextResponse(_LEGACY_GONE_BODY, status_code=410)
 
     @app.post("/verdicts", response_class=HTMLResponse)
     def post_verdict(
@@ -2324,140 +1805,20 @@ def create_app(
         response.headers["HX-Redirect"] = referer
         return response
 
-    @app.post("/uploads", response_class=HTMLResponse)
-    async def post_uploads(
-        request: Request,
-        files: list[UploadFile],
-        corpus_id: str | None = Form(default=None),
-    ) -> HTMLResponse:
-        if not corpus_id:
-            raise HTTPException(
-                status_code=400,
-                detail="corpus_id is required; select a corpus before uploading.",
-            )
-        upload_id = _generate_upload_id()
-        upload_dir = config.data_dir / "uploads" / upload_id
-        upload_dir.mkdir(parents=True, exist_ok=False)
-
-        saved: list[Path] = []
-        try:
-            if len(files) > MAX_UPLOAD_FILES:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"Too many files (max {MAX_UPLOAD_FILES} per request)",
-                )
-            total_bytes = 0
-            for file in files:
-                if not file.filename:
-                    continue
-                ext = Path(file.filename).suffix.lower()
-                if not ext:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="File has no extension; expected .txt, .md, .pdf, or .docx",
-                    )
-                if ext not in _ALLOWED_EXTENSIONS:
-                    raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext!r}")
-                content = await file.read(MAX_UPLOAD_BYTES + 1)
-                if len(content) > MAX_UPLOAD_BYTES:
-                    raise HTTPException(status_code=413, detail="File too large (max 100 MB)")
-                total_bytes += len(content)
-                if total_bytes > MAX_UPLOAD_TOTAL_BYTES:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=(
-                            f"Upload too large (max {MAX_UPLOAD_TOTAL_BYTES // (1024 * 1024)} "
-                            "MB total per request)"
-                        ),
-                    )
-                target = upload_dir / Path(file.filename).name
-                target.write_bytes(content)
-                saved.append(target)
-        except HTTPException:
-            shutil.rmtree(upload_dir, ignore_errors=True)
-            raise
-
-        if not saved:
-            return templates.TemplateResponse(
-                request,
-                "cc__upload_success.html",
-                {"upload_id": upload_id, "saved": [], "n_assertions": 0, "error": "no files"},
-                status_code=400,
-            )
-
-        # corpus_id is guaranteed non-empty by the guard above; assert for mypy.
-        assert corpus_id is not None
-        store, faiss_store, embedder_inst = _open_stores()
-        try:
-            extractor = _make_extractor()
-            try:
-                n_assertions = _ingest_uploaded_paths(
-                    saved,
-                    store=store,
-                    faiss_store=faiss_store,
-                    embedder=embedder_inst,
-                    extractor=extractor,
-                    config=config,
-                    corpus_id=corpus_id,
-                )
-            except CrossCorpusDocumentError as err:
-                names_by_id = {c.corpus_id: c.corpus_name for c in store.list_corpora()}
-                existing_name = names_by_id.get(err.existing_corpus_id, err.existing_corpus_id)
-                requested_name = names_by_id.get(err.requested_corpus_id, err.requested_corpus_id)
-                # Drop the staged upload directory so we don't leak disk on
-                # rejected cross-corpus uploads; the user will re-upload after
-                # picking the right corpus.
-                shutil.rmtree(upload_dir, ignore_errors=True)
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        f"document {err.doc_id} already exists under corpus "
-                        f"'{existing_name}' and cannot be re-uploaded into corpus "
-                        f"'{requested_name}'."
-                    ),
-                ) from err
-            audit = AuditLogger(store)
-            is_first_check = audit.most_recent_run() is None
-        finally:
-            store.close()
-
-        _log.info(
-            "Upload %s: %d files saved, %d assertions extracted",
-            upload_id,
-            len(saved),
-            n_assertions,
-        )
-        return templates.TemplateResponse(
-            request,
-            "cc__upload_success.html",
-            {
-                "upload_id": upload_id,
-                "saved": [p.name for p in saved],
-                "n_assertions": n_assertions,
-                "is_first_check": is_first_check,
-                "corpus_id": corpus_id,
-                "error": None,
-            },
-        )
-
-    # Register API routes
+    # Register API routes. NOTE: api/corpora.py's routers (corpora_router,
+    # findings_router) are now unused by the new UI but are kept registered —
+    # decommissioning them is a tracked follow-up, out of scope for Phase 6.
+    # The api/runs.py module was deleted in Phase 6 (its only consumer was the
+    # legacy cc_process.html SSE view), so its routers are no longer included.
     from consistency_checker.web.api.corpora import (
         findings_router,
     )
     from consistency_checker.web.api.corpora import (
         router as corpora_router,
     )
-    from consistency_checker.web.api.runs import (
-        corpora_runs_router,
-    )
-    from consistency_checker.web.api.runs import (
-        router as runs_router,
-    )
 
     app.include_router(corpora_router)
     app.include_router(findings_router)
-    app.include_router(runs_router)
-    app.include_router(corpora_runs_router)
 
     return app
 

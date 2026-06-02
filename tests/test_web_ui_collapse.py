@@ -1,8 +1,10 @@
-"""Tests for the Phase-1 single-page shell (ADR-0017).
+"""Tests for the single-page shell (ADR-0017).
 
-The shell ships behind ``?new_ui=1``. The legacy tab nav must keep
-working without the flag — every other test file relies on that
-behaviour, so the regression bar here is "don't break what we have."
+As of Phase 6 the shell is the DEFAULT response from ``GET /`` — the legacy
+7-tab UI and its routes are deleted. ``?legacy=1`` and every ``/tabs/*`` path
+now return 410 Gone. The historical ``?new_ui=1`` flag is gone too, but the
+query param is simply ignored (the shell is unconditional), so the older tests
+that still pass it keep working.
 """
 
 from __future__ import annotations
@@ -96,21 +98,50 @@ def _seed_corpus_with_finding(
     return cid, run_id, rationale
 
 
-# --- 1) flag absence: legacy tab nav still rendered ----------------------
+# --- 1) default: single-page shell, no tabs ------------------------------
 
 
-def test_index_without_new_ui_flag_renders_legacy(tmp_path: Path) -> None:
+def test_index_default_renders_shell(tmp_path: Path) -> None:
+    """Phase 6: ``GET /`` with no flag is now the single-page shell."""
     cfg = _config(tmp_path)
-    _seed_corpus_with_finding(cfg)
+    _seed_one_corpus(cfg)
     client = _client(cfg)
     resp = client.get("/")
     assert resp.status_code == 200
     body = resp.text
-    assert "cc-tab" in body
-    assert "cc-shell" not in body
+    assert "cc-shell" in body
+    assert 'id="cc-sidebar"' in body
+    assert 'id="cc-main"' in body
+    # The legacy tab nav must NOT bleed through (cc_base.html is deleted).
+    assert "cc-tabs" not in body
+    assert ">01</span> Ingest" not in body
 
 
-# --- 2) flag present: new shell rendered, no tabs ------------------------
+# --- 1b) legacy tombstones: ?legacy=1 and /tabs/* → 410 ------------------
+
+
+def test_index_legacy_flag_returns_410(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    _seed_one_corpus(cfg)
+    client = _client(cfg)
+    resp = client.get("/?legacy=1")
+    assert resp.status_code == 410
+    assert "Visit /" in resp.text
+
+
+@pytest.mark.parametrize(
+    "tab", ["stats", "documents", "assertions", "definitions", "ingest", "process"]
+)
+def test_legacy_tab_routes_return_410(tmp_path: Path, tab: str) -> None:
+    cfg = _config(tmp_path)
+    _seed_one_corpus(cfg)
+    client = _client(cfg)
+    resp = client.get(f"/tabs/{tab}")
+    assert resp.status_code == 410
+    assert "Visit /" in resp.text
+
+
+# --- 2) shell rendered, no tabs (legacy ?new_ui=1 flag now a no-op) ------
 
 
 def test_index_with_new_ui_flag_renders_shell(tmp_path: Path) -> None:
@@ -123,7 +154,7 @@ def test_index_with_new_ui_flag_renders_shell(tmp_path: Path) -> None:
     assert "cc-shell" in body
     assert 'id="cc-sidebar"' in body
     assert 'id="cc-main"' in body
-    # Tab nav must NOT bleed through (cc_base.html not extended).
+    # Tab nav must NOT bleed through (cc_base.html deleted).
     assert "cc-tabs" not in body
     assert ">01</span> Ingest" not in body
 

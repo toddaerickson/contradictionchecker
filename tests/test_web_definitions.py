@@ -83,42 +83,6 @@ def hermetic_client_with_def(tmp_path: Path) -> tuple[TestClient, Config, str]:
     return TestClient(app), cfg, run_id
 
 
-def test_definitions_tab_lists_finding(
-    hermetic_client_with_def: tuple[TestClient, Config, str],
-) -> None:
-    client, _cfg, _run_id = hermetic_client_with_def
-    resp = client.get("/tabs/definitions")
-    assert resp.status_code == 200
-    assert "Definition inconsistencies" in resp.text
-    assert "MAE" in resp.text
-    assert "Doc A" in resp.text
-    assert "Doc B" in resp.text
-    assert "scope shift" in resp.text
-
-
-def test_definitions_tab_renders_empty_state_without_findings(
-    hermetic_client_with_def: tuple[TestClient, Config, str],
-) -> None:
-    # Wipe the seeded finding so the tab shows the empty state.
-    client, cfg, _run_id = hermetic_client_with_def
-    store = AssertionStore(cfg.db_path)
-    store._conn.execute("DELETE FROM findings")
-    store._conn.commit()
-    store.close()
-    resp = client.get("/tabs/definitions")
-    assert resp.status_code == 200
-    assert "All findings reviewed." in resp.text
-
-
-def test_base_nav_has_definitions_link(
-    hermetic_client_with_def: tuple[TestClient, Config, str],
-) -> None:
-    client, _cfg, _run_id = hermetic_client_with_def
-    resp = client.get("/tabs/definitions")
-    assert "/tabs/definitions" in resp.text
-    assert "Definitions" in resp.text
-
-
 def test_stats_counters_include_definition_totals(
     hermetic_client_with_def: tuple[TestClient, Config, str],
 ) -> None:

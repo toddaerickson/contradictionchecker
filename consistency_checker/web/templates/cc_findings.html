@@ -44,23 +44,23 @@
       <a class="cc-chip {% if filter == 'all' %}cc-chip--active{% endif %}"
          hx-get="/corpora/{{ active_corpus_id }}/findings?filter=all"
          hx-target="#cc-main" hx-swap="innerHTML"
-         hx-push-url="/?new_ui=1&corpus={{ active_corpus_id }}&filter=all">All ({{ counts.all }})</a>
+         hx-push-url="/?corpus={{ active_corpus_id }}&filter=all">All ({{ counts.all }})</a>
       <a class="cc-chip {% if filter == 'open' %}cc-chip--active{% endif %}"
          hx-get="/corpora/{{ active_corpus_id }}/findings?filter=open"
          hx-target="#cc-main" hx-swap="innerHTML"
-         hx-push-url="/?new_ui=1&corpus={{ active_corpus_id }}&filter=open">Open ({{ counts.open }})</a>
+         hx-push-url="/?corpus={{ active_corpus_id }}&filter=open">Open ({{ counts.open }})</a>
       <a class="cc-chip {% if filter == 'confirmed' %}cc-chip--active{% endif %}"
          hx-get="/corpora/{{ active_corpus_id }}/findings?filter=confirmed"
          hx-target="#cc-main" hx-swap="innerHTML"
-         hx-push-url="/?new_ui=1&corpus={{ active_corpus_id }}&filter=confirmed">Confirmed ({{ counts.confirmed }})</a>
+         hx-push-url="/?corpus={{ active_corpus_id }}&filter=confirmed">Confirmed ({{ counts.confirmed }})</a>
       <a class="cc-chip {% if filter == 'false_positive' %}cc-chip--active{% endif %}"
          hx-get="/corpora/{{ active_corpus_id }}/findings?filter=false_positive"
          hx-target="#cc-main" hx-swap="innerHTML"
-         hx-push-url="/?new_ui=1&corpus={{ active_corpus_id }}&filter=false_positive">FP ({{ counts.false_positive }})</a>
+         hx-push-url="/?corpus={{ active_corpus_id }}&filter=false_positive">FP ({{ counts.false_positive }})</a>
       <a class="cc-chip {% if filter == 'dismissed' %}cc-chip--active{% endif %}"
          hx-get="/corpora/{{ active_corpus_id }}/findings?filter=dismissed"
          hx-target="#cc-main" hx-swap="innerHTML"
-         hx-push-url="/?new_ui=1&corpus={{ active_corpus_id }}&filter=dismissed">Dismissed ({{ counts.dismissed }})</a>
+         hx-push-url="/?corpus={{ active_corpus_id }}&filter=dismissed">Dismissed ({{ counts.dismissed }})</a>
     </div>
   </header>
 

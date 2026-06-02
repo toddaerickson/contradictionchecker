@@ -1,5 +1,5 @@
-{% if not htmx %}{% extends "cc_base.html" %}{% endif %}
-
+{# ADR-0017 Phase 6: drawer body only — rendered via cc_drawer.html's
+   {% include body_template %}. No longer a standalone tab page. #}
 {% block content %}
 <div class="cc-tab-header">
   <h2 class="cc-tab-title">05 — Definitions</h2>
