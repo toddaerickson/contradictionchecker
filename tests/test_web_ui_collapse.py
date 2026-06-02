@@ -966,3 +966,46 @@ def test_drawer_definitions_toggle_rewires_to_drawer_route(tmp_path: Path) -> No
     assert 'hx-target="#cc-drawer-region"' in body
     # Legacy target must NOT appear inside the rendered drawer fragment.
     assert "#cc-tab-content" not in body
+
+
+def test_drawer_assertions_pagination_targets_drawer(tmp_path: Path) -> None:
+    """PR #77 review caught that cc__pagination.html's hardcoded
+    hx-target=#cc-tab-content silently no-op'd inside the drawer. The
+    assertions drawer route must override the target so Prev/Next
+    actually paginate."""
+    cfg = _config(tmp_path)
+
+    # Seed enough assertions to force pagination (DRAWER_PAGE_SIZE=25).
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    cid = store.get_or_create_corpus("Paginated", "/paginated", "moonshot")
+    doc = Document.from_content("body", source_path="d.md", title="d")
+    store.add_document(doc, corpus_id=cid)
+    store.add_assertions([Assertion.build(doc.doc_id, f"fact {i}") for i in range(30)])
+    store.close()
+
+    client = _client(cfg)
+    resp = client.get(f"/corpora/{cid}/drawer/assertions")
+    assert resp.status_code == 200
+    body = resp.text
+    # Pagination renders.
+    assert "Page 1 of 2" in body
+    # Next link points at the drawer route + drawer target, not the legacy tab.
+    assert f"/corpora/{cid}/drawer/assertions?page=2" in body
+    assert 'hx-target="#cc-drawer-region"' in body
+    assert "#cc-tab-content" not in body
+
+
+def test_drawer_definitions_suppresses_global_reviewer_counter(tmp_path: Path) -> None:
+    """PR #77 review caught that _count_total_findings and
+    count_reviewer_verdicts are both global. Inside a per-corpus drawer
+    that produces a mismatched 'X of N reviewed' ratio. Until the
+    reviewer-verdicts schema supports a corpus join, the drawer should
+    suppress the counter rather than show a wrong one."""
+    cfg = _config(tmp_path)
+    cid, _rid, _rationale = _seed_corpus_with_finding(cfg, name="Counter-suppressed")
+    client = _client(cfg)
+    resp = client.get(f"/corpora/{cid}/drawer/definitions")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "of " not in body or "reviewed" not in body or "cc-progress-count" not in body

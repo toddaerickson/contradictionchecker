@@ -104,22 +104,43 @@ def _infer_run_status(run: Any) -> str:
     return "none" if run is None else str(run.run_status)
 
 
-def _count_total_findings(store: AssertionStore, detector_type: str) -> int:
-    """Total findings of the given detector type (across all runs).
+def _count_total_findings(
+    store: AssertionStore, detector_type: str, *, corpus_id: str | None = None
+) -> int:
+    """Total findings of the given detector type.
 
-    Used by the reviewer-workflow progress count to compute the denominator
-    of "X of N reviewed". multi_party_findings lives in its own table.
+    When ``corpus_id`` is None, counts across all runs (legacy /tabs
+    behaviour). When set, scopes to runs on that corpus so the per-corpus
+    drawer counter denominator matches the findings actually shown.
+    multi_party_findings lives in its own table.
     """
     if detector_type == "multi_party":
-        row = store._conn.execute(
-            "SELECT COUNT(*) FROM multi_party_findings "
-            "WHERE judge_verdict = 'multi_party_contradiction'"
-        ).fetchone()
+        if corpus_id is None:
+            row = store._conn.execute(
+                "SELECT COUNT(*) FROM multi_party_findings "
+                "WHERE judge_verdict = 'multi_party_contradiction'"
+            ).fetchone()
+        else:
+            row = store._conn.execute(
+                "SELECT COUNT(*) FROM multi_party_findings mpf "
+                "JOIN pipeline_runs pr ON mpf.run_id = pr.run_id "
+                "WHERE mpf.judge_verdict = 'multi_party_contradiction' "
+                "AND pr.corpus_id = ?",
+                (corpus_id,),
+            ).fetchone()
         return int(row[0])
-    row = store._conn.execute(
-        "SELECT COUNT(*) FROM findings WHERE detector_type = ?",
-        (detector_type,),
-    ).fetchone()
+    if corpus_id is None:
+        row = store._conn.execute(
+            "SELECT COUNT(*) FROM findings WHERE detector_type = ?",
+            (detector_type,),
+        ).fetchone()
+    else:
+        row = store._conn.execute(
+            "SELECT COUNT(*) FROM findings f "
+            "JOIN pipeline_runs pr ON f.run_id = pr.run_id "
+            "WHERE f.detector_type = ? AND pr.corpus_id = ?",
+            (detector_type, corpus_id),
+        ).fetchone()
     return int(row[0])
 
 
@@ -1110,6 +1131,13 @@ def create_app(
             ]
         finally:
             store.close()
+        # PR #77 review fix: cc__pagination.html hardcodes
+        # hx-target="#cc-tab-content", which is the legacy tab DOM and does
+        # not exist inside the drawer. Without these overrides the Prev/Next
+        # buttons silently no-op as soon as a corpus has > DRAWER_PAGE_SIZE
+        # assertions. Pass the drawer-scoped URL + target so pagination
+        # stays in-drawer.
+        pagination_url = f"/corpora/{corpus_id}/drawer/assertions"
         return templates.TemplateResponse(
             request,
             "cc_drawer.html",
@@ -1120,6 +1148,9 @@ def create_app(
                 "active_tab": "assertions",
                 "assertions": rows,
                 "pagination": pag,
+                "pagination_url": pagination_url,
+                "pagination_target": "#cc-drawer-region",
+                "pagination_swap": "innerHTML",
             },
         )
 
@@ -1188,10 +1219,17 @@ def create_app(
                         }
                     )
                 findings.sort(key=lambda f: (f["term"].lower(), -(f["confidence"] or 0.0)))
-            reviewed_count = sum(
-                audit.count_reviewer_verdicts(detector_type="definition_inconsistency").values()
+            # PR #77 review fix: the counter must agree with the per-corpus
+            # findings list, but `count_reviewer_verdicts` is content-addressed
+            # (one verdict spans corpora by design — see migration 0009) so a
+            # corpus-scoped numerator would require joining via the findings
+            # table. Until that join is added, suppress the counter inside the
+            # drawer rather than show a mismatched ratio. The legacy
+            # /tabs/definitions route keeps the global counter for now.
+            reviewed_count = None
+            total_count = _count_total_findings(
+                store, "definition_inconsistency", corpus_id=corpus_id
             )
-            total_count = _count_total_findings(store, "definition_inconsistency")
         finally:
             store.close()
         # Override the Show-reviewed toggle's hx-get/hx-target so the

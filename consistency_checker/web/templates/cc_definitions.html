@@ -28,9 +28,11 @@
     </header>
 
     <div class="cc-section-state">
+      {% if reviewed_count is not none %}
       <span id="cc-progress-count-definition_inconsistency" class="cc-progress-count">
         {{ reviewed_count }} of {{ total_count }} reviewed
       </span>
+      {% endif %}
       <label class="cc-toggle">
         <input type="checkbox"
                name="show_reviewed_definition_inconsistency"

@@ -1,9 +1,20 @@
 <nav class="cc-pagination" aria-label="Pagination">
   <span class="cc-muted">Page {{ pagination.page }} of {{ pagination.n_pages }}</span>
+  {% set _pag_base = pagination_url|default('') %}
+  {% set _pag_target = pagination_target|default('#cc-tab-content') %}
+  {% set _pag_swap = pagination_swap|default('outerHTML') %}
   {% if pagination.has_prev %}
-    <a class="cc-button" hx-get="?page={{ pagination.prev }}" hx-target="#cc-tab-content" hx-push-url="true">← Prev</a>
+    <a class="cc-button"
+       hx-get="{{ _pag_base }}?page={{ pagination.prev }}"
+       hx-target="{{ _pag_target }}"
+       hx-swap="{{ _pag_swap }}"
+       {% if not pagination_url %}hx-push-url="true"{% endif %}>← Prev</a>
   {% endif %}
   {% if pagination.has_next %}
-    <a class="cc-button" hx-get="?page={{ pagination.next }}" hx-target="#cc-tab-content" hx-push-url="true">Next →</a>
+    <a class="cc-button"
+       hx-get="{{ _pag_base }}?page={{ pagination.next }}"
+       hx-target="{{ _pag_target }}"
+       hx-swap="{{ _pag_swap }}"
+       {% if not pagination_url %}hx-push-url="true"{% endif %}>Next →</a>
   {% endif %}
 </nav>
