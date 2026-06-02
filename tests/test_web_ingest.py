@@ -251,6 +251,97 @@ def test_upload_rejects_no_extension(configured_client: tuple[TestClient, str]) 
     )
 
 
+# --- per-request DoS caps (Task D) ------------------------------------------
+
+
+def _uploads_root(cfg: Config) -> Path:
+    return cfg.data_dir / "uploads"
+
+
+def _staged_dirs(cfg: Config) -> list[Path]:
+    root = _uploads_root(cfg)
+    return list(root.iterdir()) if root.exists() else []
+
+
+def test_upload_rejects_too_many_files(
+    configured_client: tuple[TestClient, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, corpus_id = configured_client
+    cfg: Config = client.app.state.config  # type: ignore[attr-defined]
+    monkeypatch.setattr("consistency_checker.web.app.MAX_UPLOAD_FILES", 2)
+    files = [("files", (f"doc{i}.txt", b"small body.", "text/plain")) for i in range(3)]
+    resp = client.post("/uploads", data={"corpus_id": corpus_id}, files=files)
+    assert resp.status_code == 413
+    assert "many files" in resp.json()["detail"].lower()
+    # No staged upload dir may linger after the rejection.
+    assert _staged_dirs(cfg) == []
+
+
+def test_upload_rejects_total_bytes(
+    configured_client: tuple[TestClient, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, corpus_id = configured_client
+    cfg: Config = client.app.state.config  # type: ignore[attr-defined]
+    monkeypatch.setattr("consistency_checker.web.app.MAX_UPLOAD_TOTAL_BYTES", 10)
+    files = [
+        ("files", ("a.txt", b"x" * 8, "text/plain")),
+        ("files", ("b.txt", b"y" * 8, "text/plain")),
+    ]
+    resp = client.post("/uploads", data={"corpus_id": corpus_id}, files=files)
+    assert resp.status_code == 413
+    assert "too large" in resp.json()["detail"].lower()
+    assert _staged_dirs(cfg) == []
+
+
+def test_upload_under_caps_still_succeeds(
+    configured_client: tuple[TestClient, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression guard: a normal small upload is unaffected by the caps."""
+    client, corpus_id = configured_client
+    monkeypatch.setattr("consistency_checker.web.app.MAX_UPLOAD_FILES", 5)
+    monkeypatch.setattr("consistency_checker.web.app.MAX_UPLOAD_TOTAL_BYTES", 4096)
+    resp = client.post(
+        "/uploads",
+        data={"corpus_id": corpus_id},
+        files={"files": ("doc.txt", b"Revenue grew. Customer satisfaction held.", "text/plain")},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_create_corpus_rejects_too_many_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = _config(tmp_path)
+    app = create_app(cfg, extractor=FixtureExtractor({}), embedder=HashEmbedder(dim=64))
+    client = TestClient(app)
+    monkeypatch.setattr("consistency_checker.web.app.MAX_UPLOAD_FILES", 2)
+    files = [("files", (f"d{i}.txt", b"body.", "text/plain")) for i in range(3)]
+    data = {"corpus_name": "too-many", "judge_provider": "moonshot"}
+    resp = client.post("/corpora/new", files=files, data=data)
+    assert resp.status_code == 413, resp.text
+    assert "many files" in resp.text.lower()
+    assert _staged_dirs(cfg) == []
+
+
+def test_create_corpus_rejects_total_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _config(tmp_path)
+    app = create_app(cfg, extractor=FixtureExtractor({}), embedder=HashEmbedder(dim=64))
+    client = TestClient(app)
+    monkeypatch.setattr("consistency_checker.web.app.MAX_UPLOAD_TOTAL_BYTES", 10)
+    files = [
+        ("files", ("a.txt", b"x" * 8, "text/plain")),
+        ("files", ("b.txt", b"y" * 8, "text/plain")),
+    ]
+    data = {"corpus_name": "too-big", "judge_provider": "moonshot"}
+    resp = client.post("/corpora/new", files=files, data=data)
+    assert resp.status_code == 413, resp.text
+    assert "too large" in resp.text.lower()
+    assert _staged_dirs(cfg) == []
+
+
 # --- static files -----------------------------------------------------------
 
 

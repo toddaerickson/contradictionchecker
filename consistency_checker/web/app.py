@@ -257,6 +257,8 @@ def _corpus_banner_context(
 
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB per file
+MAX_UPLOAD_FILES = 100  # files per request
+MAX_UPLOAD_TOTAL_BYTES = 500 * 1024 * 1024  # 500 MB per request (aggregate)
 _ALLOWED_EXTENSIONS = frozenset({".txt", ".md", ".pdf", ".docx"})
 
 
@@ -659,6 +661,9 @@ def create_app(
 
         saved: list[Path] = []
         try:
+            if len(upload_files) > MAX_UPLOAD_FILES:
+                raise HTTPException(status_code=413, detail="Too many files (max 100 per request)")
+            total_bytes = 0
             for file in upload_files:
                 if not file.filename:
                     continue
@@ -673,6 +678,12 @@ def create_app(
                 content = await file.read(MAX_UPLOAD_BYTES + 1)
                 if len(content) > MAX_UPLOAD_BYTES:
                     raise HTTPException(status_code=413, detail="File too large (max 100 MB)")
+                total_bytes += len(content)
+                if total_bytes > MAX_UPLOAD_TOTAL_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail="Upload too large (max 500 MB total per request)",
+                    )
                 target = upload_dir / Path(file.filename).name
                 target.write_bytes(content)
                 saved.append(target)
@@ -2180,6 +2191,9 @@ def create_app(
 
         saved: list[Path] = []
         try:
+            if len(files) > MAX_UPLOAD_FILES:
+                raise HTTPException(status_code=413, detail="Too many files (max 100 per request)")
+            total_bytes = 0
             for file in files:
                 if not file.filename:
                     continue
@@ -2194,6 +2208,12 @@ def create_app(
                 content = await file.read(MAX_UPLOAD_BYTES + 1)
                 if len(content) > MAX_UPLOAD_BYTES:
                     raise HTTPException(status_code=413, detail="File too large (max 100 MB)")
+                total_bytes += len(content)
+                if total_bytes > MAX_UPLOAD_TOTAL_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail="Upload too large (max 500 MB total per request)",
+                    )
                 target = upload_dir / Path(file.filename).name
                 target.write_bytes(content)
                 saved.append(target)
