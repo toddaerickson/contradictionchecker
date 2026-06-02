@@ -27,9 +27,18 @@
               hx-target="#cc-modal-region"
               hx-swap="innerHTML"
               {% if not active_corpus_id %}disabled{% endif %}>Run check ▾</button>
-      <button type="button" class="cc-button" disabled title="Wired in Phase 4">Assertions</button>
-      <button type="button" class="cc-button" disabled title="Wired in Phase 4">Definitions</button>
-      <button type="button" class="cc-button" disabled title="Wired in Phase 4">Stats</button>
+      <button type="button" class="cc-button"
+              hx-get="/corpora/{{ active_corpus_id }}/drawer/assertions"
+              hx-target="#cc-drawer-region"
+              hx-swap="innerHTML">Assertions</button>
+      <button type="button" class="cc-button"
+              hx-get="/corpora/{{ active_corpus_id }}/drawer/definitions"
+              hx-target="#cc-drawer-region"
+              hx-swap="innerHTML">Definitions</button>
+      <button type="button" class="cc-button"
+              hx-get="/corpora/{{ active_corpus_id }}/drawer/stats"
+              hx-target="#cc-drawer-region"
+              hx-swap="innerHTML">Stats</button>
     </div>
   </header>
 

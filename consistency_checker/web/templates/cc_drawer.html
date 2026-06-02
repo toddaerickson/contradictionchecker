@@ -1,0 +1,74 @@
+<div class="cc-drawer-backdrop" data-cc-drawer-backdrop></div>
+<aside class="cc-drawer" role="dialog" aria-modal="true" aria-labelledby="cc-drawer-title">
+  <header class="cc-drawer-head">
+    <h2 class="cc-drawer-title" id="cc-drawer-title">{{ title }}</h2>
+    <button type="button" class="cc-drawer-close" aria-label="Close drawer"
+            onclick="window.__ccDrawerClose && window.__ccDrawerClose()">×</button>
+  </header>
+  <div class="cc-drawer-body">
+    {% include body_template %}
+  </div>
+</aside>
+<script>
+(function() {
+  var region = document.getElementById('cc-drawer-region');
+  if (!region) return;
+  // Re-open replaces the drawer without firing close(): tear down the
+  // previous IIFE's listeners so we don't stack handlers across opens.
+  if (typeof window.__ccDrawerClose === 'function') {
+    try { window.__ccDrawerClose({ skipRestore: true, skipClear: true }); } catch (e) {}
+  }
+  region.hidden = false;
+  var drawer = region.querySelector('.cc-drawer');
+  if (!drawer) return;
+  var previouslyFocused = document.activeElement;
+  var focusable = drawer.querySelectorAll(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  );
+  if (focusable.length) focusable[0].focus();
+
+  function close(opts) {
+    opts = opts || {};
+    document.removeEventListener('keydown', onKey);
+    document.removeEventListener('click', onBackdropClick);
+    if (window.__ccDrawerClose === close) {
+      window.__ccDrawerClose = null;
+    }
+    if (!opts.skipClear) {
+      region.innerHTML = '';
+      region.hidden = true;
+    }
+    if (!opts.skipRestore && previouslyFocused && previouslyFocused.focus) {
+      previouslyFocused.focus();
+    }
+  }
+
+  function onKey(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    } else if (e.key === 'Tab' && focusable.length) {
+      var first = focusable[0];
+      var last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first.focus();
+      }
+    }
+  }
+
+  function onBackdropClick(e) {
+    if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-cc-drawer-backdrop')) {
+      close();
+    }
+  }
+
+  document.addEventListener('keydown', onKey);
+  document.addEventListener('click', onBackdropClick);
+  // Expose close() so the header X button and a future re-open can
+  // route through one teardown path instead of clobbering innerHTML
+  // directly and leaving listeners stranded.
+  window.__ccDrawerClose = close;
+})();
+</script>

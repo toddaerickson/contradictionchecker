@@ -104,22 +104,43 @@ def _infer_run_status(run: Any) -> str:
     return "none" if run is None else str(run.run_status)
 
 
-def _count_total_findings(store: AssertionStore, detector_type: str) -> int:
-    """Total findings of the given detector type (across all runs).
+def _count_total_findings(
+    store: AssertionStore, detector_type: str, *, corpus_id: str | None = None
+) -> int:
+    """Total findings of the given detector type.
 
-    Used by the reviewer-workflow progress count to compute the denominator
-    of "X of N reviewed". multi_party_findings lives in its own table.
+    When ``corpus_id`` is None, counts across all runs (legacy /tabs
+    behaviour). When set, scopes to runs on that corpus so the per-corpus
+    drawer counter denominator matches the findings actually shown.
+    multi_party_findings lives in its own table.
     """
     if detector_type == "multi_party":
-        row = store._conn.execute(
-            "SELECT COUNT(*) FROM multi_party_findings "
-            "WHERE judge_verdict = 'multi_party_contradiction'"
-        ).fetchone()
+        if corpus_id is None:
+            row = store._conn.execute(
+                "SELECT COUNT(*) FROM multi_party_findings "
+                "WHERE judge_verdict = 'multi_party_contradiction'"
+            ).fetchone()
+        else:
+            row = store._conn.execute(
+                "SELECT COUNT(*) FROM multi_party_findings mpf "
+                "JOIN pipeline_runs pr ON mpf.run_id = pr.run_id "
+                "WHERE mpf.judge_verdict = 'multi_party_contradiction' "
+                "AND pr.corpus_id = ?",
+                (corpus_id,),
+            ).fetchone()
         return int(row[0])
-    row = store._conn.execute(
-        "SELECT COUNT(*) FROM findings WHERE detector_type = ?",
-        (detector_type,),
-    ).fetchone()
+    if corpus_id is None:
+        row = store._conn.execute(
+            "SELECT COUNT(*) FROM findings WHERE detector_type = ?",
+            (detector_type,),
+        ).fetchone()
+    else:
+        row = store._conn.execute(
+            "SELECT COUNT(*) FROM findings f "
+            "JOIN pipeline_runs pr ON f.run_id = pr.run_id "
+            "WHERE f.detector_type = ? AND pr.corpus_id = ?",
+            (detector_type, corpus_id),
+        ).fetchone()
     return int(row[0])
 
 
@@ -1076,6 +1097,200 @@ def create_app(
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
+            },
+        )
+
+    # --- ADR-0017 Phase 4: per-corpus slide-over drawers --------------------
+    #
+    # The drawer routes reuse the existing tab templates (cc_assertions.html,
+    # cc_definitions.html, cc_stats.html) by wrapping them in cc_drawer.html.
+    # Each tab template extends cc_base.html only when ``htmx`` is falsy, so
+    # the include-as-fragment path drops cleanly into the drawer body.
+
+    DRAWER_PAGE_SIZE = 25
+
+    @app.get("/corpora/{corpus_id}/drawer/assertions", response_class=HTMLResponse)
+    def drawer_assertions(request: Request, corpus_id: str, page: int = 1) -> HTMLResponse:
+        store, _audit = _open_audit()
+        try:
+            _corpus_name_or_404(store, corpus_id)
+            total = store.stats(corpus_id=corpus_id)["assertions"]
+            pag = _pagination(page=page, total=total)
+            offset = (pag["page"] - 1) * DRAWER_PAGE_SIZE
+            page_assertions = list(
+                store.iter_assertions(limit=DRAWER_PAGE_SIZE, offset=offset, corpus_id=corpus_id)
+            )
+            documents = store.get_documents_bulk([a.doc_id for a in page_assertions])
+            rows = [
+                {
+                    "assertion_id": a.assertion_id,
+                    "doc_label": _document_label(documents.get(a.doc_id), a.doc_id),
+                    "text_preview": _truncate(a.assertion_text, 100),
+                }
+                for a in page_assertions
+            ]
+        finally:
+            store.close()
+        # PR #77 review fix: cc__pagination.html hardcodes
+        # hx-target="#cc-tab-content", which is the legacy tab DOM and does
+        # not exist inside the drawer. Without these overrides the Prev/Next
+        # buttons silently no-op as soon as a corpus has > DRAWER_PAGE_SIZE
+        # assertions. Pass the drawer-scoped URL + target so pagination
+        # stays in-drawer.
+        pagination_url = f"/corpora/{corpus_id}/drawer/assertions"
+        return templates.TemplateResponse(
+            request,
+            "cc_drawer.html",
+            {
+                "title": "Assertions",
+                "body_template": "cc_assertions.html",
+                "htmx": True,
+                "active_tab": "assertions",
+                "assertions": rows,
+                "pagination": pag,
+                "pagination_url": pagination_url,
+                "pagination_target": "#cc-drawer-region",
+                "pagination_swap": "innerHTML",
+            },
+        )
+
+    @app.get("/corpora/{corpus_id}/drawer/definitions", response_class=HTMLResponse)
+    def drawer_definitions(
+        request: Request,
+        corpus_id: str,
+        show_reviewed_definition_inconsistency: bool = False,
+    ) -> HTMLResponse:
+        store, audit = _open_audit()
+        try:
+            _corpus_name_or_404(store, corpus_id)
+            # Scope to the most recent run for this corpus, not the global
+            # most_recent_run() — otherwise the drawer for corpus A could show
+            # definitions from a run on corpus B.
+            row = store._conn.execute(
+                "SELECT run_id FROM pipeline_runs WHERE corpus_id = ? "
+                "ORDER BY started_at DESC, run_id DESC LIMIT 1",
+                (corpus_id,),
+            ).fetchone()
+            run = audit.get_run(str(row[0])) if row is not None else None
+            findings: list[dict[str, Any]] = []
+            if run is not None:
+                raw = list(
+                    audit.iter_findings(
+                        run_id=run.run_id,
+                        verdict="definition_divergent",
+                        detector_type="definition_inconsistency",
+                    )
+                )
+                assertion_ids = [aid for r in raw for aid in (r.assertion_a_id, r.assertion_b_id)]
+                assertions = store.get_assertions_bulk(assertion_ids)
+                doc_ids = list({a.doc_id for a in assertions.values()})
+                documents = store.get_documents_bulk(doc_ids)
+                all_pair_keys = [
+                    ":".join(sorted([r.assertion_a_id, r.assertion_b_id])) for r in raw
+                ]
+                reviewer_verdicts = audit.get_reviewer_verdicts_bulk(
+                    [(pk, "definition_inconsistency") for pk in all_pair_keys]
+                )
+                for r in raw:
+                    a = assertions.get(r.assertion_a_id)
+                    b = assertions.get(r.assertion_b_id)
+                    if a is None or b is None:
+                        continue
+                    pair_key = ":".join(sorted([r.assertion_a_id, r.assertion_b_id]))
+                    rv = reviewer_verdicts.get((pair_key, "definition_inconsistency"))
+                    if rv is not None and not show_reviewed_definition_inconsistency:
+                        continue
+                    reviewer_verdict = rv.verdict if rv is not None else None
+                    findings.append(
+                        {
+                            "finding_id": r.finding_id,
+                            "term": a.term or "",
+                            "confidence": r.judge_confidence,
+                            "doc_a_label": _document_label(documents.get(a.doc_id), a.doc_id),
+                            "doc_b_label": _document_label(documents.get(b.doc_id), b.doc_id),
+                            "def_a_text": a.assertion_text,
+                            "def_b_text": b.assertion_text,
+                            "rationale": r.judge_rationale or "",
+                            "pair_key": pair_key,
+                            "reviewer_verdict": reviewer_verdict,
+                            "reviewer_label": VERDICT_LABELS.get(reviewer_verdict)
+                            if reviewer_verdict is not None
+                            else None,
+                        }
+                    )
+                findings.sort(key=lambda f: (f["term"].lower(), -(f["confidence"] or 0.0)))
+            # PR #77 review fix: the counter must agree with the per-corpus
+            # findings list, but `count_reviewer_verdicts` is content-addressed
+            # (one verdict spans corpora by design — see migration 0009) so a
+            # corpus-scoped numerator would require joining via the findings
+            # table. Until that join is added, suppress the counter inside the
+            # drawer rather than show a mismatched ratio. The legacy
+            # /tabs/definitions route keeps the global counter for now.
+            reviewed_count = None
+            total_count = _count_total_findings(
+                store, "definition_inconsistency", corpus_id=corpus_id
+            )
+        finally:
+            store.close()
+        # Override the Show-reviewed toggle's hx-get/hx-target so the
+        # checkbox refreshes the drawer in-place instead of trying to
+        # swap a #cc-tab-content element that only exists in the legacy
+        # tab shell.
+        drawer_url = f"/corpora/{corpus_id}/drawer/definitions"
+        return templates.TemplateResponse(
+            request,
+            "cc_drawer.html",
+            {
+                "title": "Definitions",
+                "body_template": "cc_definitions.html",
+                "htmx": True,
+                "active_tab": "definitions",
+                "run": {"run_id": run.run_id} if run is not None else None,
+                "findings": findings,
+                "show_reviewed": show_reviewed_definition_inconsistency,
+                "reviewed_count": reviewed_count,
+                "total_count": total_count,
+                "drawer_refresh_url": drawer_url,
+                "drawer_refresh_target": "#cc-drawer-region",
+                "drawer_refresh_swap": "innerHTML",
+            },
+        )
+
+    @app.get("/corpora/{corpus_id}/drawer/stats", response_class=HTMLResponse)
+    def drawer_stats(request: Request, corpus_id: str) -> HTMLResponse:
+        store, audit = _open_audit()
+        try:
+            _corpus_name_or_404(store, corpus_id)
+            # Per-corpus most-recent run, mirroring the SSE generator's query
+            # at line 985 so the drawer and the sidebar agree on which run
+            # they're describing.
+            row = store._conn.execute(
+                "SELECT run_id FROM pipeline_runs WHERE corpus_id = ? "
+                "ORDER BY started_at DESC, run_id DESC LIMIT 1",
+                (corpus_id,),
+            ).fetchone()
+            run = audit.get_run(str(row[0])) if row is not None else None
+            status = _infer_run_status(run)
+            counters = _live_counters(run, audit) if run is not None else None
+            banner = _corpus_banner_context(
+                store,
+                config,
+                run_id=run.run_id if run is not None else None,
+                corpus_id=corpus_id,
+            )
+        finally:
+            store.close()
+        return templates.TemplateResponse(
+            request,
+            "cc_drawer.html",
+            {
+                "title": "Stats",
+                "body_template": "cc_stats.html",
+                "htmx": True,
+                "active_tab": "stats",
+                "status": status,
+                "counters": counters,
+                **banner,
             },
         )
 
