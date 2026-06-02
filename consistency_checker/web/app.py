@@ -14,6 +14,7 @@ import json
 import math
 import secrets
 import shutil
+import sqlite3
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import replace
@@ -594,9 +595,7 @@ def create_app(
 
         # Derive the path from a freshly minted id, never the raw name: the
         # name validator above lets ".." and bare dot-names through, so a
-        # name-based path could escape data_dir/corpora. Everywhere else the
-        # corpus directory is reconstructed from the id (corpora.py, the REST
-        # create_corpus), so the stored path must match data_dir/corpora/<id>.
+        # name-based path could escape data_dir/corpora.
         corpus_id = uuid.uuid4().hex
         corpora_root = (config.data_dir / "corpora").resolve()
         corpus_path = config.data_dir / "corpora" / corpus_id
@@ -620,13 +619,12 @@ def create_app(
             if existing is not None:
                 duplicate = True
             else:
-                with store._conn:
-                    store._conn.execute(
-                        "INSERT INTO corpora "
-                        "(corpus_id, corpus_name, corpus_path, judge_provider) "
-                        "VALUES (?, ?, ?, ?)",
-                        (corpus_id, corpus_name, str(corpus_path), provider),
-                    )
+                # The SELECT above is a UX fast-path; the IntegrityError catch is
+                # the real guard against a concurrent duplicate name racing past it.
+                try:
+                    store.create_corpus(corpus_id, corpus_name, str(corpus_path), provider)
+                except sqlite3.IntegrityError:
+                    duplicate = True
         finally:
             store.close()
         if duplicate:
