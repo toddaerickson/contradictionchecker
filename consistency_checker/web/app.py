@@ -263,6 +263,9 @@ _ALLOWED_EXTENSIONS = frozenset({".txt", ".md", ".pdf", ".docx"})
 # pointing at the single-page shell that replaced them.
 _LEGACY_GONE_BODY = "This UI was replaced. Visit / for the new interface."
 
+# pair_key is N segments of 16-hex joined by ':' (build_pair_key over 2+ ids).
+_PAIR_KEY_RE = re.compile(r"[0-9a-f]{16}(?::[0-9a-f]{16})+")
+
 
 def create_app(
     config: Config,
@@ -1736,7 +1739,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"unknown detector_type {detector_type!r}")
         if verdict not in {"confirmed", "false_positive", "dismissed"}:
             raise HTTPException(status_code=400, detail=f"unknown verdict {verdict!r}")
-        if re.fullmatch(r"[0-9a-f]{16}:[0-9a-f]{16}", pair_key) is None:
+        if _PAIR_KEY_RE.fullmatch(pair_key) is None:
             raise HTTPException(status_code=400, detail="invalid pair_key format")
 
         store, audit = _open_audit()
@@ -1774,6 +1777,8 @@ def create_app(
     ) -> HTMLResponse:
         if detector_type not in {"contradiction", "definition_inconsistency", "multi_party"}:
             raise HTTPException(status_code=400, detail=f"unknown detector_type {detector_type!r}")
+        if _PAIR_KEY_RE.fullmatch(pair_key) is None:
+            raise HTTPException(status_code=400, detail="invalid pair_key format")
         store, audit = _open_audit()
         try:
             if prior_verdict == "":
