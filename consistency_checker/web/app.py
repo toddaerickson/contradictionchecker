@@ -14,6 +14,8 @@ import json
 import math
 import secrets
 import shutil
+import sqlite3
+import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import replace
 from datetime import datetime
@@ -54,6 +56,11 @@ _log = get_logger(__name__)
 WEB_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = WEB_DIR / "templates"
 STATIC_DIR = WEB_DIR / "static"
+
+# Raw exception text can carry absolute paths and provider/SDK error strings,
+# and the run's error_message is rendered verbatim in the failed-stats UI; keep
+# the stored value generic and route the detail to the logs instead.
+_GENERIC_FAILURE_MESSAGE = "The check failed. See server logs for details."
 
 
 VERDICT_LABELS: dict[str, str] = {
@@ -250,6 +257,8 @@ def _corpus_banner_context(
 
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB per file
+MAX_UPLOAD_FILES = 100  # files per request
+MAX_UPLOAD_TOTAL_BYTES = 500 * 1024 * 1024  # 500 MB per request (aggregate)
 _ALLOWED_EXTENSIONS = frozenset({".txt", ".md", ".pdf", ".docx"})
 
 
@@ -586,6 +595,22 @@ def create_app(
                 judge_provider="moonshot",
             )
 
+        # Derive the path from a freshly minted id, never the raw name: the
+        # name validator above lets ".." and bare dot-names through, so a
+        # name-based path could escape data_dir/corpora.
+        corpus_id = uuid.uuid4().hex
+        corpora_root = (config.data_dir / "corpora").resolve()
+        corpus_path = config.data_dir / "corpora" / corpus_id
+        if not corpus_path.resolve().is_relative_to(corpora_root):
+            return _render_new_corpus_modal(
+                request,
+                success=False,
+                error="Could not derive a safe corpus path.",
+                status_code=400,
+                corpus_name=corpus_name,
+                judge_provider=provider,
+            )
+
         store = AssertionStore(config.db_path)
         store.migrate()
         duplicate = False
@@ -596,8 +621,12 @@ def create_app(
             if existing is not None:
                 duplicate = True
             else:
-                corpus_path = config.data_dir / "corpora" / corpus_name
-                corpus_id = store.get_or_create_corpus(corpus_name, str(corpus_path), provider)
+                # The SELECT above is a UX fast-path; the IntegrityError catch is
+                # the real guard against a concurrent duplicate name racing past it.
+                try:
+                    store.create_corpus(corpus_id, corpus_name, str(corpus_path), provider)
+                except sqlite3.IntegrityError:
+                    duplicate = True
         finally:
             store.close()
         if duplicate:
@@ -632,9 +661,15 @@ def create_app(
 
         saved: list[Path] = []
         try:
+            if len(upload_files) > MAX_UPLOAD_FILES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Too many files (max {MAX_UPLOAD_FILES} per request)",
+                )
+            total_bytes = 0
             for file in upload_files:
-                if not file.filename:
-                    continue
+                # upload_files is pre-filtered to truthy filenames above; assert for mypy.
+                assert file.filename is not None
                 ext = Path(file.filename).suffix.lower()
                 if not ext:
                     raise HTTPException(
@@ -646,11 +681,29 @@ def create_app(
                 content = await file.read(MAX_UPLOAD_BYTES + 1)
                 if len(content) > MAX_UPLOAD_BYTES:
                     raise HTTPException(status_code=413, detail="File too large (max 100 MB)")
+                total_bytes += len(content)
+                if total_bytes > MAX_UPLOAD_TOTAL_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            f"Upload too large (max {MAX_UPLOAD_TOTAL_BYTES // (1024 * 1024)} "
+                            "MB total per request)"
+                        ),
+                    )
                 target = upload_dir / Path(file.filename).name
                 target.write_bytes(content)
                 saved.append(target)
         except HTTPException as exc:
             shutil.rmtree(upload_dir, ignore_errors=True)
+            # Roll back the corpus row created above so the user can retry the
+            # same name; otherwise this empty ghost row would 409 every future
+            # attempt. No store is open in this scope, so open a fresh one.
+            rollback_store = AssertionStore(config.db_path)
+            rollback_store.migrate()
+            try:
+                rollback_store.delete_corpus(corpus_id)
+            finally:
+                rollback_store.close()
             return _render_new_corpus_modal(
                 request,
                 success=False,
@@ -1803,7 +1856,11 @@ def create_app(
                 )
             except Exception as exc:
                 _log.warning("Run %s aborted at config validation: %s", run_id, exc)
-                audit_logger.update_run_status(run_id, "failed", error_message=str(exc))
+                audit_logger.update_run_status(
+                    run_id,
+                    "failed",
+                    error_message="Invalid run configuration. See server logs for details.",
+                )
                 return
 
             faiss_store = FaissStore.open_or_create(
@@ -1885,7 +1942,9 @@ def create_app(
                 )
             except Exception as exc:
                 _log.exception("Run %s failed: %s", run_id, exc)
-                audit_logger.update_run_status(run_id, "failed", error_message=str(exc))
+                audit_logger.update_run_status(
+                    run_id, "failed", error_message=_GENERIC_FAILURE_MESSAGE
+                )
         finally:
             store.close()
 
@@ -2147,6 +2206,12 @@ def create_app(
 
         saved: list[Path] = []
         try:
+            if len(files) > MAX_UPLOAD_FILES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Too many files (max {MAX_UPLOAD_FILES} per request)",
+                )
+            total_bytes = 0
             for file in files:
                 if not file.filename:
                     continue
@@ -2161,6 +2226,15 @@ def create_app(
                 content = await file.read(MAX_UPLOAD_BYTES + 1)
                 if len(content) > MAX_UPLOAD_BYTES:
                     raise HTTPException(status_code=413, detail="File too large (max 100 MB)")
+                total_bytes += len(content)
+                if total_bytes > MAX_UPLOAD_TOTAL_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            f"Upload too large (max {MAX_UPLOAD_TOTAL_BYTES // (1024 * 1024)} "
+                            "MB total per request)"
+                        ),
+                    )
                 target = upload_dir / Path(file.filename).name
                 target.write_bytes(content)
                 saved.append(target)

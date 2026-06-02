@@ -7,7 +7,9 @@ behaviour, so the regression bar here is "don't break what we have."
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -311,6 +313,62 @@ def test_create_corpus_success_without_files(tmp_path: Path) -> None:
         store.close()
 
 
+@pytest.mark.parametrize("evil_name", ["..", "...", "."])
+def test_create_corpus_path_traversal_name_stored_as_id_path(
+    tmp_path: Path, evil_name: str
+) -> None:
+    """A dot-name that the char validator lets through must NOT leak into the
+    stored corpus_path. The path must be the id-based one and resolve under
+    data_dir/corpora — never escape to data_dir or embed the raw name."""
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    data = {"corpus_name": evil_name, "judge_provider": "moonshot"}
+    resp = client.post("/corpora/new", data=data)
+    assert resp.status_code == 200, resp.text
+
+    corpora_root = (cfg.data_dir / "corpora").resolve()
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    try:
+        rows = store._conn.execute(
+            "SELECT corpus_id, corpus_path FROM corpora WHERE corpus_name = ?",
+            (evil_name,),
+        ).fetchall()
+        assert len(rows) == 1
+        corpus_id = rows[0]["corpus_id"]
+        stored_path = Path(rows[0]["corpus_path"])
+        assert stored_path == cfg.data_dir / "corpora" / corpus_id
+        assert evil_name not in stored_path.parts
+        assert stored_path.resolve().is_relative_to(corpora_root)
+        assert stored_path.resolve() != corpora_root
+    finally:
+        store.close()
+
+
+def test_create_corpus_normal_name_stored_as_id_path(tmp_path: Path) -> None:
+    """A benign name still produces an id-based path under data_dir/corpora."""
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    data = {"corpus_name": "Plain Corpus", "judge_provider": "moonshot"}
+    resp = client.post("/corpora/new", data=data)
+    assert resp.status_code == 200, resp.text
+
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    try:
+        rows = store._conn.execute(
+            "SELECT corpus_id, corpus_path FROM corpora WHERE corpus_name = ?",
+            ("Plain Corpus",),
+        ).fetchall()
+        assert len(rows) == 1
+        corpus_id = rows[0]["corpus_id"]
+        stored_path = Path(rows[0]["corpus_path"])
+        assert stored_path == cfg.data_dir / "corpora" / corpus_id
+        assert "Plain Corpus" not in stored_path.parts
+    finally:
+        store.close()
+
+
 def test_create_corpus_duplicate_name_returns_409(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     _seed_one_corpus(cfg, name="dup-corpus")
@@ -320,6 +378,101 @@ def test_create_corpus_duplicate_name_returns_409(tmp_path: Path) -> None:
     assert resp.status_code == 409
     assert "already exists" in resp.text
     assert "HX-Trigger" not in resp.headers
+
+
+def test_create_corpus_unique_raises_integrity_error(tmp_path: Path) -> None:
+    """AssertionStore.create_corpus must raise on a duplicate corpus_name so the
+    web handler can map the concurrent-insert race to a 409 instead of a 500."""
+    cfg = _config(tmp_path)
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    try:
+        store.create_corpus("id-1", "race-name", "/p1", "moonshot")
+        with pytest.raises(sqlite3.IntegrityError):
+            store.create_corpus("id-2", "race-name", "/p2", "moonshot")
+    finally:
+        store.close()
+
+
+def test_create_corpus_concurrent_duplicate_returns_409_not_500(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Simulate the concurrent-duplicate race deterministically: a real row with
+    the same name already exists, but the handler's pre-INSERT duplicate SELECT
+    is forced to miss it (as it would in the race window). The subsequent INSERT
+    must hit the UNIQUE constraint and surface as the normal 409 modal, not a 500.
+    """
+    cfg = _config(tmp_path)
+    seed = AssertionStore(cfg.db_path)
+    seed.migrate()
+    seed.create_corpus("existing-id", "race-dup", "/race", "moonshot")
+    seed.close()
+
+    class _BlindCursor:
+        def fetchone(self) -> None:
+            return None
+
+    class _BlindConn:
+        """Proxy over a real sqlite3 connection whose corpus_name dedup SELECT
+        always misses, so the handler proceeds to INSERT and trips UNIQUE."""
+
+        def __init__(self, real: sqlite3.Connection) -> None:
+            self._real = real
+
+        def execute(self, sql: str, *params: object) -> Any:
+            stripped = sql.strip().upper()
+            if "FROM CORPORA WHERE CORPUS_NAME" in stripped and stripped.startswith("SELECT"):
+                return _BlindCursor()
+            return self._real.execute(sql, *params)
+
+        def __enter__(self) -> sqlite3.Connection:
+            return self._real.__enter__()
+
+        def __exit__(self, *exc: object) -> Any:
+            return self._real.__exit__(*exc)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._real, name)
+
+    original_init = AssertionStore.__init__
+
+    def _patched_init(self: AssertionStore, *args: Any, **kwargs: Any) -> None:
+        original_init(self, *args, **kwargs)
+        self._conn = _BlindConn(self._conn)  # type: ignore[assignment]
+
+    monkeypatch.setattr(AssertionStore, "__init__", _patched_init)
+
+    client = _client(cfg)
+    data = {"corpus_name": "race-dup", "judge_provider": "moonshot"}
+    resp = client.post("/corpora/new", data=data)
+    assert resp.status_code == 409, resp.text
+    assert "already exists" in resp.text
+    assert "HX-Trigger" not in resp.headers
+
+
+def test_create_corpus_timestamps_are_microsecond_iso(tmp_path: Path) -> None:
+    """Rows created via the HTMX handler must carry microsecond ISO-8601
+    timestamps (matching the REST path), not SQLite's space-separated
+    CURRENT_TIMESTAMP form, so list_corpora ORDER BY created_at is consistent."""
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    data = {"corpus_name": "stamped", "judge_provider": "moonshot"}
+    resp = client.post("/corpora/new", data=data)
+    assert resp.status_code == 200, resp.text
+
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    try:
+        row = store._conn.execute(
+            "SELECT created_at, updated_at FROM corpora WHERE corpus_name = ?",
+            ("stamped",),
+        ).fetchone()
+        for stamp in (row["created_at"], row["updated_at"]):
+            assert "T" in stamp, stamp
+            assert "." in stamp, stamp
+            assert " " not in stamp, stamp
+    finally:
+        store.close()
 
 
 def test_create_corpus_invalid_name_returns_400(tmp_path: Path) -> None:

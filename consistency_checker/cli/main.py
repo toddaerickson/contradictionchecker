@@ -86,6 +86,20 @@ def _load_config(config_path: Path | None) -> Config:
     return Config.from_yaml(path)
 
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def _assert_safe_bind(host: str, unsafe_no_auth: bool) -> None:
+    if host in _LOOPBACK_HOSTS or unsafe_no_auth:
+        return
+    raise typer.BadParameter(
+        f"Refusing to bind to non-loopback host {host!r}: the web UI has no "
+        f"authentication. Re-run with --unsafe-no-auth only if this host is on a "
+        f"trusted, isolated network.",
+        param_hint="--host",
+    )
+
+
 def _open_store(config: Config) -> AssertionStore:
     store = AssertionStore(config.db_path)
     store.migrate()
@@ -699,6 +713,14 @@ def serve(
     open_browser: bool = typer.Option(
         False, "--open", help="Open the default browser at the bound URL after startup."
     ),
+    unsafe_no_auth: bool = typer.Option(
+        False,
+        "--unsafe-no-auth",
+        help=(
+            "Allow binding to a non-loopback host. NO AUTH IS ADDED — only use on a "
+            "trusted, isolated network."
+        ),
+    ),
 ) -> None:
     """Boot uvicorn against ``create_app(config)`` and optionally launch a browser."""
     import threading
@@ -709,6 +731,7 @@ def serve(
     from consistency_checker.web.app import create_app
 
     cfg = _load_config(config)
+    _assert_safe_bind(host, unsafe_no_auth)
     configure_logging(cfg.log_dir)
     web_app = create_app(cfg)
 

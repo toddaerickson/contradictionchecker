@@ -234,6 +234,22 @@ class AssertionStore:
             )
         return new_id
 
+    def create_corpus(self, corpus_id: str, name: str, path: str, judge_provider: str) -> None:
+        """Insert a new corpus row with explicit id + microsecond ISO timestamps.
+
+        Why: callers that mint their own id (web handlers) need a full-column
+        insert with consistent timestamps; raises sqlite3.IntegrityError on a
+        duplicate corpus_name so the caller can map it to a 409.
+        """
+        now = datetime.now().isoformat(timespec="microseconds")
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO corpora "
+                "(corpus_id, corpus_name, corpus_path, judge_provider, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (corpus_id, name, path, judge_provider, now, now),
+            )
+
     def list_corpora(self) -> list[Corpus]:
         rows = self._conn.execute(
             "SELECT * FROM corpora ORDER BY created_at, corpus_name"

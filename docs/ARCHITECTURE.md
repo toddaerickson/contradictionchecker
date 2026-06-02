@@ -2,7 +2,9 @@
 
 ## Goal
 
-Scan a corpus of documents for **internal contradictions** — assertions in one document that conflict with assertions in another. Symmetric pairwise scan, not asymmetric KB-guard.
+Scan a corpus of documents for **internal contradictions** — assertions in one document that conflict with assertions in another. Symmetric scan, not asymmetric KB-guard.
+
+The default `check` detector is the **definition-inconsistency** detector. The **pairwise NLI** pipeline described below (Stage A → Stage B) is opt-in — enabled with `--pairwise` and default-off since ADR-0015. The two-stage description in this document therefore documents the pairwise path specifically, not the default run.
 
 ## Module map
 

@@ -145,7 +145,7 @@ Carried forward into the v0.4+ roadmap in [`futureplans.md`](futureplans.md):
 - First `check --pairwise` run downloads ~440 MB for the default NLI model (DeBERTa-v3-base). Switch to DeBERTa-v3-large via `nli_model` in config for higher recall at ~1.5 GB. Default `check` runs (pairwise off, see ADR-0015) skip the download entirely.
 - OCR fallback is automatic for image-only PDFs (`--no-ocr` to disable); first use downloads ~500 MB and requires system Tesseract.
 - `data_dir/uploads/<upload_id>/` grows without bound; v0.4 will add a GC pass.
-- The web UI is single-user, localhost-only, no auth — bind beyond `127.0.0.1` only after auth lands.
+- The web UI is single-user, localhost-only, with **no authentication or CSRF protection**. `serve` refuses to bind to a non-loopback host unless you pass `--unsafe-no-auth`; doing so exposes an **unauthenticated** file-upload and corpus-mutation surface to anyone who can reach the host, so only use it on a trusted, isolated network.
 
 ## License
 
