@@ -263,6 +263,15 @@ def _staged_dirs(cfg: Config) -> list[Path]:
     return list(root.iterdir()) if root.exists() else []
 
 
+def _corpus_names(cfg: Config) -> list[str]:
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    try:
+        return sorted(c.corpus_name for c in store.list_corpora())
+    finally:
+        store.close()
+
+
 def test_upload_rejects_too_many_files(
     configured_client: tuple[TestClient, str],
     monkeypatch: pytest.MonkeyPatch,
@@ -324,6 +333,7 @@ def test_create_corpus_rejects_too_many_files(
     assert resp.status_code == 413, resp.text
     assert "many files" in resp.text.lower()
     assert _staged_dirs(cfg) == []
+    assert _corpus_names(cfg) == []
 
 
 def test_create_corpus_rejects_total_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -340,6 +350,33 @@ def test_create_corpus_rejects_total_bytes(tmp_path: Path, monkeypatch: pytest.M
     assert resp.status_code == 413, resp.text
     assert "too large" in resp.text.lower()
     assert _staged_dirs(cfg) == []
+    assert _corpus_names(cfg) == []
+
+
+def test_create_corpus_rolls_back_on_rejection_so_name_is_reusable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cap rejection must not leave an orphan corpus row that 409s every retry."""
+    cfg = _config(tmp_path)
+    app = create_app(cfg, extractor=FixtureExtractor({}), embedder=HashEmbedder(dim=64))
+    client = TestClient(app)
+    monkeypatch.setattr("consistency_checker.web.app.MAX_UPLOAD_FILES", 2)
+    data = {"corpus_name": "retry-me", "judge_provider": "moonshot"}
+    rejected = client.post(
+        "/corpora/new",
+        files=[("files", (f"d{i}.txt", b"body.", "text/plain")) for i in range(3)],
+        data=data,
+    )
+    assert rejected.status_code == 413, rejected.text
+    assert _corpus_names(cfg) == []
+
+    retry = client.post(
+        "/corpora/new",
+        files=[("files", ("ok.txt", b"body.", "text/plain"))],
+        data=data,
+    )
+    assert retry.status_code == 200, retry.text
+    assert _corpus_names(cfg) == ["retry-me"]
 
 
 # --- static files -----------------------------------------------------------

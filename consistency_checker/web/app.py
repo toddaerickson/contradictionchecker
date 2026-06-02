@@ -662,11 +662,14 @@ def create_app(
         saved: list[Path] = []
         try:
             if len(upload_files) > MAX_UPLOAD_FILES:
-                raise HTTPException(status_code=413, detail="Too many files (max 100 per request)")
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Too many files (max {MAX_UPLOAD_FILES} per request)",
+                )
             total_bytes = 0
             for file in upload_files:
-                if not file.filename:
-                    continue
+                # upload_files is pre-filtered to truthy filenames above; assert for mypy.
+                assert file.filename is not None
                 ext = Path(file.filename).suffix.lower()
                 if not ext:
                     raise HTTPException(
@@ -682,13 +685,25 @@ def create_app(
                 if total_bytes > MAX_UPLOAD_TOTAL_BYTES:
                     raise HTTPException(
                         status_code=413,
-                        detail="Upload too large (max 500 MB total per request)",
+                        detail=(
+                            f"Upload too large (max {MAX_UPLOAD_TOTAL_BYTES // (1024 * 1024)} "
+                            "MB total per request)"
+                        ),
                     )
                 target = upload_dir / Path(file.filename).name
                 target.write_bytes(content)
                 saved.append(target)
         except HTTPException as exc:
             shutil.rmtree(upload_dir, ignore_errors=True)
+            # Roll back the corpus row created above so the user can retry the
+            # same name; otherwise this empty ghost row would 409 every future
+            # attempt. No store is open in this scope, so open a fresh one.
+            rollback_store = AssertionStore(config.db_path)
+            rollback_store.migrate()
+            try:
+                rollback_store.delete_corpus(corpus_id)
+            finally:
+                rollback_store.close()
             return _render_new_corpus_modal(
                 request,
                 success=False,
@@ -2192,7 +2207,10 @@ def create_app(
         saved: list[Path] = []
         try:
             if len(files) > MAX_UPLOAD_FILES:
-                raise HTTPException(status_code=413, detail="Too many files (max 100 per request)")
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Too many files (max {MAX_UPLOAD_FILES} per request)",
+                )
             total_bytes = 0
             for file in files:
                 if not file.filename:
@@ -2212,7 +2230,10 @@ def create_app(
                 if total_bytes > MAX_UPLOAD_TOTAL_BYTES:
                     raise HTTPException(
                         status_code=413,
-                        detail="Upload too large (max 500 MB total per request)",
+                        detail=(
+                            f"Upload too large (max {MAX_UPLOAD_TOTAL_BYTES // (1024 * 1024)} "
+                            "MB total per request)"
+                        ),
                     )
                 target = upload_dir / Path(file.filename).name
                 target.write_bytes(content)
