@@ -117,6 +117,22 @@ def test_index_default_renders_shell(tmp_path: Path) -> None:
     assert ">01</span> Ingest" not in body
 
 
+def test_index_default_renders_diff_dialog_shell(tmp_path: Path) -> None:
+    """Regression guard: the assertions drawer's Open button targets
+    ``#cc-diff-content`` and calls ``#cc-diff-dialog``.showModal() (see
+    cc_assertions.html). Those element IDs lived in the now-deleted
+    cc_base.html and must be present in the cc_single.html shell, or the
+    drawer's Open button silently breaks. No test asserted this before."""
+    cfg = _config(tmp_path)
+    _seed_one_corpus(cfg)
+    client = _client(cfg)
+    resp = client.get("/")
+    assert resp.status_code == 200
+    body = resp.text
+    assert 'id="cc-diff-dialog"' in body
+    assert 'id="cc-diff-content"' in body
+
+
 # --- 1b) legacy tombstones: ?legacy=1 and /tabs/* → 410 ------------------
 
 

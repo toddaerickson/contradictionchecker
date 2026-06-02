@@ -1805,9 +1805,11 @@ def create_app(
         response.headers["HX-Redirect"] = referer
         return response
 
-    # Register API routes. NOTE: api/corpora.py's routers (corpora_router,
-    # findings_router) are now unused by the new UI but are kept registered —
-    # decommissioning them is a tracked follow-up, out of scope for Phase 6.
+    # Register API routes. Kept: the REST api/corpora routers (corpora_router,
+    # findings_router) are not used by the HTMX frontend but remain as the
+    # programmatic API surface — e.g. findings_router's POST
+    # /api/findings/{id}/verdict is exercised by tests/web/api/test_corpora.py.
+    # Their removal is a separate tracked follow-up.
     # The api/runs.py module was deleted in Phase 6 (its only consumer was the
     # legacy cc_process.html SSE view), so its routers are no longer included.
     from consistency_checker.web.api.corpora import (
