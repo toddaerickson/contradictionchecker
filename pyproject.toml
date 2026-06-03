@@ -4,8 +4,30 @@ version = "0.3.0"
 description = "Detects internal contradictions across a corpus of documents using a two-stage NLI + LLM pipeline."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { file = "LICENSE" }
-authors = [{ name = "contradictionchecker contributors" }]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Todd Erickson" }]
+keywords = [
+    "nli",
+    "contradiction-detection",
+    "llm",
+    "document-analysis",
+    "consistency",
+    "faiss",
+    "deberta",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing :: Linguistic",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "pydantic>=2.7",
     "pyyaml>=6.0",
@@ -26,6 +48,11 @@ dependencies = [
 
 [project.scripts]
 consistency-check = "consistency_checker.cli.main:app"
+
+[project.urls]
+Homepage = "https://github.com/toddaerickson/contradictionchecker"
+Repository = "https://github.com/toddaerickson/contradictionchecker"
+Issues = "https://github.com/toddaerickson/contradictionchecker/issues"
 
 [build-system]
 requires = ["hatchling"]
