@@ -928,6 +928,47 @@ def create_app(
             store.close()
         return templates.TemplateResponse(request, "cc_findings.html", ctx)
 
+    @app.get("/corpora/{corpus_id}/chips", response_class=HTMLResponse)
+    def corpora_chips(
+        request: Request,
+        corpus_id: str,
+        filter: str = "all",
+    ) -> HTMLResponse:
+        """Filter-chip bar fragment, re-fetched on the ``verdict-changed``
+        event so per-filter counts stay live after an inline verdict without
+        re-fetching the whole findings list. Recomputes counts from the
+        corpus's latest run; 404s on unknown ``corpus_id`` like the findings
+        route does.
+        """
+        if filter not in {"all", "open", "confirmed", "false_positive", "dismissed"}:
+            filter = "all"
+        store, audit = _open_audit()
+        try:
+            row = store._conn.execute(
+                "SELECT 1 FROM corpora WHERE corpus_id = ?", (corpus_id,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"corpus_id {corpus_id!r} not found")
+            counts: dict[str, int] = {
+                "all": 0,
+                "open": 0,
+                "confirmed": 0,
+                "false_positive": 0,
+                "dismissed": 0,
+            }
+            last_run = _most_recent_run_for_corpus(store, corpus_id)
+            if last_run is not None:
+                _findings, counts = _collect_findings_for_run(
+                    store, audit, last_run["run_id"], filter=filter
+                )
+        finally:
+            store.close()
+        return templates.TemplateResponse(
+            request,
+            "cc__filter_chips.html",
+            {"active_corpus_id": corpus_id, "filter": filter, "counts": counts},
+        )
+
     @app.get("/corpora/{corpus_id}/findings.csv")
     def corpora_findings_csv(
         request: Request,
@@ -1830,6 +1871,12 @@ def create_app(
         finally:
             store.close()
 
+        actions = templates.get_template("cc__finding_actions.html").render(
+            pair_key=pair_key,
+            detector_type=detector_type,
+            reviewer_verdict=verdict,
+            reviewer_label=VERDICT_LABELS[verdict],
+        )
         toast = templates.get_template("cc__verdict_toast.html").render(
             verdict_label=VERDICT_LABELS[verdict],
             pair_key=pair_key,
@@ -1841,7 +1888,12 @@ def create_app(
             reviewed_count=reviewed_count,
             total_count=total_count,
         )
-        return HTMLResponse(content=toast + progress)
+        # `actions` swaps the originating card's verdict region in place (the
+        # button's hx-target is its own #cc-actions-… span); toast + progress
+        # ride along OOB; HX-Trigger fires the filter chips' self-refresh.
+        response = HTMLResponse(content=actions + toast + progress)
+        response.headers["HX-Trigger"] = "verdict-changed"
+        return response
 
     @app.post("/verdicts/undo", response_class=HTMLResponse)
     def post_verdict_undo(
@@ -1854,6 +1906,11 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"unknown detector_type {detector_type!r}")
         if _PAIR_KEY_RE.fullmatch(pair_key) is None:
             raise HTTPException(status_code=400, detail="invalid pair_key format")
+        if prior_verdict not in {"", "confirmed", "false_positive", "dismissed"}:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown prior_verdict {prior_verdict!r}",
+            )
         store, audit = _open_audit()
         try:
             if prior_verdict == "":
@@ -1862,11 +1919,6 @@ def create_app(
                     detector_type=detector_type,  # type: ignore[arg-type]
                 )
             else:
-                if prior_verdict not in {"confirmed", "false_positive", "dismissed"}:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"unknown prior_verdict {prior_verdict!r}",
-                    )
                 audit.set_reviewer_verdict(
                     pair_key=pair_key,
                     detector_type=detector_type,  # type: ignore[arg-type]
@@ -1874,12 +1926,19 @@ def create_app(
                 )
         finally:
             store.close()
-        # Callers (cc__verdict_toast.html, cc_findings.html) have
-        # hx-target="#cc-toast-region" hx-swap="afterbegin"; we tell HTMX to
-        # redirect back to the current URL so it re-fetches fresh content.
-        referer = request.headers.get("HX-Current-URL") or request.headers.get("Referer", "/")
-        response = HTMLResponse(content="")
-        response.headers["HX-Redirect"] = referer
+        # Both callers (the marked card's undo and the toast's undo) target the
+        # finding's #cc-actions-… span by id, so we re-render that span in its
+        # post-undo state (open when cleared) and let HX-Trigger refresh the
+        # filter-chip counts. Replaces the old full-page HX-Redirect.
+        reviewer_verdict = prior_verdict or None
+        actions = templates.get_template("cc__finding_actions.html").render(
+            pair_key=pair_key,
+            detector_type=detector_type,
+            reviewer_verdict=reviewer_verdict,
+            reviewer_label=VERDICT_LABELS[prior_verdict] if prior_verdict else None,
+        )
+        response = HTMLResponse(content=actions)
+        response.headers["HX-Trigger"] = "verdict-changed"
         return response
 
     return app

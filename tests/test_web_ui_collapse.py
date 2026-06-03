@@ -1516,3 +1516,121 @@ def test_cost_gauge_shows_dashes_when_no_active_corpus(tmp_path: Path) -> None:
     # No corpora → no active corpus → gauge fragment renders the placeholder.
     assert 'class="cc-cost-spent">--</span>' in body
     assert 'class="cc-cost-ceiling">--</span>' in body
+
+
+# --- UI review fixes: in-place verdict card, live toast, live chip counts ----
+
+
+def test_verdict_post_swaps_card_actions_in_place(tmp_path: Path) -> None:
+    """POST /verdicts returns the finding's actions span (by id) in marked
+    state so the card flips in place, plus an HX-Trigger to refresh chips."""
+    cfg = _config(tmp_path)
+    _cid, run_id, _rationale = _seed_corpus_with_finding(cfg, name="Inplace")
+    pair_key, detector_type = _pair_key_for_finding(cfg, run_id)
+    pk_safe = pair_key.replace(":", "-")
+
+    client = _client(cfg)
+    resp = client.post(
+        "/verdicts",
+        data={"pair_key": pair_key, "detector_type": detector_type, "verdict": "confirmed"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.text
+    # The main-target swap re-renders the actions span by its stable id...
+    assert f'id="cc-actions-{pk_safe}-{detector_type}"' in body
+    # ...in marked state (VERDICT_LABELS["confirmed"] == "Real issue").
+    assert "Marked" in body and "Real issue" in body
+    assert 'hx-post="/verdicts/undo"' in body
+    # Toast now OOB-inserts into the region rather than a missing #cc-toast.
+    assert 'hx-swap-oob="afterbegin:#cc-toast-region"' in body
+    # Chips self-refresh on this event.
+    assert resp.headers.get("HX-Trigger") == "verdict-changed"
+
+
+def test_open_finding_buttons_target_actions_span(tmp_path: Path) -> None:
+    """The open-state verdict buttons target their own #cc-actions span
+    (outerHTML), not the toast region."""
+    cfg = _config(tmp_path)
+    cid, run_id, _rationale = _seed_corpus_with_finding(cfg, name="Targets")
+    pair_key, detector_type = _pair_key_for_finding(cfg, run_id)
+    pk_safe = pair_key.replace(":", "-")
+
+    client = _client(cfg)
+    body = client.get(f"/?new_ui=1&corpus={cid}").text
+    assert f'hx-target="#cc-actions-{pk_safe}-{detector_type}"' in body
+    assert 'hx-swap="outerHTML"' in body
+
+
+def test_verdict_undo_returns_open_actions_not_redirect(tmp_path: Path) -> None:
+    """Undo now swaps the card back to open state in place (no HX-Redirect)."""
+    cfg = _config(tmp_path)
+    _cid, run_id, _rationale = _seed_corpus_with_finding(cfg, name="UndoInplace")
+    pair_key, detector_type = _pair_key_for_finding(cfg, run_id)
+    pk_safe = pair_key.replace(":", "-")
+
+    store = AssertionStore(cfg.db_path)
+    try:
+        AuditLogger(store).set_reviewer_verdict(
+            pair_key=pair_key, detector_type=detector_type, verdict="confirmed"
+        )
+    finally:
+        store.close()
+
+    client = _client(cfg)
+    resp = client.post(
+        "/verdicts/undo",
+        data={"pair_key": pair_key, "detector_type": detector_type, "prior_verdict": ""},
+    )
+    assert resp.status_code == 200
+    assert "HX-Redirect" not in resp.headers
+    assert resp.headers.get("HX-Trigger") == "verdict-changed"
+    body = resp.text
+    assert f'id="cc-actions-{pk_safe}-{detector_type}"' in body
+    # Back to open state: the three verdict buttons are present again.
+    assert "✓ Confirmed" in body and "✗ False positive" in body
+
+
+def test_chips_endpoint_returns_live_counts(tmp_path: Path) -> None:
+    """GET /corpora/{id}/chips renders the chip bar with self-refresh wiring
+    and recomputed counts; marking a finding moves it out of `open`."""
+    cfg = _config(tmp_path)
+    cid, run_id, _rationale = _seed_corpus_with_finding(cfg, name="Chips")
+    pair_key, detector_type = _pair_key_for_finding(cfg, run_id)
+
+    client = _client(cfg)
+    before = client.get(f"/corpora/{cid}/chips").text
+    assert 'hx-trigger="verdict-changed from:body"' in before
+    assert "Open (1)" in before and "Confirmed (0)" in before
+
+    store = AssertionStore(cfg.db_path)
+    try:
+        AuditLogger(store).set_reviewer_verdict(
+            pair_key=pair_key, detector_type=detector_type, verdict="confirmed"
+        )
+    finally:
+        store.close()
+
+    after = client.get(f"/corpora/{cid}/chips").text
+    assert "Open (0)" in after and "Confirmed (1)" in after
+
+
+def test_chips_endpoint_404s_on_unknown_corpus(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    assert client.get("/corpora/nope/chips").status_code == 404
+
+
+def test_chips_and_rows_are_keyboard_accessible(tmp_path: Path) -> None:
+    """Filter chips and corpus rows are real <a href> with ARIA so they are
+    focusable and degrade without JavaScript."""
+    cfg = _config(tmp_path)
+    cid, _run_id, _rationale = _seed_corpus_with_finding(cfg, name="A11y")
+
+    client = _client(cfg)
+    body = client.get(f"/?new_ui=1&corpus={cid}").text
+    # Chips: real href + tab semantics.
+    assert f'href="/?corpus={cid}&filter=open"' in body
+    assert 'role="tab"' in body
+    assert 'aria-selected="true"' in body  # the active "all" chip
+    # Corpus row in the sidebar is a real link.
+    assert f'href="/?corpus={cid}"' in body

@@ -1,0 +1,36 @@
+{# Verdict action region for one finding card. Rendered inline by
+   cc_findings.html and re-rendered in place by POST /verdicts and
+   /verdicts/undo so the card reflects its own reviewer state without a
+   full list re-fetch. The stable id lets both the in-card buttons and the
+   remote toast undo button target this span by id. #}
+{% set pk_safe = pair_key|replace(':', '-') %}
+{% set actions_id = 'cc-actions-' ~ pk_safe ~ '-' ~ detector_type %}
+<span class="cc-finding-actions" id="{{ actions_id }}">
+  {% if reviewer_verdict %}
+    <span class="cc-finding-marked">Marked {{ reviewer_label }}</span>
+    {# PR #77 review fix: the marked-card "undo" must CLEAR the verdict, so
+       prior_verdict="" routes to audit.delete_reviewer_verdict. Sending the
+       current verdict re-sets the same value and leaves the card stuck marked. #}
+    <button type="button" class="cc-button cc-button--ghost"
+            hx-post="/verdicts/undo"
+            hx-vals='{"pair_key": "{{ pair_key }}", "detector_type": "{{ detector_type }}", "prior_verdict": ""}'
+            hx-target="#{{ actions_id }}"
+            hx-swap="outerHTML">undo</button>
+  {% else %}
+    <button type="button" class="cc-button cc-button--small"
+            hx-post="/verdicts"
+            hx-vals='{"pair_key": "{{ pair_key }}", "detector_type": "{{ detector_type }}", "verdict": "confirmed"}'
+            hx-target="#{{ actions_id }}"
+            hx-swap="outerHTML">✓ Confirmed</button>
+    <button type="button" class="cc-button cc-button--small"
+            hx-post="/verdicts"
+            hx-vals='{"pair_key": "{{ pair_key }}", "detector_type": "{{ detector_type }}", "verdict": "false_positive"}'
+            hx-target="#{{ actions_id }}"
+            hx-swap="outerHTML">✗ False positive</button>
+    <button type="button" class="cc-button cc-button--small"
+            hx-post="/verdicts"
+            hx-vals='{"pair_key": "{{ pair_key }}", "detector_type": "{{ detector_type }}", "verdict": "dismissed"}'
+            hx-target="#{{ actions_id }}"
+            hx-swap="outerHTML">? Dismissed</button>
+  {% endif %}
+</span>

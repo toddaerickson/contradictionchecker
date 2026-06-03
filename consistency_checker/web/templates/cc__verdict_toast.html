@@ -1,12 +1,20 @@
-<div id="cc-toast" class="cc-toast" role="status" hx-swap-oob="outerHTML">
+{# OOB-swapped into #cc-toast-region (afterbegin) so the toast reliably
+   appears: an `outerHTML` OOB needs a pre-existing element with a matching
+   id, and the shell has no #cc-toast seed — only the region. The undo
+   button targets the originating finding's actions span by id so undoing
+   from the toast flips the card back in place, then removes its own toast. #}
+{% set pk_safe = pair_key|replace(':', '-') %}
+{% set actions_id = 'cc-actions-' ~ pk_safe ~ '-' ~ detector_type %}
+<div class="cc-toast" role="status" hx-swap-oob="afterbegin:#cc-toast-region">
   Marked as <strong>{{ verdict_label }}</strong>.
   <button class="cc-toast-undo"
           hx-post="/verdicts/undo"
           hx-vals='{"pair_key": "{{ pair_key }}",
                     "detector_type": "{{ detector_type }}",
                     "prior_verdict": "{{ prior_verdict|default('') }}"}'
-          hx-target="#cc-toast-region"
-          hx-swap="afterbegin">Undo</button>
+          hx-target="#{{ actions_id }}"
+          hx-swap="outerHTML"
+          hx-on::after-request="this.closest('.cc-toast').remove()">Undo</button>
   <button class="cc-toast-close"
           type="button"
           aria-label="Dismiss notification"

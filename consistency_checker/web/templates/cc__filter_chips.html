@@ -1,0 +1,22 @@
+{# Filter chip bar for the findings pane. Self-refreshes on the
+   `verdict-changed` event (emitted as an HX-Trigger response header by
+   POST /verdicts and /verdicts/undo) so the per-filter counts stay live
+   after an inline verdict without re-fetching the whole list. Each chip is
+   a real <a href> with role="tab"/aria-selected so it is keyboard
+   focusable and degrades without JavaScript. #}
+<div class="cc-filter-chips" id="cc-filter-chips" role="tablist"
+     {% if active_corpus_id %}hx-get="/corpora/{{ active_corpus_id }}/chips?filter={{ filter }}"
+     hx-trigger="verdict-changed from:body"
+     hx-swap="outerHTML"{% endif %}>
+  {% for key, label in [
+      ('all', 'All'), ('open', 'Open'), ('confirmed', 'Confirmed'),
+      ('false_positive', 'FP'), ('dismissed', 'Dismissed')] %}
+    <a class="cc-chip {% if filter == key %}cc-chip--active{% endif %}"
+       role="tab"
+       aria-selected="{{ 'true' if filter == key else 'false' }}"
+       href="/?corpus={{ active_corpus_id }}&filter={{ key }}"
+       hx-get="/corpora/{{ active_corpus_id }}/findings?filter={{ key }}"
+       hx-target="#cc-main" hx-swap="innerHTML"
+       hx-push-url="/?corpus={{ active_corpus_id }}&filter={{ key }}">{{ label }} ({{ counts[key] }})</a>
+  {% endfor %}
+</div>
