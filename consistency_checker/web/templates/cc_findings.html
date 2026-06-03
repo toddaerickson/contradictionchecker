@@ -39,7 +39,7 @@
               hx-get="/corpora/{{ active_corpus_id }}/drawer/stats"
               hx-target="#cc-drawer-region"
               hx-swap="innerHTML">Stats</button>
-      {% if active_corpus_id and findings %}
+      {% if active_corpus_id and counts.all %}
         <a href="/corpora/{{ active_corpus_id }}/findings.csv?filter={{ filter }}"
            download
            class="cc-button cc-button--ghost cc-button--small">Export CSV</a>

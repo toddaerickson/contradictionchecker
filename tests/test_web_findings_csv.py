@@ -1,4 +1,4 @@
-"""Tests for the findings CSV export route (ADR-0011 gap closer).
+"""Tests for the findings CSV export route (ADR-0017 gap closer).
 
 ``GET /corpora/{id}/findings.csv`` exports the active corpus's LATEST run
 honoring the active filter chip — exactly what the findings pane shows. The
@@ -272,6 +272,24 @@ def test_export_button_renders_when_findings_present(tmp_path: Path) -> None:
     assert f'href="/corpora/{cid}/findings.csv?filter=all"' in body
     assert "Export CSV" in body
     assert "download" in body
+
+
+def test_export_button_renders_when_active_filter_yields_zero_rows(tmp_path: Path) -> None:
+    """The Export button is gated on ``counts.all`` (the corpus HAS findings),
+    not on the filtered list. Selecting a filter chip with zero matches (here
+    ``confirmed`` against two unconfirmed findings) must still show the button —
+    consistent with the always-visible filter chips."""
+    cfg = _config(tmp_path)
+    cid, _rid, _pk, _text = _seed_corpus_with_two_findings(cfg)
+    client = _client(cfg)
+    resp = client.get(f"/?corpus={cid}&filter=confirmed")
+    assert resp.status_code == 200
+    body = resp.text
+    # Active filter yields no confirmed rows...
+    assert "No findings yet." in body
+    # ...but the Export button is present and carries the active filter.
+    assert "Export CSV" in body
+    assert f'href="/corpora/{cid}/findings.csv?filter=confirmed"' in body
 
 
 @pytest.mark.parametrize("missing_state", ["no_run", "no_corpus"])

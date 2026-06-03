@@ -407,7 +407,8 @@ def create_app(
     ) -> tuple[list[dict[str, Any]], dict[str, int]]:
         """Pull pair findings (contradiction + numeric_short_circuit) and
         definition_divergent findings for the run, hydrate doc labels, and
-        flatten to the shape ``cc_findings.html`` consumes.
+        flatten to the shape ``cc_findings.html`` and the CSV export consume
+        (the latter also reads the assertion-text and rationale keys).
 
         Returns ``(filtered_findings, counts)`` where ``counts`` has the
         per-filter totals (all/open/confirmed/false_positive/dismissed)
@@ -933,7 +934,7 @@ def create_app(
         corpus_id: str,
         filter: str = "all",
     ) -> Response:
-        """Download the on-screen findings as CSV (ADR-0011 gap closer).
+        """Download the on-screen findings as CSV (closes the ADR-0017 deferred CSV-export gap).
 
         Exports the active corpus's LATEST run honoring the active filter
         chip, so the file matches exactly what the findings pane shows. A
