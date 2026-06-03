@@ -31,7 +31,6 @@ Schema for each baseline-run JSON file (one per run):
           "doc_b": "term_sheet.txt",
           "span_b": "...",
           "type": "contradiction",
-          "confidence": 0.85,
           "rationale": "..."
         }
       ],
@@ -74,7 +73,6 @@ class BaselineFinding:
     span_a: str
     span_b: str
     finding_type: str
-    confidence: float | None
     rationale: str
 
 
@@ -159,8 +157,6 @@ def _build_finding(row: Mapping[str, object]) -> BaselineFinding:
     doc_b = str(row["doc_b"])
     span_a = str(row["span_a"])
     span_b = str(row["span_b"])
-    confidence_raw = row.get("confidence")
-    confidence = float(confidence_raw) if confidence_raw is not None else None
     return BaselineFinding(
         finding_id=compute_finding_id(doc_a, span_a, doc_b, span_b),
         doc_a=doc_a,
@@ -168,7 +164,6 @@ def _build_finding(row: Mapping[str, object]) -> BaselineFinding:
         span_a=span_a,
         span_b=span_b,
         finding_type=str(row.get("type", "contradiction")),
-        confidence=confidence,
         rationale=str(row.get("rationale", "")),
     )
 
@@ -282,7 +277,7 @@ def intersection_findings(runs: Sequence[BaselineRun]) -> dict[str, BaselineFind
 def write_findings_for_labelling(findings: Mapping[str, BaselineFinding], path: Path | str) -> None:
     """Emit a CSV the operator hand-labels in a spreadsheet.
 
-    Columns: finding_id, doc_a, span_a, doc_b, span_b, type, confidence,
+    Columns: finding_id, doc_a, span_a, doc_b, span_b, type,
     rationale, label, notes. ``label`` and ``notes`` are blank; the
     operator fills them in (label ∈ {real, false_positive, dismissed}).
     """
@@ -296,7 +291,6 @@ def write_findings_for_labelling(findings: Mapping[str, BaselineFinding], path: 
                 "doc_b",
                 "span_b",
                 "type",
-                "confidence",
                 "rationale",
                 "label",
                 "notes",
@@ -311,7 +305,6 @@ def write_findings_for_labelling(findings: Mapping[str, BaselineFinding], path: 
                     f.doc_b,
                     f.span_b,
                     f.finding_type,
-                    "" if f.confidence is None else f"{f.confidence:.3f}",
                     f.rationale,
                     "",
                     "",

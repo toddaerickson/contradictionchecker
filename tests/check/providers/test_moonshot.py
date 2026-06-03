@@ -17,7 +17,6 @@ def test_moonshot_judge_provider_returns_valid_payload(monkeypatch):
     def make_response():
         parsed_payload = JudgePayload(
             verdict="contradiction",
-            confidence=0.95,
             rationale="The two assertions directly conflict.",
             evidence_spans=["assertion A text", "assertion B text"],
         )
@@ -63,7 +62,6 @@ def test_moonshot_judge_provider_returns_valid_payload(monkeypatch):
 
     assert isinstance(payload, JudgePayload)
     assert payload.verdict == "contradiction"
-    assert payload.confidence == 0.95
 
 
 def test_moonshot_judge_provider_missing_api_key(monkeypatch):
@@ -92,7 +90,6 @@ def test_moonshot_judge_validates_payload():
         msg = Message()
         msg.parsed = {
             "verdict": "invalid_verdict",  # Not in enum
-            "confidence": 0.5,
             "rationale": "test",
         }
 
@@ -155,7 +152,6 @@ def test_moonshot_judge_provider_real_api_pairwise():
     # Validate structure
     assert isinstance(payload, JudgePayload)
     assert payload.verdict in ["contradiction", "not_contradiction", "uncertain"]
-    assert 0.0 <= payload.confidence <= 1.0
     assert len(payload.rationale) > 0
 
 
@@ -180,7 +176,6 @@ def test_moonshot_judge_provider_real_api_multi_party():
     # Validate structure
     assert isinstance(payload, MultiPartyJudgePayload)
     assert payload.verdict in ["multi_party_contradiction", "not_contradiction", "uncertain"]
-    assert 0.0 <= payload.confidence <= 1.0
     assert len(payload.rationale) > 0
 
     # If verdict is multi_party_contradiction, subset should not be empty

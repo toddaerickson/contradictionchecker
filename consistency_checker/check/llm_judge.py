@@ -4,7 +4,7 @@ Orchestrates calling a provider with the structured prompt and translating the
 validated :class:`JudgePayload` into a :class:`JudgeVerdict` for downstream
 consumers. Includes retry-with-repair: on Pydantic validation failure the call
 is retried up to ``max_retries`` times before degrading to an ``uncertain``
-verdict with confidence 0 — never crashing the pipeline.
+verdict — never crashing the pipeline.
 """
 
 from __future__ import annotations
@@ -38,7 +38,6 @@ class JudgeVerdict:
     assertion_a_id: str
     assertion_b_id: str
     verdict: JudgeVerdictLabel
-    confidence: float
     rationale: str
     evidence_spans: list[str] = field(default_factory=list)
 
@@ -48,7 +47,6 @@ class JudgeVerdict:
             assertion_a_id=a.assertion_id,
             assertion_b_id=b.assertion_id,
             verdict=payload.verdict,
-            confidence=payload.confidence,
             rationale=payload.rationale,
             evidence_spans=list(payload.evidence_spans),
         )
@@ -82,7 +80,6 @@ def uncertain_fallback(a: Assertion, b: Assertion, reason: str) -> JudgeVerdict:
         assertion_a_id=a.assertion_id,
         assertion_b_id=b.assertion_id,
         verdict="uncertain",
-        confidence=0.0,
         rationale=f"Judge degraded to uncertain: {reason}",
         evidence_spans=[],
     )
@@ -99,7 +96,7 @@ class Judge(Protocol):
 class FixtureJudge:
     """Returns canned verdicts keyed by the canonical assertion-id pair.
 
-    Falls back to a low-confidence ``uncertain`` verdict when a pair is missing,
+    Falls back to an ``uncertain`` verdict when a pair is missing,
     so test fixtures only need to enumerate the interesting cases.
     """
 

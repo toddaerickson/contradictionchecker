@@ -15,7 +15,7 @@ The **pairwise contradiction detector** (NLI gate → LLM judge on candidate pai
 | Stage | Component | Role |
 |------|-----------|------|
 | A | NLI checker (`microsoft/deberta-v3-large-mnli` family) | Cheap bidirectional contradiction score. Gates candidate pairs to Stage B. |
-| B | LLM judge (Anthropic Claude or OpenAI, structured JSON output) | Verifies with rationale, confidence, and evidence spans. |
+| B | LLM judge (Anthropic Claude or OpenAI, structured JSON output) | Verifies with rationale and evidence spans. |
 
 A single LLM-only check has been benchmarked at ~16% precision on pairwise contradiction detection in domain text (legal/financial). The NLI gate lifts precision to ~89% while cutting LLM cost roughly an order of magnitude — so when pairwise *is* the right detector (numeric-/spec-heavy corpora), the two-stage flow is the cheap way to run it.
 

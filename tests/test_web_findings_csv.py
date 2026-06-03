@@ -67,7 +67,6 @@ def _record_finding(
     a: Assertion,
     b: Assertion,
     *,
-    confidence: float,
     rationale: str,
 ) -> str:
     """Record one contradiction finding; return its pair_key."""
@@ -79,7 +78,6 @@ def _record_finding(
             assertion_a_id=a.assertion_id,
             assertion_b_id=b.assertion_id,
             verdict="contradiction",
-            confidence=confidence,
             rationale=rationale,
             evidence_spans=[],
         ),
@@ -110,10 +108,8 @@ def _seed_corpus_with_two_findings(
 
     audit = AuditLogger(store)
     run_id = audit.begin_run(corpus_id=cid)
-    pair_key_1 = _record_finding(
-        audit, run_id, a1, b1, confidence=0.91, rationale="Revenue contradiction."
-    )
-    _record_finding(audit, run_id, a2, b2, confidence=0.85, rationale="EBITDA contradiction.")
+    pair_key_1 = _record_finding(audit, run_id, a1, b1, rationale="Revenue contradiction.")
+    _record_finding(audit, run_id, a2, b2, rationale="EBITDA contradiction.")
     audit.end_run(run_id, n_assertions=4, n_pairs_gated=2, n_pairs_judged=2, n_findings=2)
     store.close()
     return cid, run_id, pair_key_1, text_a
@@ -139,7 +135,6 @@ def test_findings_csv_returns_csv_with_header_and_rows(tmp_path: Path) -> None:
     assert rows[0] == [
         "finding_type",
         "judge_verdict",
-        "confidence",
         "reviewer_verdict",
         "doc_a",
         "assertion_a",
@@ -184,7 +179,8 @@ def test_findings_csv_filter_narrows_rows(tmp_path: Path) -> None:
     assert "Revenue contradiction." in resp_conf.text
     assert "EBITDA contradiction." not in resp_conf.text
     # reviewer_verdict column reflects the mark.
-    assert rows_conf[1][3] == "confirmed"
+    reviewer_idx = rows_conf[0].index("reviewer_verdict")
+    assert rows_conf[1][reviewer_idx] == "confirmed"
 
     resp_open = client.get(f"/corpora/{cid}/findings.csv?filter=open")
     assert resp_open.status_code == 200

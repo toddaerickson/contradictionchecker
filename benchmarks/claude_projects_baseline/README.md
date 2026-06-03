@@ -52,7 +52,7 @@ uv run python -m benchmarks.claude_projects_baseline.harness dedupe \
     --out benchmarks/claude_projects_baseline/labels/loan_alpha_to_label.csv
 ```
 
-This produces a CSV with one row per *unique* finding across the three runs (deduped by content-addressed `finding_id`). Columns: `finding_id`, `doc_a`, `span_a`, `doc_b`, `span_b`, `type`, `confidence`, `rationale`, `label`, `notes`.
+This produces a CSV with one row per *unique* finding across the three runs (deduped by content-addressed `finding_id`). Columns: `finding_id`, `doc_a`, `span_a`, `doc_b`, `span_b`, `type`, `rationale`, `label`, `notes`.
 
 ### 4. Hand-label
 

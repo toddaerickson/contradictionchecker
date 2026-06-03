@@ -54,7 +54,6 @@ def test_short_circuit_fires_on_sign_flip_pair() -> None:
     verdict = _try_numeric_short_circuit(a, b)
     assert verdict is not None
     assert verdict.verdict == "numeric_short_circuit"
-    assert verdict.confidence == 1.0
     assert "Numeric short-circuit" in verdict.rationale
     # Canonical id ordering even when caller passed (a, b) the other way.
     assert verdict.assertion_a_id == min(a.assertion_id, b.assertion_id)
@@ -166,7 +165,6 @@ def test_pipeline_short_circuits_revenue_flip_pair(tmp_path: Path) -> None:
     [finding] = list(
         audit_logger.iter_findings(run_id=result.run_id, verdict="numeric_short_circuit")
     )
-    assert finding.judge_confidence == 1.0
     assert finding.judge_rationale is not None
     assert "Numeric short-circuit" in finding.judge_rationale
     store.close()
@@ -293,7 +291,6 @@ class _RecordingJudge:
             assertion_a_id=min(a.assertion_id, b.assertion_id),
             assertion_b_id=max(a.assertion_id, b.assertion_id),
             verdict="uncertain",
-            confidence=0.0,
             rationale="recorded",
         )
 

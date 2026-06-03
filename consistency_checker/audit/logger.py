@@ -68,7 +68,6 @@ class Finding:
     nli_p_entailment: float | None
     nli_p_neutral: float | None
     judge_verdict: str | None
-    judge_confidence: float | None
     judge_rationale: str | None
     evidence_spans: list[str] = field(default_factory=list)
     created_at: datetime | None = None
@@ -90,7 +89,6 @@ class MultiPartyFinding:
     doc_ids: list[str]
     triangle_edge_scores: list[tuple[str, str, float]]
     judge_verdict: str | None
-    judge_confidence: float | None
     judge_rationale: str | None
     evidence_spans: list[str] = field(default_factory=list)
     created_at: datetime | None = None
@@ -136,7 +134,6 @@ def _row_to_finding(row: sqlite3.Row) -> Finding:
         nli_p_entailment=row["nli_p_entailment"],
         nli_p_neutral=row["nli_p_neutral"],
         judge_verdict=row["judge_verdict"],
-        judge_confidence=row["judge_confidence"],
         judge_rationale=row["judge_rationale"],
         evidence_spans=spans,
         created_at=_parse_ts(row["created_at"]),
@@ -156,7 +153,6 @@ def _row_to_multi_party_finding(row: sqlite3.Row) -> MultiPartyFinding:
         doc_ids=list(json.loads(row["doc_ids_json"])),
         triangle_edge_scores=edges,
         judge_verdict=row["judge_verdict"],
-        judge_confidence=row["judge_confidence"],
         judge_rationale=row["judge_rationale"],
         evidence_spans=spans,
         created_at=_parse_ts(row["created_at"]),
@@ -272,8 +268,8 @@ class AuditLogger:
                 "INSERT OR REPLACE INTO findings ("
                 "finding_id, run_id, assertion_a_id, assertion_b_id, "
                 "gate_score, nli_label, nli_p_contradiction, nli_p_entailment, nli_p_neutral, "
-                "judge_verdict, judge_confidence, judge_rationale, evidence_spans_json"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "judge_verdict, judge_rationale, evidence_spans_json"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     finding_id,
                     run_id,
@@ -285,7 +281,6 @@ class AuditLogger:
                     nli.p_entailment if nli else None,
                     nli.p_neutral if nli else None,
                     verdict.verdict,
-                    verdict.confidence,
                     verdict.rationale,
                     spans_json,
                 ),
@@ -313,9 +308,9 @@ class AuditLogger:
                 "INSERT OR REPLACE INTO findings ("
                 "finding_id, run_id, assertion_a_id, assertion_b_id, "
                 "gate_score, nli_label, nli_p_contradiction, nli_p_entailment, nli_p_neutral, "
-                "judge_verdict, judge_confidence, judge_rationale, evidence_spans_json, "
+                "judge_verdict, judge_rationale, evidence_spans_json, "
                 "detector_type"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     finding_id,
                     run_id,
@@ -327,7 +322,6 @@ class AuditLogger:
                     None,
                     None,
                     finding.verdict.verdict,
-                    finding.verdict.confidence,
                     finding.verdict.rationale,
                     spans_json,
                     "definition_inconsistency",
@@ -343,7 +337,6 @@ class AuditLogger:
         doc_ids: list[str],
         triangle_edge_scores: list[tuple[str, str, float]] | None = None,
         judge_verdict: str,
-        judge_confidence: float | None = None,
         judge_rationale: str | None = None,
         evidence_spans: list[str] | None = None,
     ) -> str:
@@ -369,9 +362,9 @@ class AuditLogger:
             self._conn.execute(
                 "INSERT OR REPLACE INTO multi_party_findings ("
                 "finding_id, run_id, assertion_ids_json, doc_ids_json, "
-                "triangle_edge_scores_json, judge_verdict, judge_confidence, "
+                "triangle_edge_scores_json, judge_verdict, "
                 "judge_rationale, evidence_spans_json"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     finding_id,
                     run_id,
@@ -379,7 +372,6 @@ class AuditLogger:
                     json.dumps(list(doc_ids)),
                     edges_payload,
                     judge_verdict,
-                    judge_confidence,
                     judge_rationale,
                     spans_payload,
                 ),

@@ -69,7 +69,6 @@ def test_multi_party_payload_accepts_valid_contradiction() -> None:
     payload = MultiPartyJudgePayload.model_validate(
         {
             "verdict": "multi_party_contradiction",
-            "confidence": 0.88,
             "rationale": "A says all employees get 4w; B says engineers are employees; C says engineers get 2w.",
             "contradicting_subset": ["A", "B", "C"],
             "evidence_spans": ["four weeks", "two weeks"],
@@ -82,15 +81,13 @@ def test_multi_party_payload_accepts_valid_contradiction() -> None:
 def test_multi_party_payload_rejects_pair_label() -> None:
     """Plain 'contradiction' is reserved for the pair judge."""
     with pytest.raises(ValidationError):
-        MultiPartyJudgePayload.model_validate(
-            {"verdict": "contradiction", "confidence": 0.5, "rationale": "..."}
-        )
+        MultiPartyJudgePayload.model_validate({"verdict": "contradiction", "rationale": "..."})
 
 
 def test_multi_party_payload_rejects_numeric_short_circuit() -> None:
     with pytest.raises(ValidationError):
         MultiPartyJudgePayload.model_validate(
-            {"verdict": "numeric_short_circuit", "confidence": 1.0, "rationale": "..."}
+            {"verdict": "numeric_short_circuit", "rationale": "..."}
         )
 
 
@@ -100,7 +97,6 @@ def test_multi_party_payload_rejects_subset_when_not_contradiction() -> None:
         MultiPartyJudgePayload.model_validate(
             {
                 "verdict": "uncertain",
-                "confidence": 0.4,
                 "rationale": "unclear scope",
                 "contradicting_subset": ["A", "B"],
             }
@@ -111,7 +107,6 @@ def test_multi_party_payload_allows_empty_subset_for_not_contradiction() -> None
     payload = MultiPartyJudgePayload.model_validate(
         {
             "verdict": "not_contradiction",
-            "confidence": 0.7,
             "rationale": "scopes don't overlap",
         }
     )
@@ -123,7 +118,6 @@ def test_multi_party_payload_rejects_extra_fields() -> None:
         MultiPartyJudgePayload.model_validate(
             {
                 "verdict": "uncertain",
-                "confidence": 0.5,
                 "rationale": "...",
                 "extra": "noise",
             }
@@ -132,9 +126,7 @@ def test_multi_party_payload_rejects_extra_fields() -> None:
 
 def test_multi_party_payload_requires_rationale() -> None:
     with pytest.raises(ValidationError):
-        MultiPartyJudgePayload.model_validate(
-            {"verdict": "uncertain", "confidence": 0.5, "rationale": ""}
-        )
+        MultiPartyJudgePayload.model_validate({"verdict": "uncertain", "rationale": ""})
 
 
 # --- Prompt rendering -----------------------------------------------------
@@ -173,7 +165,6 @@ def test_fixture_multi_party_judge_returns_canned_verdict() -> None:
     expected = MultiPartyJudgeVerdict(
         assertion_ids=triangle.assertion_ids,
         verdict="multi_party_contradiction",
-        confidence=0.9,
         rationale="A ∧ B ⇒ ¬C",
         contradicting_subset=("A", "B", "C"),
         evidence_spans=["four weeks", "two weeks"],
@@ -187,7 +178,6 @@ def test_fixture_multi_party_judge_unknown_triangle_returns_uncertain() -> None:
     judge = FixtureMultiPartyJudge({})
     out = judge.judge(triangle)
     assert out.verdict == "uncertain"
-    assert out.confidence == 0.0
     assert out.contradicting_subset == ()
 
 
@@ -219,7 +209,6 @@ def test_llm_multi_party_judge_returns_verdict_on_first_success() -> None:
     triangle = _triangle()
     payload = MultiPartyJudgePayload(
         verdict="multi_party_contradiction",
-        confidence=0.85,
         rationale="A ∧ B ⇒ ¬C",
         contradicting_subset=["A", "B", "C"],
     )
@@ -234,14 +223,11 @@ def test_llm_multi_party_judge_returns_verdict_on_first_success() -> None:
 
 def test_llm_multi_party_judge_retries_on_validation_error() -> None:
     triangle = _triangle()
-    good_payload = MultiPartyJudgePayload(
-        verdict="uncertain", confidence=0.3, rationale="scope unclear"
-    )
+    good_payload = MultiPartyJudgePayload(verdict="uncertain", rationale="scope unclear")
     provider = _MockProvider(payloads=[ValueError("first attempt malformed"), good_payload])
     judge = LLMMultiPartyJudge(provider, max_retries=2)
     verdict = judge.judge(triangle)
     assert verdict.verdict == "uncertain"
-    assert verdict.confidence == 0.3
     assert provider.call_count == 2
 
 
@@ -251,7 +237,6 @@ def test_llm_multi_party_judge_falls_back_after_retries() -> None:
     judge = LLMMultiPartyJudge(provider, max_retries=2)
     verdict = judge.judge(triangle)
     assert verdict.verdict == "uncertain"
-    assert verdict.confidence == 0.0
     assert "c" in verdict.rationale
     assert provider.call_count == 3
 
@@ -263,9 +248,7 @@ def test_llm_multi_party_judge_rejects_negative_retries() -> None:
 
 def test_llm_multi_party_judge_passes_rendered_prompts() -> None:
     triangle = _triangle()
-    payload = MultiPartyJudgePayload(
-        verdict="not_contradiction", confidence=0.6, rationale="independent claims"
-    )
+    payload = MultiPartyJudgePayload(verdict="not_contradiction", rationale="independent claims")
     provider = _MockProvider(payloads=[payload])
     LLMMultiPartyJudge(provider).judge(triangle)
     assert provider.last_system is not None
@@ -302,7 +285,6 @@ def test_anthropic_multi_party_provider_parses_tool_use() -> None:
     fake = _FakeAnthropic(
         {
             "verdict": "multi_party_contradiction",
-            "confidence": 0.8,
             "rationale": "chained conflict",
             "contradicting_subset": ["A", "B", "C"],
             "evidence_spans": ["four weeks", "two weeks"],
@@ -329,7 +311,7 @@ def test_anthropic_multi_party_parse_invalid_payload_raises() -> None:
     block = SimpleNamespace(
         type="tool_use",
         name=ANTHROPIC_MULTI_PARTY_TOOL_NAME,
-        input={"verdict": "bogus", "confidence": 0.5, "rationale": "..."},
+        input={"verdict": "bogus", "rationale": "..."},
     )
     response = SimpleNamespace(content=[block])
     with pytest.raises(ValidationError):
@@ -366,7 +348,6 @@ class _FakeOpenAI:
 def test_openai_multi_party_provider_returns_validated_payload() -> None:
     payload = MultiPartyJudgePayload(
         verdict="multi_party_contradiction",
-        confidence=0.9,
         rationale="chain",
         contradicting_subset=["A", "B", "C"],
     )

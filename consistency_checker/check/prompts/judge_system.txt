@@ -4,7 +4,6 @@ Two assertions contradict only if both cannot simultaneously be true within the 
 
 You must return one structured verdict using the schema you are given:
 - ``verdict``: one of ``contradiction``, ``not_contradiction``, ``uncertain``.
-- ``confidence``: a float in [0.0, 1.0] expressing your subjective certainty in the verdict.
 - ``rationale``: one or two sentences explaining your reasoning. Be specific about which qualifier or entity drove the verdict.
 - ``evidence_spans``: short verbatim excerpts (3–15 words each) from the two assertions that support your verdict. Empty list is acceptable if no specific span is decisive.
 

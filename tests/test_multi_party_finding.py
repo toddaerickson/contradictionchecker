@@ -97,7 +97,6 @@ def test_record_multi_party_finding_round_trip(store: AssertionStore) -> None:
         doc_ids=[a.doc_id for a in assertions],
         triangle_edge_scores=edges,
         judge_verdict="multi_party_contradiction",
-        judge_confidence=0.88,
         judge_rationale="A ∧ B ⇒ ¬C — engineers are employees so the 4-week claim contradicts the 2-week claim.",
         evidence_spans=["four weeks", "two weeks"],
     )
@@ -108,7 +107,6 @@ def test_record_multi_party_finding_round_trip(store: AssertionStore) -> None:
     assert fetched.assertion_ids == sorted(a.assertion_id for a in assertions)
     assert fetched.doc_ids == [a.doc_id for a in assertions]
     assert fetched.judge_verdict == "multi_party_contradiction"
-    assert fetched.judge_confidence == pytest.approx(0.88)
     assert fetched.evidence_spans == ["four weeks", "two weeks"]
     # Edge scores round-trip with float values.
     assert len(fetched.triangle_edge_scores) == 3
@@ -251,7 +249,6 @@ def test_end_run_autocount_includes_multi_party_contradictions(
             assertion_a_id=assertions[0].assertion_id,
             assertion_b_id=assertions[1].assertion_id,
             verdict="contradiction",
-            confidence=0.9,
             rationale="x",
         ),
     )
@@ -329,7 +326,6 @@ def test_multi_party_finding_dataclass_is_frozen() -> None:
         doc_ids=["d1", "d2", "d3"],
         triangle_edge_scores=[],
         judge_verdict="uncertain",
-        judge_confidence=None,
         judge_rationale=None,
     )
     with pytest.raises(AttributeError):

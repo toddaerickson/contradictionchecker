@@ -50,7 +50,6 @@ class JudgePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     verdict: LLMVerdictLabel
-    confidence: float = Field(ge=0.0, le=1.0)
     rationale: str = Field(min_length=1)
     evidence_spans: list[str] = Field(default_factory=list)
 
@@ -75,7 +74,6 @@ class MultiPartyJudgePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     verdict: MultiPartyVerdictLabel
-    confidence: float = Field(ge=0.0, le=1.0)
     rationale: str = Field(min_length=1)
     contradicting_subset: list[str] = Field(default_factory=list)
     evidence_spans: list[str] = Field(default_factory=list)

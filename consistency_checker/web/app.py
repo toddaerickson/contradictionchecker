@@ -472,7 +472,6 @@ def create_app(
                 {
                     "finding_id": raw.finding_id,
                     "verdict": raw.judge_verdict or "uncertain",
-                    "confidence": raw.judge_confidence,
                     "label_or_quote": label,
                     "pair_key": pair_key,
                     "detector_type": detector_type,
@@ -487,7 +486,7 @@ def create_app(
                     "judge_rationale": raw.judge_rationale,
                 }
             )
-        out.sort(key=lambda f: -(f["confidence"] or 0.0))
+        out.sort(key=lambda f: (f["doc_a_label"], f["doc_b_label"], f["finding_id"]))
 
         # Compute counts BEFORE filtering so chips show real totals.
         counts: dict[str, int] = {
@@ -1005,7 +1004,6 @@ def create_app(
             [
                 "finding_type",
                 "judge_verdict",
-                "confidence",
                 "reviewer_verdict",
                 "doc_a",
                 "assertion_a",
@@ -1019,7 +1017,6 @@ def create_app(
                 [
                     f["detector_type"],
                     f["verdict"],
-                    f["confidence"],
                     f["reviewer_verdict"] or "",
                     f["doc_a_label"],
                     f["assertion_a_text"],
@@ -1507,7 +1504,6 @@ def create_app(
                         {
                             "finding_id": r.finding_id,
                             "term": a.term or "",
-                            "confidence": r.judge_confidence,
                             "doc_a_label": _document_label(documents.get(a.doc_id), a.doc_id),
                             "doc_b_label": _document_label(documents.get(b.doc_id), b.doc_id),
                             "def_a_text": a.assertion_text,
@@ -1520,7 +1516,7 @@ def create_app(
                             else None,
                         }
                     )
-                findings.sort(key=lambda f: (f["term"].lower(), -(f["confidence"] or 0.0)))
+                findings.sort(key=lambda f: (f["term"].lower(), f["finding_id"]))
             # PR #77 review fix: the counter must agree with the per-corpus
             # findings list, but `count_reviewer_verdicts` is content-addressed
             # (one verdict spans corpora by design — see migration 0009) so a

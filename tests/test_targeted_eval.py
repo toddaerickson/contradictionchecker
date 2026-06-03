@@ -230,7 +230,6 @@ def _pred(
     ground_truth: str,
     predicted: str,
     relation: str = "override",
-    confidence: float = 0.9,
 ) -> TargetedPrediction:
     return TargetedPrediction(
         pair_id=pair_id,
@@ -238,7 +237,6 @@ def _pred(
         ground_truth=ground_truth,  # type: ignore[arg-type]
         relation=relation,  # type: ignore[arg-type]
         predicted=predicted,  # type: ignore[arg-type]
-        judge_confidence=confidence,
         judge_rationale="r",
     )
 
@@ -308,14 +306,13 @@ def test_bucket_metrics_fn_rate_zero_denominator_safe() -> None:
 # --- run_targeted_eval --------------------------------------------------
 
 
-def _fixture_for(pair: TargetedPair, predicted: str, confidence: float = 0.9) -> JudgeVerdict:
+def _fixture_for(pair: TargetedPair, predicted: str) -> JudgeVerdict:
     a, b = _to_assertions(pair)
     canonical = (min(a.assertion_id, b.assertion_id), max(a.assertion_id, b.assertion_id))
     return JudgeVerdict(
         assertion_a_id=canonical[0],
         assertion_b_id=canonical[1],
         verdict=predicted,
-        confidence=confidence,
         rationale="r",
     )
 
@@ -333,7 +330,6 @@ def test_run_targeted_eval_produces_per_bucket_metrics() -> None:
                 assertion_a_id=min(a.assertion_id, b.assertion_id),
                 assertion_b_id=max(a.assertion_id, b.assertion_id),
                 verdict=label,
-                confidence=0.9,
                 rationale="r",
             )
         )
@@ -366,7 +362,6 @@ def test_run_targeted_eval_records_false_positive_against_override() -> None:
                 assertion_a_id=key[0],
                 assertion_b_id=key[1],
                 verdict="contradiction",
-                confidence=0.95,
                 rationale="opposing predicates",
             )
         }
@@ -389,7 +384,6 @@ def test_run_targeted_eval_collapses_unknown_verdicts_to_uncertain() -> None:
                 assertion_a_id=a.assertion_id,
                 assertion_b_id=b.assertion_id,
                 verdict="numeric_short_circuit",  # outside the 3-value enum
-                confidence=0.8,
                 rationale="r",
             )
 
@@ -445,7 +439,6 @@ def test_write_metrics_json_round_trips(tmp_path: Path) -> None:
                 ground_truth="not_contradiction",
                 relation="override",
                 predicted="not_contradiction",
-                judge_confidence=0.9,
                 judge_rationale="r",
             )
         ],
@@ -475,7 +468,6 @@ def test_main_runs_against_fixture_judge_via_monkeypatch(
                 assertion_a_id=a.assertion_id,
                 assertion_b_id=b.assertion_id,
                 verdict="not_contradiction",
-                confidence=0.5,
                 rationale="constant",
             )
 

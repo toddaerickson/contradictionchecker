@@ -139,6 +139,8 @@ def test_migration_0014_creates_legacy_when_orphan_docs_exist(tmp_path: Path) ->
             corpus_path TEXT, judge_provider TEXT, created_at TEXT, updated_at TEXT);
         CREATE TABLE documents (doc_id TEXT PRIMARY KEY, source_path TEXT);
         CREATE TABLE pipeline_runs (run_id TEXT PRIMARY KEY);
+        CREATE TABLE findings (finding_id TEXT PRIMARY KEY, judge_confidence REAL);
+        CREATE TABLE multi_party_findings (finding_id TEXT PRIMARY KEY, judge_confidence REAL);
         CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT);
         INSERT INTO documents (doc_id, source_path) VALUES ('d1', '/x.txt');
         INSERT INTO pipeline_runs (run_id) VALUES ('r1');

@@ -55,7 +55,6 @@ class BenchmarkPrediction:
     gold: GoldLabel
     predicted: GoldLabel
     judge_verdict: str
-    judge_confidence: float
     nli_p_contradiction: float
 
 
@@ -145,7 +144,6 @@ def run_benchmark(
                     gold=entry.label,
                     predicted="not_contradiction",
                     judge_verdict="not_invoked",
-                    judge_confidence=0.0,
                     nli_p_contradiction=nli.p_contradiction,
                 )
             )
@@ -165,7 +163,6 @@ def run_benchmark(
                 gold=entry.label,
                 predicted=predicted,
                 judge_verdict=verdict.verdict,
-                judge_confidence=verdict.confidence,
                 nli_p_contradiction=nli.p_contradiction,
             )
         )

@@ -114,7 +114,6 @@ def test_triangle_pass_drops_cross_corpus_assertions(tmp_path: Path) -> None:
             return MultiPartyJudgeVerdict(
                 assertion_ids=ids,
                 verdict="uncertain",
-                confidence=0.0,
                 rationale="",
                 contradicting_subset=(),
                 evidence_spans=[],

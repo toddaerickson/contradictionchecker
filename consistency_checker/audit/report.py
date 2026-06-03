@@ -4,9 +4,9 @@ Reads from the audit ``findings`` table plus the canonical ``documents`` and
 ``assertions`` tables. Output is deterministic (no timestamps in the body)
 so reports diff cleanly across runs and round-trip through golden-file tests.
 
-Findings are grouped by ``(doc_a, doc_b)`` pair, ordered by max confidence
-within group, then by descending confidence within each group. Only
-``contradiction``-verdict findings are emitted; ``uncertain`` and
+Findings are grouped by ``(doc_a, doc_b)`` pair and ordered by ``finding_id``
+(a content hash) within each group, so order is stable without depending on any
+score. Only ``contradiction``-verdict findings are emitted; ``uncertain`` and
 ``not_contradiction`` are filtered out (they live in the audit DB for replay
 and tuning).
 """
@@ -44,7 +44,6 @@ def render_report(
     audit_logger: AuditLogger,
     *,
     run_id: str,
-    min_confidence: float = 0.0,
 ) -> str:
     """Render a deterministic markdown report for the given run.
 
@@ -52,7 +51,6 @@ def render_report(
         store: canonical SQLite store, used to resolve assertion & document text.
         audit_logger: audit logger bound to the same store; supplies findings.
         run_id: only findings from this run are emitted.
-        min_confidence: lower bound on judge confidence (default 0.0 → include all).
     """
     run = audit_logger.get_run(run_id)
     # Both LLM contradictions and deterministic numeric short-circuits land in
@@ -60,12 +58,8 @@ def render_report(
     # time, so we make two passes and merge — cheaper than fetching all rows
     # and filtering in Python at scale.
     contradictions = [
-        f
-        for f in (
-            *audit_logger.iter_findings(run_id=run_id, verdict="contradiction"),
-            *audit_logger.iter_findings(run_id=run_id, verdict="numeric_short_circuit"),
-        )
-        if (f.judge_confidence or 0.0) >= min_confidence
+        *audit_logger.iter_findings(run_id=run_id, verdict="contradiction"),
+        *audit_logger.iter_findings(run_id=run_id, verdict="numeric_short_circuit"),
     ]
 
     contradiction_keys: list[tuple[str, DetectorType]] = [
@@ -103,21 +97,17 @@ def render_report(
     lines.append("")
 
     if not contradictions:
-        lines.append("_No contradictions met the reporting threshold._")
+        lines.append("_No contradictions found._")
         lines.append("")
-        _append_multi_party_section(
-            lines, audit_logger, store, run_id=run_id, min_confidence=min_confidence
-        )
-        _append_definition_section(
-            lines, audit_logger, store, run_id=run_id, min_confidence=min_confidence
-        )
+        _append_multi_party_section(lines, audit_logger, store, run_id=run_id)
+        _append_definition_section(lines, audit_logger, store, run_id=run_id)
         return "\n".join(lines) + "\n"
 
     # --- summary table ------------------------------------------------------
     lines.append("## Summary")
     lines.append("")
-    lines.append("| Confidence | NLI(p_contradiction) | Doc A | Doc B | Rationale |")
-    lines.append("| --- | --- | --- | --- | --- |")
+    lines.append("| NLI(p_contradiction) | Doc A | Doc B | Rationale |")
+    lines.append("| --- | --- | --- | --- |")
 
     # Resolve everything once.
     assertions: dict[str, Assertion] = {}
@@ -143,11 +133,8 @@ def render_report(
         # mypy: tuple(sorted(...)) is tuple[str, ...]; we know it's 2 elements
         grouped[(doc_pair[0], doc_pair[1])].append(finding)
 
-    # Summary rows, sorted by confidence desc.
-    summary_sorted = sorted(
-        contradictions,
-        key=lambda f: -(f.judge_confidence or 0.0),
-    )
+    # Summary rows in stable finding_id order.
+    summary_sorted = sorted(contradictions, key=lambda f: f.finding_id)
     for finding in summary_sorted:
         a = assertions.get(finding.assertion_a_id)
         b = assertions.get(finding.assertion_b_id)
@@ -160,7 +147,6 @@ def render_report(
         rationale_short = (finding.judge_rationale or "").splitlines()[0][:120]
         lines.append(
             "| "
-            f"{_format_score(finding.judge_confidence)} | "
             f"{_format_score(finding.nli_p_contradiction)} | "
             f"{doc_a_label} | "
             f"{doc_b_label} | "
@@ -173,10 +159,7 @@ def render_report(
     lines.append("")
     # Stable group order: by (doc_a, doc_b) ids.
     for doc_a_id, doc_b_id in sorted(grouped.keys()):
-        items = sorted(
-            grouped[(doc_a_id, doc_b_id)],
-            key=lambda f: -(f.judge_confidence or 0.0),
-        )
+        items = sorted(grouped[(doc_a_id, doc_b_id)], key=lambda f: f.finding_id)
         doc_a = documents.get(doc_a_id)
         doc_b = documents.get(doc_b_id)
         a_label = doc_a.title or doc_a.source_path if doc_a else doc_a_id
@@ -191,7 +174,6 @@ def render_report(
                 continue
             lines.append(f"#### Finding `{finding.finding_id}`")
             lines.append("")
-            lines.append(f"- **Confidence:** {_format_score(finding.judge_confidence)}")
             lines.append(
                 f"- **NLI p(contradiction):** {_format_score(finding.nli_p_contradiction)}"
             )
@@ -213,21 +195,8 @@ def render_report(
                 lines.append(f"**Rationale.** {finding.judge_rationale}")
                 lines.append("")
 
-    _append_multi_party_section(
-        lines,
-        audit_logger,
-        store,
-        run_id=run_id,
-        min_confidence=min_confidence,
-    )
-
-    _append_definition_section(
-        lines,
-        audit_logger,
-        store,
-        run_id=run_id,
-        min_confidence=min_confidence,
-    )
+    _append_multi_party_section(lines, audit_logger, store, run_id=run_id)
+    _append_definition_section(lines, audit_logger, store, run_id=run_id)
 
     return "\n".join(lines) + "\n"
 
@@ -238,7 +207,6 @@ def _append_multi_party_section(
     store: AssertionStore,
     *,
     run_id: str,
-    min_confidence: float,
 ) -> None:
     """Render the optional multi-document conditional contradictions section.
 
@@ -246,13 +214,9 @@ def _append_multi_party_section(
     a normal (pair-only) run's report stays byte-stable against existing
     golden files.
     """
-    multi: list[MultiPartyFinding] = [
-        f
-        for f in audit_logger.iter_multi_party_findings(
-            run_id=run_id, verdict="multi_party_contradiction"
-        )
-        if (f.judge_confidence or 0.0) >= min_confidence
-    ]
+    multi: list[MultiPartyFinding] = list(
+        audit_logger.iter_multi_party_findings(run_id=run_id, verdict="multi_party_contradiction")
+    )
 
     multi_keys: list[tuple[str, DetectorType]] = [
         (":".join(sorted(f.assertion_ids)), "multi_party") for f in multi
@@ -273,11 +237,10 @@ def _append_multi_party_section(
 
     lines.append("## Multi-document conditional contradictions")
     lines.append("")
-    multi_sorted = sorted(multi, key=lambda f: (-(f.judge_confidence or 0.0), f.finding_id))
+    multi_sorted = sorted(multi, key=lambda f: f.finding_id)
     for finding in multi_sorted:
         lines.append(f"### Finding `{finding.finding_id}`")
         lines.append("")
-        lines.append(f"- **Confidence:** {_format_score(finding.judge_confidence)}")
         if finding.triangle_edge_scores:
             min_edge = min(score for _, _, score in finding.triangle_edge_scores)
             lines.append(f"- **Min edge score:** {_format_score(min_edge)}")
@@ -309,22 +272,19 @@ def _append_definition_section(
     store: AssertionStore,
     *,
     run_id: str,
-    min_confidence: float,
 ) -> None:
     """Render the optional definition-inconsistencies section.
 
     Emitted only when the run produced at least one `definition_divergent`
     finding so prior-shape runs stay byte-stable.
     """
-    findings = [
-        f
-        for f in audit_logger.iter_findings(
+    findings = list(
+        audit_logger.iter_findings(
             run_id=run_id,
             verdict="definition_divergent",
             detector_type="definition_inconsistency",
         )
-        if (f.judge_confidence or 0.0) >= min_confidence
-    ]
+    )
 
     def_keys: list[tuple[str, DetectorType]] = [
         (":".join(sorted([f.assertion_a_id, f.assertion_b_id])), "definition_inconsistency")
@@ -376,7 +336,7 @@ def _append_definition_section(
     lines.append("## Definition inconsistencies")
     lines.append("")
     for term in sorted(grouped.keys(), key=str.lower):
-        items = sorted(grouped[term], key=lambda f: -(f.judge_confidence or 0.0))
+        items = sorted(grouped[term], key=lambda f: f.finding_id)
         lines.append(f'### "{term}"')
         lines.append("")
         for finding in items:

@@ -39,18 +39,16 @@ def test_judge_payload_accepts_valid_input() -> None:
     payload = JudgePayload.model_validate(
         {
             "verdict": "contradiction",
-            "confidence": 0.85,
             "rationale": "Both about Q1 revenue with opposite signs.",
             "evidence_spans": ["grew 12%", "declined 5%"],
         }
     )
     assert payload.verdict == "contradiction"
-    assert payload.confidence == 0.85
 
 
 def test_judge_payload_rejects_unknown_verdict() -> None:
     with pytest.raises(ValidationError):
-        JudgePayload.model_validate({"verdict": "maybe", "confidence": 0.5, "rationale": "..."})
+        JudgePayload.model_validate({"verdict": "maybe", "rationale": "..."})
 
 
 def test_judge_payload_rejects_numeric_short_circuit_from_llm() -> None:
@@ -59,16 +57,8 @@ def test_judge_payload_rejects_numeric_short_circuit_from_llm() -> None:
         JudgePayload.model_validate(
             {
                 "verdict": "numeric_short_circuit",
-                "confidence": 1.0,
                 "rationale": "...",
             }
-        )
-
-
-def test_judge_payload_rejects_out_of_range_confidence() -> None:
-    with pytest.raises(ValidationError):
-        JudgePayload.model_validate(
-            {"verdict": "contradiction", "confidence": 1.5, "rationale": "..."}
         )
 
 
@@ -77,7 +67,6 @@ def test_judge_payload_rejects_extra_fields() -> None:
         JudgePayload.model_validate(
             {
                 "verdict": "contradiction",
-                "confidence": 0.5,
                 "rationale": "...",
                 "extra": "noise",
             }
@@ -86,9 +75,7 @@ def test_judge_payload_rejects_extra_fields() -> None:
 
 def test_judge_payload_requires_rationale() -> None:
     with pytest.raises(ValidationError):
-        JudgePayload.model_validate(
-            {"verdict": "contradiction", "confidence": 0.5, "rationale": ""}
-        )
+        JudgePayload.model_validate({"verdict": "contradiction", "rationale": ""})
 
 
 # --- Prompt rendering -------------------------------------------------------
@@ -97,7 +84,6 @@ def test_judge_payload_requires_rationale() -> None:
 def test_system_prompt_loads_and_mentions_structured_output() -> None:
     prompt = render_system_prompt()
     assert "verdict" in prompt
-    assert "confidence" in prompt
     assert "rationale" in prompt
 
 
@@ -148,7 +134,6 @@ def test_fixture_judge_returns_canned_verdict() -> None:
         assertion_a_id=min(a.assertion_id, b.assertion_id),
         assertion_b_id=max(a.assertion_id, b.assertion_id),
         verdict="contradiction",
-        confidence=0.9,
         rationale="opposite signs at same scope",
     )
     judge = FixtureJudge(
@@ -165,7 +150,6 @@ def test_fixture_judge_unknown_pair_returns_uncertain() -> None:
     judge = FixtureJudge({})
     out = judge.judge(a, b)
     assert out.verdict == "uncertain"
-    assert out.confidence == 0.0
 
 
 # --- LLMJudge orchestration (mocked provider) -------------------------------
@@ -196,7 +180,7 @@ class _MockProvider:
 def test_llm_judge_returns_verdict_on_first_success() -> None:
     a = make_assertion("doc_a", "X")
     b = make_assertion("doc_b", "Y")
-    payload = JudgePayload(verdict="contradiction", confidence=0.8, rationale="they conflict")
+    payload = JudgePayload(verdict="contradiction", rationale="they conflict")
     provider = _MockProvider(payloads=[payload])
     judge = LLMJudge(provider, max_retries=2)
     verdict = judge.judge(a, b)
@@ -209,9 +193,7 @@ def test_llm_judge_returns_verdict_on_first_success() -> None:
 def test_llm_judge_retries_on_validation_error() -> None:
     a = make_assertion("doc_a", "X")
     b = make_assertion("doc_b", "Y")
-    good_payload = JudgePayload(
-        verdict="not_contradiction", confidence=0.6, rationale="different scope"
-    )
+    good_payload = JudgePayload(verdict="not_contradiction", rationale="different scope")
     provider = _MockProvider(
         payloads=[
             ValueError("malformed first attempt"),
@@ -237,7 +219,6 @@ def test_llm_judge_falls_back_to_uncertain_after_retries() -> None:
     judge = LLMJudge(provider, max_retries=2)
     verdict = judge.judge(a, b)
     assert verdict.verdict == "uncertain"
-    assert verdict.confidence == 0.0
     assert "attempt 3" in verdict.rationale
     assert provider.call_count == 3
 
@@ -250,7 +231,7 @@ def test_llm_judge_rejects_negative_retries() -> None:
 def test_llm_judge_passes_rendered_prompts_to_provider() -> None:
     a = make_assertion("doc_a", "Revenue grew 12%.")
     b = make_assertion("doc_b", "Revenue declined 5%.")
-    payload = JudgePayload(verdict="contradiction", confidence=0.9, rationale="opposing signs")
+    payload = JudgePayload(verdict="contradiction", rationale="opposing signs")
     provider = _MockProvider(payloads=[payload])
     LLMJudge(provider).judge(a, b)
     assert provider.last_system is not None
@@ -283,7 +264,6 @@ def test_anthropic_provider_parses_tool_use() -> None:
     fake = _FakeAnthropic(
         {
             "verdict": "contradiction",
-            "confidence": 0.7,
             "rationale": "opposite signs",
             "evidence_spans": ["grew", "declined"],
         }
@@ -291,7 +271,6 @@ def test_anthropic_provider_parses_tool_use() -> None:
     provider = AnthropicProvider(client=fake)  # type: ignore[arg-type]
     payload = provider.request_payload(system="sys", user="usr")
     assert payload.verdict == "contradiction"
-    assert payload.confidence == 0.7
     # Check that tool_choice and tools wiring is right.
     assert fake.last_kwargs is not None
     assert fake.last_kwargs["tool_choice"] == {
@@ -310,7 +289,7 @@ def test_anthropic_parse_tool_response_invalid_payload_raises() -> None:
     block = SimpleNamespace(
         type="tool_use",
         name=ANTHROPIC_TOOL_NAME,
-        input={"verdict": "bogus", "confidence": 0.5, "rationale": "..."},
+        input={"verdict": "bogus", "rationale": "..."},
     )
     response = SimpleNamespace(content=[block])
     with pytest.raises(ValidationError):
@@ -347,7 +326,6 @@ class _FakeOpenAI:
 def test_openai_provider_returns_validated_payload() -> None:
     payload = JudgePayload(
         verdict="not_contradiction",
-        confidence=0.55,
         rationale="different time period",
     )
     fake = _FakeOpenAI(parsed=payload)

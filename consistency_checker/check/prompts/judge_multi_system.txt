@@ -12,7 +12,6 @@ When the scope is ambiguous, when the three assertions plausibly refer to differ
 
 You must return one structured verdict using the schema you are given:
 - ``verdict``: one of ``multi_party_contradiction``, ``not_contradiction``, ``uncertain``.
-- ``confidence``: a float in [0.0, 1.0] expressing your subjective certainty.
 - ``rationale``: one or two sentences. Be specific about which chain of reasoning produces the contradiction (e.g. "A says all X are Y; B says Z is X; so Z must be Y — but C says Z is not Y").
 - ``contradicting_subset``: when ``verdict`` is ``multi_party_contradiction``, the labels (``"A"``, ``"B"``, ``"C"``) of the assertions that jointly contradict. Use all three if the conjunction is required. Must be empty when the verdict is not ``multi_party_contradiction``.
 - ``evidence_spans``: short verbatim excerpts (3–15 words each) from the assertions that support your verdict. Empty list is acceptable.

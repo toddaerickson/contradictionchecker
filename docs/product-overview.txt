@@ -20,7 +20,7 @@ Third, it embeds and gates. Every claim is turned into a vector and stored in a 
 
 Fourth comes Stage A, the natural-language-inference gate. A specialized model scores each candidate pair for how likely it is to be a contradiction. This stage is cheap and casts a wide net. It has high recall but low precision — on its own it would flag far too many false contradictions.
 
-Fifth comes Stage B, the language-model judge. For every pair that clears the gate, a frontier language model delivers a structured verdict: contradiction, not a contradiction, or uncertain. It returns a rationale, a confidence score, and the specific quoted spans of text that drove the decision. This stage is the precision instrument.
+Fifth comes Stage B, the language-model judge. For every pair that clears the gate, a frontier language model delivers a structured verdict: contradiction, not a contradiction, or uncertain. It returns a rationale and the specific quoted spans of text that drove the decision. This stage is the precision instrument.
 
 Along the way, two extra mechanisms run. A numeric short-circuit catches plain sign-flips deterministically — for example, one document saying revenue grew twelve percent and another saying it declined five percent, for the same metric and the same period. These never need the language model. And an optional deep mode finds three-document conditional contradictions: cases where document A and document B and document C are each fine in isolation, but taken together they cannot all be true.
 

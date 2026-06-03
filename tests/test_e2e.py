@@ -175,7 +175,6 @@ def _build_fixtures(
             assertion_a_id=clear_key[0],
             assertion_b_id=clear_key[1],
             verdict="contradiction",
-            confidence=0.91,
             rationale="Opposite revenue signs at the same fiscal-year scope.",
             evidence_spans=["grew 12%", "declined 5%"],
         ),
@@ -183,7 +182,6 @@ def _build_fixtures(
             assertion_a_id=near_key[0],
             assertion_b_id=near_key[1],
             verdict="uncertain",
-            confidence=0.45,
             rationale="The two assertions disagree on the Beta start year but neither "
             "rules out the other given the document scope provided.",
             evidence_spans=["fiscal year 2024", "fiscal 2023"],
@@ -338,10 +336,6 @@ def test_end_to_end_pipeline_fixture(tmp_path: Path) -> None:
     planted = contradiction_findings[0]
     assert planted.assertion_a_id == clear_key[0]
     assert planted.assertion_b_id == clear_key[1]
-    assert planted.judge_confidence is not None
-    assert planted.judge_confidence > 0.7, (
-        f"planted contradiction confidence {planted.judge_confidence} should be > 0.7"
-    )
 
     report_text = render_report(store, audit_logger, run_id=check_result.run_id)
     # The revenue pair short-circuits to a deterministic numeric verdict
@@ -425,8 +419,6 @@ def test_end_to_end_pipeline_live(tmp_path: Path) -> None:
         spans_joined = " ".join(f.evidence_spans).lower()
         if "grew" in spans_joined and "declined" in spans_joined:
             found_revenue_pair = True
-            assert f.judge_confidence is not None
-            assert f.judge_confidence > 0.7
             break
     assert found_revenue_pair, "Expected the live judge to surface the Alpha revenue contradiction"
     store.close()

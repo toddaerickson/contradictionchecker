@@ -44,7 +44,7 @@ uv run python -m benchmarks.contradoc_harness \
 
 ### Metrics output
 
-The JSON written to `--output` contains the confusion matrix, precision/recall/F1, the NLI threshold used, and per-pair predictions (gold label, predicted label, judge verdict, judge confidence, NLI p_contradiction). This is enough to redo the scoring with a different threshold post-hoc without re-running inference.
+The JSON written to `--output` contains the confusion matrix, precision/recall/F1, the NLI threshold used, and per-pair predictions (gold label, predicted label, judge verdict, NLI p_contradiction). This is enough to redo the scoring with a different threshold post-hoc without re-running inference.
 
 ### Pass-bar
 

@@ -139,7 +139,6 @@ def test_end_run_counts_findings_automatically(store: AssertionStore) -> None:
             assertion_a_id=a.assertion_id,
             assertion_b_id=b.assertion_id,
             verdict="contradiction",
-            confidence=0.85,
             rationale="opposite signs",
         ),
     )
@@ -164,7 +163,6 @@ def test_record_finding_persists_all_fields(store: AssertionStore) -> None:
         assertion_a_id=a.assertion_id,
         assertion_b_id=b.assertion_id,
         verdict="contradiction",
-        confidence=0.9,
         rationale="opposite signs at the same scope",
         evidence_spans=["grew 12%", "declined 5%"],
     )
@@ -177,7 +175,6 @@ def test_record_finding_persists_all_fields(store: AssertionStore) -> None:
     assert fetched.nli_label == "contradiction"
     assert fetched.nli_p_contradiction == pytest.approx(0.82)
     assert fetched.judge_verdict == "contradiction"
-    assert fetched.judge_confidence == pytest.approx(0.9)
     assert fetched.evidence_spans == ["grew 12%", "declined 5%"]
 
 
@@ -192,7 +189,6 @@ def test_record_finding_is_idempotent_within_run(store: AssertionStore) -> None:
         assertion_a_id=a.assertion_id,
         assertion_b_id=b.assertion_id,
         verdict="uncertain",
-        confidence=0.0,
         rationale="repeated",
     )
     logger.record_finding(run_id, candidate=candidate, nli=None, verdict=verdict)
@@ -209,7 +205,6 @@ def test_record_finding_handles_no_nli(store: AssertionStore) -> None:
         assertion_a_id=a.assertion_id,
         assertion_b_id=b.assertion_id,
         verdict="not_contradiction",
-        confidence=0.5,
         rationale="no nli stage",
     )
     fid = logger.record_finding(
@@ -232,7 +227,6 @@ def test_record_finding_requires_existing_assertions(store: AssertionStore) -> N
         assertion_a_id=orphan_a.assertion_id,
         assertion_b_id=orphan_b.assertion_id,
         verdict="uncertain",
-        confidence=0.0,
         rationale="r",
     )
     with pytest.raises(sqlite3.IntegrityError):
@@ -270,7 +264,6 @@ def test_iter_findings_filters_by_run(store: AssertionStore) -> None:
         assertion_a_id=a.assertion_id,
         assertion_b_id=b.assertion_id,
         verdict="contradiction",
-        confidence=0.7,
         rationale="r",
     )
     logger.record_finding(
@@ -299,7 +292,6 @@ def test_iter_findings_filters_by_verdict(store: AssertionStore) -> None:
             assertion_a_id=a.assertion_id,
             assertion_b_id=b.assertion_id,
             verdict="contradiction",
-            confidence=0.9,
             rationale="r",
         ),
     )
@@ -336,7 +328,6 @@ def test_end_to_end_mini_pipeline_records_findings(store: AssertionStore) -> Non
             assertion_a_id=canonical_key[0],
             assertion_b_id=canonical_key[1],
             verdict="contradiction",
-            confidence=0.9,
             rationale="opposing signs",
             evidence_spans=["grew 12%", "declined 5%"],
         )
@@ -386,7 +377,6 @@ def test_findings_are_replayable_from_logged_inputs(store: AssertionStore) -> No
             assertion_a_id=a.assertion_id,
             assertion_b_id=b.assertion_id,
             verdict="contradiction",
-            confidence=0.7,
             rationale="r",
         ),
     )
@@ -431,7 +421,6 @@ def test_record_definition_finding_writes_detector_type(tmp_path: Path) -> None:
             assertion_a_id=min(a.assertion_id, b.assertion_id),
             assertion_b_id=max(a.assertion_id, b.assertion_id),
             verdict="definition_divergent",
-            confidence=0.9,
             rationale="scope shift",
             evidence_spans=["foo", "bar"],
         ),
@@ -481,7 +470,6 @@ def test_record_definition_finding_idempotent(tmp_path: Path) -> None:
             assertion_a_id=min(a.assertion_id, b.assertion_id),
             assertion_b_id=max(a.assertion_id, b.assertion_id),
             verdict="definition_divergent",
-            confidence=0.9,
             rationale="scope shift",
             evidence_spans=[],
         ),

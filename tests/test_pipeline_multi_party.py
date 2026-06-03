@@ -113,7 +113,6 @@ def test_check_with_multi_party_judge_records_finding(
             triangle_ids: MultiPartyJudgeVerdict(
                 assertion_ids=triangle_ids,
                 verdict="multi_party_contradiction",
-                confidence=0.88,
                 rationale="A ∧ B ⇒ ¬C — engineers should get both 4w and 2w.",
                 contradicting_subset=("A", "B", "C"),
                 evidence_spans=["four weeks", "two weeks"],
@@ -142,7 +141,6 @@ def test_check_with_multi_party_judge_records_finding(
     assert len(findings) == 1
     f = findings[0]
     assert f.judge_verdict == "multi_party_contradiction"
-    assert f.judge_confidence == pytest.approx(0.88)
     assert sorted(f.assertion_ids) == list(triangle_ids)
     assert len({d for d in f.doc_ids}) == 3
     assert len(f.triangle_edge_scores) == 3

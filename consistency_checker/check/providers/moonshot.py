@@ -54,7 +54,7 @@ class MoonshotJudgeProvider:
             user: User (assertion pair) prompt
 
         Returns:
-            JudgePayload with verdict, confidence, rationale, evidence_spans
+            JudgePayload with verdict, rationale, evidence_spans
         """
         response: Any = self.client.beta.chat.completions.parse(
             model=self.model,
@@ -107,7 +107,7 @@ class MoonshotMultiPartyJudgeProvider:
             user: User (assertion triple) prompt
 
         Returns:
-            MultiPartyJudgePayload with verdict, confidence, rationale, contradicting_subset
+            MultiPartyJudgePayload with verdict, rationale, contradicting_subset
         """
         response: Any = self.client.beta.chat.completions.parse(
             model=self.model,

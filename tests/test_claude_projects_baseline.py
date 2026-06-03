@@ -112,7 +112,6 @@ def test_load_baseline_run_parses_findings(tmp_path: Path) -> None:
                 "doc_b": "term_sheet.txt",
                 "span_b": "Interest 8%",
                 "type": "contradiction",
-                "confidence": 0.9,
                 "rationale": "Numeric mismatch",
             }
         ],
@@ -123,7 +122,6 @@ def test_load_baseline_run_parses_findings(tmp_path: Path) -> None:
     assert len(run.findings) == 1
     f = run.findings[0]
     assert f.doc_a == "credit.txt"
-    assert f.confidence == pytest.approx(0.9)
     assert f.finding_type == "contradiction"
     assert run.cost_usd == pytest.approx(1.5)
     assert run.input_tokens == 100_000
@@ -139,7 +137,6 @@ def test_load_baseline_run_tolerates_findings_as_string(tmp_path: Path) -> None:
                 "doc_b": "b",
                 "span_b": "y",
                 "type": "contradiction",
-                "confidence": 0.7,
                 "rationale": "r",
             }
         ]
@@ -161,7 +158,6 @@ def test_load_baseline_run_strips_code_fences(tmp_path: Path) -> None:
                     "doc_b": "b",
                     "span_b": "y",
                     "type": "contradiction",
-                    "confidence": 0.5,
                     "rationale": "r",
                 }
             ]
@@ -241,9 +237,7 @@ def test_load_baseline_run_handles_missing_optional_fields(tmp_path: Path) -> No
 # --- union + intersection -------------------------------------------------
 
 
-def _finding(
-    doc_a: str, span_a: str, doc_b: str, span_b: str, *, conf: float = 0.9
-) -> BaselineFinding:
+def _finding(doc_a: str, span_a: str, doc_b: str, span_b: str) -> BaselineFinding:
     return BaselineFinding(
         finding_id=compute_finding_id(doc_a, span_a, doc_b, span_b),
         doc_a=doc_a,
@@ -251,7 +245,6 @@ def _finding(
         span_a=span_a,
         span_b=span_b,
         finding_type="contradiction",
-        confidence=conf,
         rationale="r",
     )
 
@@ -326,8 +319,8 @@ def test_write_and_load_labels_round_trip(tmp_path: Path) -> None:
 def test_load_labels_rejects_invalid_label(tmp_path: Path) -> None:
     csv_path = tmp_path / "bad.csv"
     csv_path.write_text(
-        "finding_id,doc_a,span_a,doc_b,span_b,type,confidence,rationale,label,notes\n"
-        "abc,a,x,b,y,contradiction,0.9,r,verified_real,\n",
+        "finding_id,doc_a,span_a,doc_b,span_b,type,rationale,label,notes\n"
+        "abc,a,x,b,y,contradiction,r,verified_real,\n",
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="invalid label 'verified_real'"):
@@ -337,8 +330,8 @@ def test_load_labels_rejects_invalid_label(tmp_path: Path) -> None:
 def test_load_labels_rejects_missing_finding_id(tmp_path: Path) -> None:
     csv_path = tmp_path / "bad.csv"
     csv_path.write_text(
-        "finding_id,doc_a,span_a,doc_b,span_b,type,confidence,rationale,label,notes\n"
-        ",a,x,b,y,contradiction,0.9,r,real,\n",
+        "finding_id,doc_a,span_a,doc_b,span_b,type,rationale,label,notes\n"
+        ",a,x,b,y,contradiction,r,real,\n",
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="missing finding_id"):
@@ -477,7 +470,6 @@ def test_main_dedupe_writes_labelling_csv(
                 "doc_b": "b",
                 "span_b": "X is 8%",
                 "type": "contradiction",
-                "confidence": 0.9,
                 "rationale": "r",
             }
         ],
@@ -492,7 +484,6 @@ def test_main_dedupe_writes_labelling_csv(
                 "doc_b": "b",
                 "span_b": "X is 8%",
                 "type": "contradiction",
-                "confidence": 0.7,
                 "rationale": "same",
             }
         ],
@@ -522,7 +513,6 @@ def test_main_compare_writes_metrics_and_markdown(
                 "doc_b": "b",
                 "span_b": "X is 8%",
                 "type": "contradiction",
-                "confidence": 0.9,
                 "rationale": "r",
             }
         ],

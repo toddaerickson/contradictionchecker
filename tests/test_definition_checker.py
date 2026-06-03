@@ -43,7 +43,6 @@ def test_pair_within_term_group_is_judged() -> None:
         assertion_a_id=min(a.assertion_id, b.assertion_id),
         assertion_b_id=max(a.assertion_id, b.assertion_id),
         verdict="definition_divergent",
-        confidence=0.9,
         rationale="scope shift",
         evidence_spans=[],
     )
@@ -110,7 +109,6 @@ def test_identical_definitions_short_circuit_without_judge() -> None:
     findings = list(checker.find_inconsistencies(_pair(a, b)))
     assert len(findings) == 1
     assert findings[0].verdict.verdict == DEFINITION_CONSISTENT_AUTO
-    assert findings[0].verdict.confidence == 1.0
 
 
 def test_divergent_text_still_calls_judge() -> None:
