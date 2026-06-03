@@ -39,6 +39,11 @@
               hx-get="/corpora/{{ active_corpus_id }}/drawer/stats"
               hx-target="#cc-drawer-region"
               hx-swap="innerHTML">Stats</button>
+      {% if active_corpus_id and counts.all %}
+        <a href="/corpora/{{ active_corpus_id }}/findings.csv?filter={{ filter }}"
+           download
+           class="cc-button cc-button--ghost cc-button--small">Export CSV</a>
+      {% endif %}
     </div>
     <div class="cc-filter-chips" role="tablist">
       <a class="cc-chip {% if filter == 'all' %}cc-chip--active{% endif %}"
