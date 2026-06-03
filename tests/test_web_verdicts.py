@@ -82,10 +82,19 @@ def test_post_verdicts_response_contains_oob_swaps(
         headers={"HX-Request": "true"},
     )
     assert resp.status_code == 200
-    assert 'id="cc-toast"' in resp.text
-    assert 'hx-swap-oob="outerHTML"' in resp.text
+    # The card's actions span is re-rendered in marked state and swapped into
+    # the originating finding by its stable id (main-target swap).
+    pk_safe = VALID_PAIR_KEY.replace(":", "-")
+    assert f'id="cc-actions-{pk_safe}-contradiction"' in resp.text
+    # The toast now OOB-inserts into the region (an outerHTML OOB needs a
+    # pre-existing #cc-toast, which the shell never had — that was the bug).
+    assert 'hx-swap-oob="afterbegin:#cc-toast-region"' in resp.text
+    # The progress count still rides along as an outerHTML OOB swap.
     assert 'id="cc-progress-count-contradiction"' in resp.text
+    assert 'hx-swap-oob="outerHTML"' in resp.text
     assert "Real issue" in resp.text
+    # The filter chips refresh off this trigger.
+    assert resp.headers.get("HX-Trigger") == "verdict-changed"
 
 
 def test_post_verdicts_rejects_bogus_verdict(

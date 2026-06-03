@@ -8,6 +8,8 @@
 <nav class="cc-corpus-list">
   {% for corpus in corpora %}
     <a class="cc-corpus-row {% if corpus.corpus_id == active_corpus_id %}cc-corpus-row--active{% endif %}"
+       href="/?corpus={{ corpus.corpus_id }}"
+       {% if corpus.corpus_id == active_corpus_id %}aria-current="true"{% endif %}
        hx-get="/corpora/{{ corpus.corpus_id }}/findings"
        hx-target="#cc-main"
        hx-swap="innerHTML"
