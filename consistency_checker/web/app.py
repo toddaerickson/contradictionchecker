@@ -10,6 +10,8 @@ mixed-app deployments; partials use ``cc__<name>.html``.
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 import math
 import re
@@ -477,6 +479,11 @@ def create_app(
                     "reviewer_label": VERDICT_LABELS.get(reviewer_verdict)
                     if reviewer_verdict is not None
                     else None,
+                    "assertion_a_text": a.assertion_text,
+                    "assertion_b_text": b.assertion_text,
+                    "doc_a_label": doc_a_label,
+                    "doc_b_label": doc_b_label,
+                    "judge_rationale": raw.judge_rationale,
                 }
             )
         out.sort(key=lambda f: -(f["confidence"] or 0.0))
@@ -919,6 +926,73 @@ def create_app(
         finally:
             store.close()
         return templates.TemplateResponse(request, "cc_findings.html", ctx)
+
+    @app.get("/corpora/{corpus_id}/findings.csv")
+    def corpora_findings_csv(
+        request: Request,
+        corpus_id: str,
+        filter: str = "all",
+    ) -> Response:
+        """Download the on-screen findings as CSV (ADR-0011 gap closer).
+
+        Exports the active corpus's LATEST run honoring the active filter
+        chip, so the file matches exactly what the findings pane shows. A
+        corpus with no run / no findings yields a valid header-only CSV.
+        """
+        if filter not in {"all", "open", "confirmed", "false_positive", "dismissed"}:
+            filter = "all"
+        store, audit = _open_audit()
+        try:
+            row = store._conn.execute(
+                "SELECT 1 FROM corpora WHERE corpus_id = ?", (corpus_id,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"corpus_id {corpus_id!r} not found")
+            last_run = _most_recent_run_for_corpus(store, corpus_id)
+            findings: list[dict[str, Any]] = []
+            if last_run is not None:
+                findings, _counts = _collect_findings_for_run(
+                    store, audit, last_run["run_id"], filter=filter
+                )
+        finally:
+            store.close()
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(
+            [
+                "finding_type",
+                "judge_verdict",
+                "confidence",
+                "reviewer_verdict",
+                "doc_a",
+                "assertion_a",
+                "doc_b",
+                "assertion_b",
+                "rationale",
+            ]
+        )
+        for f in findings:
+            writer.writerow(
+                [
+                    f["detector_type"],
+                    f["verdict"],
+                    f["confidence"],
+                    f["reviewer_verdict"] or "",
+                    f["doc_a_label"],
+                    f["assertion_a_text"],
+                    f["doc_b_label"],
+                    f["assertion_b_text"],
+                    f["judge_rationale"] or "",
+                ]
+            )
+        return Response(
+            content=buf.getvalue(),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="findings-{corpus_id}-{filter}.csv"'
+            },
+        )
 
     # --- ADR-0017 Phase 3: Run Check modal + per-corpus SSE progress ------
 
