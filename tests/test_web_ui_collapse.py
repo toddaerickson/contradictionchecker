@@ -88,7 +88,6 @@ def _seed_corpus_with_finding(
             assertion_a_id=a.assertion_id,
             assertion_b_id=b.assertion_id,
             verdict="contradiction",
-            confidence=0.91,
             rationale=rationale,
             evidence_spans=["grew 12%", "declined 5%"],
         ),
@@ -206,8 +205,6 @@ def test_findings_panel_shows_findings_from_active_corpus(tmp_path: Path) -> Non
     body = resp.text
     assert rationale in body
     assert "Findings corpus" in body
-    # Confidence label rendered to 2 decimals.
-    assert "0.91" in body
 
 
 # --- 5) fragment route returns no <html>/<head> wrapper ------------------
@@ -1035,7 +1032,6 @@ def _seed_corpus_with_definition_finding(
                 assertion_a_id=a.assertion_id,
                 assertion_b_id=b.assertion_id,
                 verdict="definition_divergent",
-                confidence=0.88,
                 rationale=f"Different treatment of restructuring in {term}.",
                 evidence_spans=[],
             ),
@@ -1096,9 +1092,8 @@ def test_drawer_definitions_returns_fragment(tmp_path: Path) -> None:
     lower = body.lower()
     assert "<html" not in lower
     assert '<aside class="cc-drawer"' in body
-    # The term + rendered confidence should appear in the drawer body.
+    # The term should appear in the drawer body.
     assert term in body
-    assert "0.88" in body
 
 
 def test_drawer_stats_returns_fragment(tmp_path: Path) -> None:
@@ -1369,7 +1364,6 @@ def test_filter_chip_open_excludes_marked_findings(tmp_path: Path) -> None:
             assertion_a_id=a1.assertion_id,
             assertion_b_id=b1.assertion_id,
             verdict="contradiction",
-            confidence=0.91,
             rationale="Revenue contradiction.",
             evidence_spans=[],
         ),
@@ -1382,7 +1376,6 @@ def test_filter_chip_open_excludes_marked_findings(tmp_path: Path) -> None:
             assertion_a_id=a2.assertion_id,
             assertion_b_id=b2.assertion_id,
             verdict="contradiction",
-            confidence=0.85,
             rationale="EBITDA contradiction.",
             evidence_spans=[],
         ),

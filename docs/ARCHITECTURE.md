@@ -53,7 +53,7 @@ check/gate (AnnGate top-k)  →  candidate pairs
 check/nli_checker (Stage A)  →  p_contradiction
    │  (threshold filter)
    ▼
-check/llm_judge (Stage B)  →  {verdict, rationale, confidence, evidence_spans}
+check/llm_judge (Stage B)  →  {verdict, rationale, evidence_spans}
    │
    ▼
 audit/logger  ◄── findings + pipeline_runs
@@ -78,7 +78,7 @@ The SQLite database is the source of truth. The FAISS index is a derived view �
 documents(doc_id PK, source_path, title, doc_date, doc_type, metadata_json, ingested_at)
 assertions(assertion_id PK, doc_id FK, assertion_text, chunk_id, char_start, char_end, faiss_row UNIQUE, embedded_at, created_at)
 pipeline_runs(run_id PK, started_at, finished_at, config_json, n_assertions, n_pairs_gated, n_pairs_judged, n_findings)
-findings(finding_id PK, run_id FK, assertion_a_id FK, assertion_b_id FK, nli_p_contradiction, judge_verdict, judge_confidence, judge_rationale, evidence_spans_json, created_at)
+findings(finding_id PK, run_id FK, assertion_a_id FK, assertion_b_id FK, nli_p_contradiction, judge_verdict, judge_rationale, evidence_spans_json, created_at)
 ```
 
 `assertion_id = sha256(doc_id || assertion_text)[:16]` → re-running extraction on the same document is idempotent.

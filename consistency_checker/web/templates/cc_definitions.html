@@ -47,7 +47,6 @@
         <thead>
           <tr>
             <th>Term</th>
-            <th>Confidence</th>
             <th>Doc A</th>
             <th>Doc B</th>
             <th>Rationale</th>
@@ -58,7 +57,6 @@
           {% for f in findings %}
             <tr class="cc-finding-row" tabindex="0">
               <td><strong>{{ f.term }}</strong></td>
-              <td>{{ "%.2f"|format(f.confidence or 0.0) }}</td>
               <td>{{ f.doc_a_label }}</td>
               <td>{{ f.doc_b_label }}</td>
               <td>{{ f.rationale }}</td>
@@ -74,7 +72,7 @@
               </td>
             </tr>
             <tr class="cc-findings-row-detail">
-              <td colspan="6">
+              <td colspan="5">
                 <div class="cc-muted"><strong>Def A:</strong> {{ f.def_a_text }}</div>
                 <div class="cc-muted"><strong>Def B:</strong> {{ f.def_b_text }}</div>
               </td>

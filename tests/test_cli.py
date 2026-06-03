@@ -182,7 +182,6 @@ def test_check_runs_with_fake_nli_and_judge(
             assertion_a_id=canonical[0],
             assertion_b_id=canonical[1],
             verdict="contradiction",
-            confidence=0.92,
             rationale="opposite signs",
             evidence_spans=["grew 12%", "declined 5%"],
         )
@@ -273,7 +272,6 @@ def test_check_deep_flag_enables_multi_party(
         canonical_ids: MultiPartyJudgeVerdict(
             assertion_ids=canonical_ids,
             verdict="multi_party_contradiction",
-            confidence=0.91,
             rationale="A ∧ B ⇒ ¬C",
             contradicting_subset=("A", "B", "C"),
         )
@@ -619,7 +617,6 @@ def test_report_writes_markdown(runner: CliRunner, tmp_path: Path) -> None:
                 assertion_a_id=pair.a.assertion_id,
                 assertion_b_id=pair.b.assertion_id,
                 verdict="contradiction",
-                confidence=0.9,
                 rationale="opposing signs",
             ),
         )
@@ -727,7 +724,6 @@ def test_report_without_out_writes_to_default_reports_dir(
                 assertion_a_id=pair.a.assertion_id,
                 assertion_b_id=pair.b.assertion_id,
                 verdict="contradiction",
-                confidence=0.9,
                 rationale="opposing",
             ),
         )
@@ -1189,7 +1185,6 @@ def _seed_reviewed_finding(cfg: Config) -> None:
             assertion_a_id=a.assertion_id,
             assertion_b_id=b.assertion_id,
             verdict="contradiction",
-            confidence=0.92,
             rationale="r",
         ),
     )
@@ -1201,7 +1196,7 @@ def _seed_reviewed_finding(cfg: Config) -> None:
     store.close()
 
 
-def test_eval_prints_precision_and_calibration(runner: CliRunner, tmp_path: Path) -> None:
+def test_eval_prints_precision(runner: CliRunner, tmp_path: Path) -> None:
     cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
     cfg = Config.from_yaml(cfg_path)
     _seed_reviewed_finding(cfg)
@@ -1210,7 +1205,6 @@ def test_eval_prints_precision_and_calibration(runner: CliRunner, tmp_path: Path
     assert "Per-detector precision" in result.stdout
     assert "contradiction" in result.stdout
     assert "100.0%" in result.stdout  # 1 confirmed, 0 false_positive
-    assert "Calibration on 'contradiction'" in result.stdout
 
 
 def test_eval_empty_db_does_not_error(runner: CliRunner, tmp_path: Path) -> None:
@@ -1232,29 +1226,6 @@ def test_eval_out_writes_csvs(runner: CliRunner, tmp_path: Path) -> None:
     assert result.exit_code == 0, result.stdout
     written = sorted(p.name for p in out_dir.iterdir())
     assert any(name.startswith("cc_eval_precision_") for name in written)
-    assert any(name.startswith("cc_eval_calibration_") for name in written)
-
-
-def test_eval_detector_flag_switches_calibration_table(runner: CliRunner, tmp_path: Path) -> None:
-    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
-    cfg = Config.from_yaml(cfg_path)
-    _seed_reviewed_finding(cfg)
-    result = runner.invoke(
-        app,
-        ["eval", "--config", str(cfg_path), "--detector", "definition_inconsistency"],
-    )
-    assert result.exit_code == 0, result.stdout
-    assert "definition_inconsistency" in result.stdout
-
-
-def test_eval_rejects_unknown_detector(runner: CliRunner, tmp_path: Path) -> None:
-    """Typo in --detector must fail loudly instead of silently rendering an empty table."""
-    cfg_path = write_config(tmp_path, tmp_path / "corpus_unused")
-    cfg = Config.from_yaml(cfg_path)
-    _seed_reviewed_finding(cfg)
-    result = runner.invoke(app, ["eval", "--config", str(cfg_path), "--detector", "contraddiction"])
-    assert result.exit_code != 0
-    assert "must be one of" in (result.stdout + result.stderr).lower()
 
 
 def test_ingest_without_corpus_errors_in_non_tty(

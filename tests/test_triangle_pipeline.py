@@ -100,7 +100,6 @@ def test_dual_gate_codepath_runs_without_crash(tmp_path: Path) -> None:
             triangle_ids: MultiPartyJudgeVerdict(
                 assertion_ids=triangle_ids,
                 verdict="multi_party_contradiction",
-                confidence=0.9,
                 rationale="A ∧ B ⇒ ¬C",
                 contradicting_subset=("A", "B", "C"),
                 evidence_spans=["four weeks", "two weeks"],
@@ -149,7 +148,6 @@ def test_weak_threshold_at_or_above_strong_is_degenerate(tmp_path: Path) -> None
             triangle_ids: MultiPartyJudgeVerdict(
                 assertion_ids=triangle_ids,
                 verdict="multi_party_contradiction",
-                confidence=0.9,
                 rationale="A ∧ B ⇒ ¬C",
                 contradicting_subset=("A", "B", "C"),
                 evidence_spans=["four weeks", "two weeks"],

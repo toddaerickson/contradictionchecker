@@ -99,7 +99,6 @@ def test_check_runs_definition_stage_and_logs_findings(
         assertion_a_id=key[0],
         assertion_b_id=key[1],
         verdict="definition_divergent",
-        confidence=0.9,
         rationale="A vs B",
         evidence_spans=["A", "B"],
     )

@@ -53,11 +53,11 @@ def test_confusion_counts_each_quadrant() -> None:
     from benchmarks.contradoc_harness import BenchmarkPrediction
 
     preds = [
-        BenchmarkPrediction("a", "contradiction", "contradiction", "contradiction", 0.9, 0.8),
-        BenchmarkPrediction("b", "contradiction", "not_contradiction", "uncertain", 0.4, 0.4),
-        BenchmarkPrediction("c", "not_contradiction", "contradiction", "contradiction", 0.6, 0.5),
+        BenchmarkPrediction("a", "contradiction", "contradiction", "contradiction", 0.8),
+        BenchmarkPrediction("b", "contradiction", "not_contradiction", "uncertain", 0.4),
+        BenchmarkPrediction("c", "not_contradiction", "contradiction", "contradiction", 0.5),
         BenchmarkPrediction(
-            "d", "not_contradiction", "not_contradiction", "not_contradiction", 0.1, 0.1
+            "d", "not_contradiction", "not_contradiction", "not_contradiction", 0.1
         ),
     ]
     tp, fp, tn, fn = _confusion(preds)
@@ -108,7 +108,6 @@ def _build_fixtures(entries: list[ContradocEntry]) -> tuple[FixtureNliChecker, F
                 assertion_a_id=canonical[0],
                 assertion_b_id=canonical[1],
                 verdict="contradiction",
-                confidence=0.9,
                 rationale="gold contradiction",
             )
         else:
@@ -116,7 +115,6 @@ def _build_fixtures(entries: list[ContradocEntry]) -> tuple[FixtureNliChecker, F
                 assertion_a_id=canonical[0],
                 assertion_b_id=canonical[1],
                 verdict="not_contradiction",
-                confidence=0.8,
                 rationale="gold consistent",
             )
     return FixtureNliChecker(nli_fixtures), FixtureJudge(judge_fixtures)
@@ -162,7 +160,6 @@ def test_run_benchmark_skips_judge_when_nli_below_threshold() -> None:
                 assertion_a_id=judge_key[0],
                 assertion_b_id=judge_key[1],
                 verdict="contradiction",
-                confidence=1.0,
                 rationale="should never be invoked",
             )
         }
@@ -199,7 +196,6 @@ def test_uncertain_verdict_treated_as_negative_prediction() -> None:
                 assertion_a_id=judge_key[0],
                 assertion_b_id=judge_key[1],
                 verdict="uncertain",
-                confidence=0.3,
                 rationale="ambiguous",
             )
         }

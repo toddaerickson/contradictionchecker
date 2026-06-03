@@ -58,7 +58,6 @@ def _seed_with_definition_finding(cfg: Config) -> str:
             assertion_a_id=min(a.assertion_id, b.assertion_id),
             assertion_b_id=max(a.assertion_id, b.assertion_id),
             verdict="definition_divergent",
-            confidence=0.91,
             rationale="scope shift",
             evidence_spans=["A", "B"],
         ),

@@ -6,6 +6,24 @@ the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed — judge confidence score (ADR-0018)
+
+- **The LLM judge `confidence` score is gone, end to end.** It was the model's
+  self-reported "subjective certainty", not a calibrated probability, and
+  presenting it as a 0–1 figure implied a precision the system cannot produce.
+  Removed from the judge schemas/prompts, the `JudgeVerdict` family, the
+  `findings` / `multi_party_findings` tables (migration
+  `0015_drop_judge_confidence.sql`), the markdown report, the web findings card
+  + definitions drawer, and the findings CSV export.
+- **Calibration tooling removed.** `audit/eval.py` loses
+  `compute_calibration` / `CalibrationBin` and the `eval` command's calibration
+  table; `report --min-confidence` and `eval --detector` are gone. The
+  reviewer-verdict **precision** report (label-based) is kept.
+- **Findings are no longer sorted by confidence** — the report orders by
+  `finding_id` within document-pair groups; the web list by
+  `(doc_a, doc_b, finding_id)`. The NLI contradiction probability is a separate
+  classifier signal and is retained.
+
 ### Memory / OOM hardening — round 2
 
 - **Default NLI model switched to `DeBERTa-v3-base`** (`MoritzLaurer/

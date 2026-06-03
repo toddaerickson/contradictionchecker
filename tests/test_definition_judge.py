@@ -68,7 +68,6 @@ def test_fixture_definition_judge_returns_canned_verdict() -> None:
         assertion_a_id=min(a.assertion_id, b.assertion_id),
         assertion_b_id=max(a.assertion_id, b.assertion_id),
         verdict="definition_divergent",
-        confidence=0.9,
         rationale="A scopes business; B scopes performance.",
         evidence_spans=["business", "ability to perform"],
     )
@@ -84,7 +83,6 @@ def test_fixture_definition_judge_falls_back_uncertain() -> None:
     judge = FixtureDefinitionJudge({})
     out = judge.judge(a, b)
     assert out.verdict == "uncertain"
-    assert out.confidence == 0.0
 
 
 class _StubProvider:
@@ -102,7 +100,6 @@ def test_llm_definition_judge_round_trips_payload() -> None:
     a, b = _mae_pair()
     payload = DefinitionJudgePayload(
         verdict="definition_divergent",
-        confidence=0.85,
         rationale="scope shift",
         evidence_spans=["business", "ability to perform"],
     )
@@ -110,7 +107,6 @@ def test_llm_definition_judge_round_trips_payload() -> None:
     judge = LLMDefinitionJudge(provider)
     out = judge.judge(a, b)
     assert out.verdict == "definition_divergent"
-    assert out.confidence == 0.85
     assert provider.calls == 1
 
 
@@ -130,7 +126,6 @@ def test_llm_definition_judge_retries_then_falls_back() -> None:
     judge = LLMDefinitionJudge(provider, max_retries=2)
     out = judge.judge(a, b)
     assert out.verdict == "uncertain"
-    assert out.confidence == 0.0
     assert "malformed payload" in out.rationale
     assert provider.calls == 3  # initial + 2 retries
 
@@ -141,7 +136,7 @@ def test_llm_definition_judge_rejects_negative_retries() -> None:
     with pytest.raises(ValueError, match=r"max_retries must be"):
         LLMDefinitionJudge(
             _StubProvider(  # type: ignore[arg-type]
-                DefinitionJudgePayload(verdict="uncertain", confidence=0.0, rationale="x")
+                DefinitionJudgePayload(verdict="uncertain", rationale="x")
             ),
             max_retries=-1,
         )
@@ -151,7 +146,6 @@ def test_definition_uncertain_fallback_shape() -> None:
     a, b = _mae_pair()
     out = definition_uncertain_fallback(a, b, reason="missing API key")
     assert out.verdict == "uncertain"
-    assert out.confidence == 0.0
     assert "missing API key" in out.rationale
     assert out.evidence_spans == []
 
@@ -173,7 +167,6 @@ def test_definition_short_circuit_verdict() -> None:
     )
     v = definition_short_circuit_verdict(a, b)
     assert v.verdict == DEFINITION_CONSISTENT_AUTO
-    assert v.confidence == 1.0
     assert v.assertion_a_id == a.assertion_id
     assert v.assertion_b_id == b.assertion_id
     assert "machine-resolved" in v.rationale

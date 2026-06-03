@@ -28,8 +28,8 @@ def _populate_three_doc_fixture(store: AssertionStore) -> tuple[Assertion, Asser
     """Three documents, three planted contradictions across two doc pairs.
 
     Layout:
-      alpha (a1) <-> beta  (b1): clear contradiction, high confidence
-      alpha (a1) <-> gamma (c1): mild contradiction, medium confidence
+      alpha (a1) <-> beta  (b1): clear contradiction
+      alpha (a1) <-> gamma (c1): mild contradiction
       beta  (b2) <-> gamma (c1): another pair on same gamma doc
     """
     _cid = store.get_or_create_corpus("test", "/test", "moonshot")
@@ -64,7 +64,6 @@ def _record_three_findings(store: AssertionStore, logger: AuditLogger, run_id: s
                 assertion_a_id=a1.assertion_id,
                 assertion_b_id=b1.assertion_id,
                 verdict="contradiction",
-                confidence=0.90,
                 rationale="Opposite revenue signs in the same fiscal year.",
                 evidence_spans=["grew 12%", "declined 5%"],
             ),
@@ -76,7 +75,6 @@ def _record_three_findings(store: AssertionStore, logger: AuditLogger, run_id: s
                 assertion_a_id=b2.assertion_id,
                 assertion_b_id=c1.assertion_id,
                 verdict="contradiction",
-                confidence=0.72,
                 rationale="Different start years for the same Beta initiative.",
                 evidence_spans=["began in 2024", "began in 2023"],
             ),
@@ -88,7 +86,6 @@ def _record_three_findings(store: AssertionStore, logger: AuditLogger, run_id: s
                 assertion_a_id=a1.assertion_id,
                 assertion_b_id=c1.assertion_id,
                 verdict="not_contradiction",
-                confidence=0.40,
                 rationale="Different subjects; no shared scope.",
             ),
         ),
@@ -106,7 +103,7 @@ def test_report_with_no_contradictions(seeded_store: AssertionStore) -> None:
     logger.end_run(run_id, n_assertions=0, n_pairs_gated=0, n_pairs_judged=0)
     report = render_report(seeded_store, logger, run_id=run_id)
     assert "# Consistency check report" in report
-    assert "No contradictions met the reporting threshold" in report
+    assert "_No contradictions found._" in report
     assert "## Summary" not in report
 
 
@@ -146,19 +143,6 @@ def test_report_matches_golden_file(seeded_store: AssertionStore) -> None:
 # --- filtering / sorting ---------------------------------------------------
 
 
-def test_report_min_confidence_filters_out_low(seeded_store: AssertionStore) -> None:
-    _populate_three_doc_fixture(seeded_store)
-    logger = AuditLogger(seeded_store)
-    run_id = logger.begin_run(run_id="run_filter")
-    _record_three_findings(seeded_store, logger, run_id)
-    logger.end_run(run_id, n_assertions=4, n_pairs_gated=3, n_pairs_judged=3)
-
-    # Confidence threshold above the second contradiction (0.72) excludes it.
-    report = render_report(seeded_store, logger, run_id=run_id, min_confidence=0.85)
-    assert "Opposite revenue signs" in report
-    assert "Different start years" not in report
-
-
 def test_report_excludes_non_contradictions(seeded_store: AssertionStore) -> None:
     _populate_three_doc_fixture(seeded_store)
     logger = AuditLogger(seeded_store)
@@ -170,7 +154,7 @@ def test_report_excludes_non_contradictions(seeded_store: AssertionStore) -> Non
     assert "Different subjects" not in report
 
 
-def test_report_summary_table_sorted_by_confidence_desc(seeded_store: AssertionStore) -> None:
+def test_report_summary_table_sorted_by_finding_id(seeded_store: AssertionStore) -> None:
     _populate_three_doc_fixture(seeded_store)
     logger = AuditLogger(seeded_store)
     run_id = logger.begin_run(run_id="run_sort")
@@ -182,7 +166,14 @@ def test_report_summary_table_sorted_by_confidence_desc(seeded_store: AssertionS
     summary_block = report[summary_start:findings_start]
     rev_idx = summary_block.index("Opposite revenue signs")
     beta_idx = summary_block.index("Different start years")
-    assert rev_idx < beta_idx, "higher-confidence row must precede lower-confidence row"
+
+    findings = list(logger.iter_findings(run_id=run_id))
+    by_rationale = {f.judge_rationale: f for f in findings}
+    rev_fid = by_rationale["Opposite revenue signs in the same fiscal year."].finding_id
+    beta_fid = by_rationale["Different start years for the same Beta initiative."].finding_id
+    expected_rev_first = rev_fid < beta_fid
+
+    assert (rev_idx < beta_idx) == expected_rev_first, "rows must be ordered by finding_id"
 
 
 # --- multi-party section (F4) ---------------------------------------------
@@ -222,7 +213,6 @@ def test_report_includes_multi_party_section_when_findings_exist(
             (a_ids[1], a_ids[2], 0.91),
         ],
         judge_verdict="multi_party_contradiction",
-        judge_confidence=0.88,
         judge_rationale="A ∧ B ⇒ ¬C — chained-attribute conflict.",
         evidence_spans=["four weeks", "two weeks"],
     )
@@ -248,7 +238,6 @@ def test_report_multi_party_excludes_uncertain(seeded_store: AssertionStore) -> 
         assertion_ids=a_ids,
         doc_ids=d_ids,
         judge_verdict="uncertain",
-        judge_confidence=0.3,
         judge_rationale="scope unclear",
     )
     logger.end_run(run_id, n_assertions=4, n_pairs_gated=3, n_pairs_judged=3)
@@ -305,7 +294,6 @@ def test_report_includes_definition_section_when_findings_exist(
             assertion_a_id=min(a.assertion_id, b.assertion_id),
             assertion_b_id=max(a.assertion_id, b.assertion_id),
             verdict="definition_divergent",
-            confidence=0.92,
             rationale="A scopes business; B scopes performance.",
             evidence_spans=["business", "performance"],
         ),
@@ -352,7 +340,6 @@ def test_report_definition_section_when_no_contradictions(
             assertion_a_id=min(a.assertion_id, b.assertion_id),
             assertion_b_id=max(a.assertion_id, b.assertion_id),
             verdict="definition_divergent",
-            confidence=0.9,
             rationale="scope diff",
             evidence_spans=[],
         ),

@@ -37,7 +37,6 @@ class DefinitionJudgePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     verdict: DefinitionVerdictLabel
-    confidence: float = Field(ge=0.0, le=1.0)
     rationale: str = Field(min_length=1)
     evidence_spans: list[str] = Field(default_factory=list)
 

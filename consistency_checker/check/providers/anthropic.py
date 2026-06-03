@@ -36,14 +36,13 @@ TOOL_SCHEMA: dict[str, Any] = {
                 "type": "string",
                 "enum": ["contradiction", "not_contradiction", "uncertain"],
             },
-            "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             "rationale": {"type": "string"},
             "evidence_spans": {
                 "type": "array",
                 "items": {"type": "string"},
             },
         },
-        "required": ["verdict", "confidence", "rationale"],
+        "required": ["verdict", "rationale"],
     },
 }
 
@@ -65,7 +64,6 @@ MULTI_PARTY_TOOL_SCHEMA: dict[str, Any] = {
                     "uncertain",
                 ],
             },
-            "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             "rationale": {"type": "string"},
             "contradicting_subset": {
                 "type": "array",
@@ -81,7 +79,7 @@ MULTI_PARTY_TOOL_SCHEMA: dict[str, Any] = {
                 "items": {"type": "string"},
             },
         },
-        "required": ["verdict", "confidence", "rationale"],
+        "required": ["verdict", "rationale"],
     },
 }
 
@@ -154,14 +152,13 @@ DEFINITION_TOOL_SCHEMA: dict[str, Any] = {
                     "uncertain",
                 ],
             },
-            "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             "rationale": {"type": "string"},
             "evidence_spans": {
                 "type": "array",
                 "items": {"type": "string"},
             },
         },
-        "required": ["verdict", "confidence", "rationale"],
+        "required": ["verdict", "rationale"],
     },
 }
 

@@ -383,7 +383,6 @@ def _try_numeric_short_circuit(a: Assertion, b: Assertion) -> JudgeVerdict | Non
                 assertion_a_id=min(a.assertion_id, b.assertion_id),
                 assertion_b_id=max(a.assertion_id, b.assertion_id),
                 verdict="numeric_short_circuit",
-                confidence=1.0,
                 rationale=rationale,
                 evidence_spans=evidence,
             )
@@ -441,7 +440,6 @@ def _run_multi_party_pass(
             doc_ids=list(triangle.doc_ids),
             triangle_edge_scores=list(triangle.edge_scores),
             judge_verdict=verdict.verdict,
-            judge_confidence=verdict.confidence,
             judge_rationale=verdict.rationale,
             evidence_spans=list(verdict.evidence_spans),
         )

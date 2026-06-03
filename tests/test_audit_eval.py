@@ -1,27 +1,21 @@
-"""Tests for :mod:`consistency_checker.audit.eval` precision/calibration mining."""
+"""Tests for :mod:`consistency_checker.audit.eval` precision mining."""
 
 from __future__ import annotations
 
 import csv
-from itertools import pairwise
 from pathlib import Path
 
 import pytest
 
 from consistency_checker.audit.eval import (
-    DEFAULT_CALIBRATION_BINS,
-    CalibrationBin,
     DetectorPrecision,
     EvalRow,
-    compute_calibration,
     compute_detector_precision,
     eval_filename,
-    format_calibration_table,
     format_precision_table,
     iter_eval_rows,
     iter_multi_party_eval_rows,
     iter_pair_eval_rows,
-    write_calibration_csv,
     write_precision_csv,
 )
 from consistency_checker.audit.logger import AuditLogger
@@ -71,7 +65,6 @@ def _record_pair_finding(
     a: Assertion,
     b: Assertion,
     verdict: str,
-    confidence: float,
     run_id: str | None = None,
 ) -> tuple[str, str]:
     logger = AuditLogger(store)
@@ -82,7 +75,6 @@ def _record_pair_finding(
         assertion_a_id=a.assertion_id,
         assertion_b_id=b.assertion_id,
         verdict=verdict,
-        confidence=confidence,
         rationale="r",
     )
     fid = logger.record_finding(rid, candidate=candidate, nli=nli, verdict=jv)
@@ -94,13 +86,13 @@ def _record_pair_finding(
 
 def test_iter_pair_eval_rows_empty_when_no_reviews(store: AssertionStore) -> None:
     a, b = _seed_two_assertions(store)
-    _record_pair_finding(store, a=a, b=b, verdict="contradiction", confidence=0.8)
+    _record_pair_finding(store, a=a, b=b, verdict="contradiction")
     assert list(iter_pair_eval_rows(store)) == []
 
 
 def test_iter_pair_eval_rows_joins_reviewed_pair(store: AssertionStore) -> None:
     a, b = _seed_two_assertions(store)
-    _record_pair_finding(store, a=a, b=b, verdict="contradiction", confidence=0.85)
+    _record_pair_finding(store, a=a, b=b, verdict="contradiction")
     logger = AuditLogger(store)
     pair_key = ":".join(sorted([a.assertion_id, b.assertion_id]))
     logger.set_reviewer_verdict(
@@ -111,14 +103,13 @@ def test_iter_pair_eval_rows_joins_reviewed_pair(store: AssertionStore) -> None:
     only = rows[0]
     assert only.detector_type == "contradiction"
     assert only.judge_verdict == "contradiction"
-    assert only.judge_confidence == pytest.approx(0.85)
     assert only.reviewer_verdict == "confirmed"
 
 
 def test_iter_pair_eval_rows_excludes_unreviewed_findings(store: AssertionStore) -> None:
     """Findings without a matching reviewer_verdict row must not appear."""
     a, b = _seed_two_assertions(store)
-    _record_pair_finding(store, a=a, b=b, verdict="contradiction", confidence=0.8)
+    _record_pair_finding(store, a=a, b=b, verdict="contradiction")
     # No reviewer_verdict set.
     assert list(iter_pair_eval_rows(store)) == []
 
@@ -152,7 +143,6 @@ def test_iter_pair_eval_rows_matches_definition_detector(store: AssertionStore) 
             assertion_a_id=sorted_ids[0],
             assertion_b_id=sorted_ids[1],
             verdict="definition_divergent",
-            confidence=0.75,
             rationale="scope shift",
             evidence_spans=[],
         ),
@@ -174,7 +164,7 @@ def test_iter_pair_eval_rows_join_does_not_cross_detector_types(
 ) -> None:
     """A reviewer verdict tagged with detector X must not join a finding from detector Y."""
     a, b = _seed_two_assertions(store)
-    _record_pair_finding(store, a=a, b=b, verdict="contradiction", confidence=0.8)
+    _record_pair_finding(store, a=a, b=b, verdict="contradiction")
     pair_key = ":".join(sorted([a.assertion_id, b.assertion_id]))
     logger = AuditLogger(store)
     # Verdict tagged with the wrong detector_type — must not match.
@@ -200,7 +190,6 @@ def test_iter_multi_party_eval_rows_joins_reviewed_triangle(store: AssertionStor
         assertion_ids=assertion_ids,
         doc_ids=doc_ids,
         judge_verdict="multi_party_contradiction",
-        judge_confidence=0.7,
         judge_rationale="r",
     )
     logger.set_reviewer_verdict(
@@ -212,7 +201,6 @@ def test_iter_multi_party_eval_rows_joins_reviewed_triangle(store: AssertionStor
     assert len(rows) == 1
     assert rows[0].detector_type == "multi_party"
     assert rows[0].judge_verdict == "multi_party_contradiction"
-    assert rows[0].judge_confidence == pytest.approx(0.7)
     assert rows[0].reviewer_verdict == "confirmed"
 
 
@@ -232,7 +220,6 @@ def test_iter_multi_party_eval_rows_excludes_unreviewed_triangle(
         assertion_ids=[a.assertion_id, b.assertion_id, c.assertion_id],
         doc_ids=[a.doc_id, b.doc_id, c.doc_id],
         judge_verdict="multi_party_contradiction",
-        judge_confidence=0.7,
         judge_rationale="r",
     )
     # No reviewer_verdict set.
@@ -244,7 +231,7 @@ def test_iter_eval_rows_combines_both_shapes(store: AssertionStore) -> None:
     a, b, c = _seed_three_assertions(store)
     logger = AuditLogger(store)
     # Pair finding + verdict
-    _record_pair_finding(store, a=a, b=b, verdict="contradiction", confidence=0.8)
+    _record_pair_finding(store, a=a, b=b, verdict="contradiction")
     pair_key = ":".join(sorted([a.assertion_id, b.assertion_id]))
     logger.set_reviewer_verdict(
         pair_key=pair_key, detector_type="contradiction", verdict="confirmed"
@@ -257,7 +244,6 @@ def test_iter_eval_rows_combines_both_shapes(store: AssertionStore) -> None:
         assertion_ids=tri_ids,
         doc_ids=[a.doc_id, b.doc_id, c.doc_id],
         judge_verdict="multi_party_contradiction",
-        judge_confidence=0.6,
         judge_rationale="r",
     )
     logger.set_reviewer_verdict(
@@ -273,10 +259,10 @@ def test_iter_eval_rows_combines_both_shapes(store: AssertionStore) -> None:
 
 def test_compute_precision_basic() -> None:
     rows = [
-        EvalRow("contradiction", "contradiction", 0.9, "confirmed", None),
-        EvalRow("contradiction", "contradiction", 0.7, "confirmed", None),
-        EvalRow("contradiction", "contradiction", 0.6, "false_positive", None),
-        EvalRow("contradiction", "contradiction", 0.5, "dismissed", None),
+        EvalRow("contradiction", "contradiction", "confirmed", None),
+        EvalRow("contradiction", "contradiction", "confirmed", None),
+        EvalRow("contradiction", "contradiction", "false_positive", None),
+        EvalRow("contradiction", "contradiction", "dismissed", None),
     ]
     [p] = compute_detector_precision(rows)
     assert p.detector_type == "contradiction"
@@ -289,8 +275,8 @@ def test_compute_precision_basic() -> None:
 
 def test_compute_precision_dismissed_excluded_from_denominator() -> None:
     rows = [
-        EvalRow("contradiction", "contradiction", 0.9, "dismissed", None),
-        EvalRow("contradiction", "contradiction", 0.9, "dismissed", None),
+        EvalRow("contradiction", "contradiction", "dismissed", None),
+        EvalRow("contradiction", "contradiction", "dismissed", None),
     ]
     [p] = compute_detector_precision(rows)
     assert p.precision is None  # no eval-relevant verdicts
@@ -298,8 +284,8 @@ def test_compute_precision_dismissed_excluded_from_denominator() -> None:
 
 def test_compute_precision_groups_per_detector() -> None:
     rows = [
-        EvalRow("contradiction", "contradiction", 0.9, "confirmed", None),
-        EvalRow("definition_inconsistency", "definition_divergent", 0.7, "false_positive", None),
+        EvalRow("contradiction", "contradiction", "confirmed", None),
+        EvalRow("definition_inconsistency", "definition_divergent", "false_positive", None),
     ]
     out = {p.detector_type: p for p in compute_detector_precision(rows)}
     assert out["contradiction"].precision == 1.0
@@ -308,50 +294,6 @@ def test_compute_precision_groups_per_detector() -> None:
 
 def test_compute_precision_returns_empty_on_no_rows() -> None:
     assert compute_detector_precision([]) == []
-
-
-# --- compute_calibration --------------------------------------------------
-
-
-def test_calibration_buckets_by_confidence() -> None:
-    rows = [
-        EvalRow("contradiction", "contradiction", 0.95, "confirmed", None),
-        EvalRow("contradiction", "contradiction", 0.85, "false_positive", None),
-        EvalRow("contradiction", "contradiction", 0.55, "confirmed", None),
-    ]
-    bins = compute_calibration(rows, detector_type="contradiction")
-    by_low = {b.confidence_low: b for b in bins}
-    assert by_low[0.9].n_reviewed == 1
-    assert by_low[0.9].precision == 1.0
-    assert by_low[0.8].n_reviewed == 1
-    assert by_low[0.8].precision == 0.0
-    assert by_low[0.5].n_reviewed == 1
-    assert by_low[0.5].precision == 1.0
-
-
-def test_calibration_skips_other_detectors() -> None:
-    rows = [
-        EvalRow("contradiction", "contradiction", 0.9, "confirmed", None),
-        EvalRow("definition_inconsistency", "definition_divergent", 0.9, "false_positive", None),
-    ]
-    bins = compute_calibration(rows, detector_type="contradiction")
-    top = next(b for b in bins if b.confidence_low == 0.9)
-    assert top.n_reviewed == 1  # only the contradiction row counts
-
-
-def test_calibration_drops_null_confidence_rows() -> None:
-    rows = [EvalRow("contradiction", "numeric_short_circuit", None, "confirmed", None)]
-    bins = compute_calibration(rows, detector_type="contradiction")
-    assert all(b.n_reviewed == 0 for b in bins)
-
-
-def test_calibration_default_bins_have_full_coverage() -> None:
-    """The default bins cover [0.0, 1.0] without gaps and the top edge includes 1.0."""
-    bins = DEFAULT_CALIBRATION_BINS
-    for (_, prev_high), (next_low, _) in pairwise(bins):
-        assert prev_high == next_low
-    assert bins[0][0] == 0.0
-    assert bins[-1][1] > 1.0  # 1.0001 sentinel ensures judge_confidence=1.0 is bucketed
 
 
 # --- formatters ------------------------------------------------------------
@@ -376,32 +318,6 @@ def test_format_precision_table_renders_rows() -> None:
     )
     assert "contradiction" in out
     assert "40.0%" in out
-
-
-def test_format_calibration_table_renders_detector_name() -> None:
-    out = format_calibration_table(
-        [
-            CalibrationBin(
-                confidence_low=0.9,
-                confidence_high=1.0001,
-                n_reviewed=2,
-                n_confirmed=1,
-                n_false_positive=1,
-                n_dismissed=0,
-                precision=0.5,
-            )
-        ],
-        detector_type="contradiction",
-    )
-    assert "contradiction" in out
-    assert "[0.90, 1.00)" in out
-    assert "50.0%" in out
-
-
-def test_format_calibration_table_no_data_message() -> None:
-    bins = [CalibrationBin(low, high, 0, 0, 0, 0, None) for low, high in DEFAULT_CALIBRATION_BINS]
-    out = format_calibration_table(bins, detector_type="contradiction")
-    assert "no reviewed" in out
 
 
 # --- CSV writers ----------------------------------------------------------
@@ -433,23 +349,6 @@ def test_write_precision_csv_round_trip(tmp_path: Path) -> None:
     assert rows[0]["detector_type"] == "contradiction"
     assert rows[0]["precision"] == "0.750000"
     assert rows[1]["precision"] == ""  # None → empty cell
-
-
-def test_write_calibration_csv_round_trip(tmp_path: Path) -> None:
-    bins_by_detector = {
-        "contradiction": [
-            CalibrationBin(0.9, 1.0001, 2, 1, 1, 0, 0.5),
-            CalibrationBin(0.5, 0.7, 1, 0, 1, 0, 0.0),
-        ]
-    }
-    out_path = tmp_path / "c.csv"
-    write_calibration_csv(bins_by_detector, out_path)
-    with open(out_path, encoding="utf-8") as fh:
-        rows = list(csv.DictReader(fh))
-    assert len(rows) == 2
-    by_low = {float(r["confidence_low"]): r for r in rows}
-    assert by_low[0.9]["precision"] == "0.500000"
-    assert by_low[0.5]["precision"] == "0.000000"
 
 
 def test_eval_filename_uses_cc_prefix_and_kind() -> None:

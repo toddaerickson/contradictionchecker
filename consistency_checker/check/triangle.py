@@ -92,7 +92,7 @@ def find_triangles(
             ``(A, B)`` and ``(B, A)`` are treated as the same edge).
         max_per_run: Cap on the number of triangles retained. Enforced *during*
             enumeration via a bounded heap, so memory stays O(``max_per_run``)
-            rather than O(total triangles in the graph). The highest-confidence
+            rather than O(total triangles in the graph). The highest-scoring
             triangles by ``min_edge_score`` always survive the cap.
 
     Yields:

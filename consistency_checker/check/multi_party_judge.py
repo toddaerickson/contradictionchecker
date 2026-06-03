@@ -44,7 +44,6 @@ class MultiPartyJudgeVerdict:
 
     assertion_ids: tuple[str, str, str]
     verdict: MultiPartyVerdictLabel
-    confidence: float
     rationale: str
     contradicting_subset: tuple[str, ...] = field(default_factory=tuple)
     evidence_spans: list[str] = field(default_factory=list)
@@ -56,7 +55,6 @@ class MultiPartyJudgeVerdict:
         return cls(
             assertion_ids=triangle.assertion_ids,
             verdict=payload.verdict,
-            confidence=payload.confidence,
             rationale=payload.rationale,
             contradicting_subset=tuple(payload.contradicting_subset),
             evidence_spans=list(payload.evidence_spans),
@@ -89,7 +87,6 @@ def uncertain_fallback(triangle: Triangle, reason: str) -> MultiPartyJudgeVerdic
     return MultiPartyJudgeVerdict(
         assertion_ids=triangle.assertion_ids,
         verdict="uncertain",
-        confidence=0.0,
         rationale=f"Multi-party judge degraded to uncertain: {reason}",
         contradicting_subset=(),
         evidence_spans=[],
@@ -105,7 +102,7 @@ class MultiPartyJudge(Protocol):
 class FixtureMultiPartyJudge:
     """Returns canned verdicts keyed by the triangle's canonical assertion-id tuple.
 
-    Falls back to a low-confidence ``uncertain`` verdict when a triangle is
+    Falls back to an ``uncertain`` verdict when a triangle is
     missing from the fixture map, so tests only enumerate the cases they care
     about. Mirrors :class:`FixtureJudge` for the pair stage.
     """

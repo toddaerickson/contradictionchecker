@@ -56,7 +56,6 @@
             <span class="cc-finding-kind">⚠ {{ finding.verdict|replace('_', ' ')|title }}</span>
             <p class="cc-finding-text">{{ finding.label_or_quote }}</p>
             <div class="cc-finding-meta">
-              <span>Confidence {{ "%.2f"|format(finding.confidence or 0.0) }}</span>
               {% with pair_key=finding.pair_key,
                       detector_type=finding.detector_type,
                       reviewer_verdict=finding.reviewer_verdict,

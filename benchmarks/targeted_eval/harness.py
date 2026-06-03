@@ -94,7 +94,6 @@ class TargetedPrediction:
     ground_truth: GroundTruth
     relation: Relation
     predicted: JudgePredicted
-    judge_confidence: float
     judge_rationale: str
 
 
@@ -257,7 +256,6 @@ def run_targeted_eval(
                 ground_truth=pair.ground_truth,
                 relation=pair.relation,
                 predicted=predicted,
-                judge_confidence=verdict.confidence,
                 judge_rationale=verdict.rationale,
             )
         )
