@@ -193,6 +193,32 @@ def test_sidebar_lists_corpora(tmp_path: Path) -> None:
     assert "Corpus Two" in body
 
 
+def test_sidebar_progress_div_pins_its_own_swap_target(tmp_path: Path) -> None:
+    """The per-corpus SSE progress slot must pin ``hx-target="this"``.
+
+    It lives inside the corpus ``<a>`` which sets ``hx-target="#cc-main"`` for
+    its click-to-load-findings behavior. htmx inherits ``hx-target`` to
+    descendants, so without an explicit override the SSE ``snapshot`` swap would
+    fire into ``#cc-main`` and replace the findings list + toolbar with a
+    one-line progress bar on every page load. Pin it to the slot itself.
+    """
+    import re
+
+    cfg = _config(tmp_path)
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    cid = store.get_or_create_corpus("Corpus One", "/one", "moonshot")
+    store.close()
+
+    client = _client(cfg)
+    body = client.get(f"/?corpus={cid}").text
+    m = re.search(r'<div class="cc-corpus-progress"[^>]*>', body)
+    assert m is not None, "sidebar progress div not found"
+    progress_tag = m.group(0)
+    assert 'sse-swap="snapshot"' in progress_tag
+    assert 'hx-target="this"' in progress_tag
+
+
 # --- 4) findings panel shows findings from active corpus ----------------
 
 

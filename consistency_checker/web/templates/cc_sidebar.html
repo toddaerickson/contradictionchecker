@@ -24,6 +24,8 @@
            hx-ext="sse"
            sse-connect="/corpora/{{ corpus.corpus_id }}/progress"
            sse-swap="snapshot"
+           hx-target="this"
+           hx-swap="innerHTML"
            sse-close="done"></div>
     </a>
   {% else %}
