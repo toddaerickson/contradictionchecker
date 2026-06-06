@@ -28,10 +28,11 @@ from consistency_checker.index.assertion_store import AssertionStore
 # A "definition" that merely points elsewhere ("X has the meaning assigned in Section Y")
 # is a cross-reference, not a definition — useless for divergence comparison. Drop such pairs.
 _CROSS_REF_RE = re.compile(
-    r"^\s*(?:has|have|having)\s+the\s+meaning"
-    r"|^\s*the\s+meaning\s+(?:specified|assigned|given|set\s+forth)"
-    r"|^\s*as\s+defined\b"
-    r"|^\s*shall\s+have\s+the\s+meaning",
+    r"^\s*(?:has|have|having|shall\s+have)\s+the\s+meanings?\s+"
+    r"(?:set\s+forth|given|assigned|specified|ascribed|attributed|provided|referred)"
+    r"|^\s*the\s+meanings?\s+"
+    r"(?:set\s+forth|given|assigned|specified|ascribed|attributed|provided)"
+    r"|^\s*as\s+(?:defined|set\s+forth)\b",
     re.IGNORECASE,
 )
 
@@ -87,7 +88,7 @@ def build_candidates(definitions: list[Assertion], max_pairs: int) -> list[dict[
     candidates.sort(
         key=lambda c: (
             0 if c["doc_a"] != c["doc_b"] else 1,  # cross-document first (divergence signal)
-            0 if c["category"] == "review" else 1,  # then review before identical
+            0 if c["category"] == "review" else 1,
         )
     )
     return candidates[:max_pairs]

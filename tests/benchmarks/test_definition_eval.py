@@ -77,6 +77,13 @@ def test_is_cross_reference():
     assert not _is_cross_reference(
         "the intended commercial meaning of the parties"
     )  # 'meaning' mid-text
+    # over-drop guard: "shall have the meaning" WITHOUT a locator is a real def, not a pointer
+    assert not _is_cross_reference("shall have the meaning in ordinary commercial usage")
+    assert not _is_cross_reference("has the meaning the parties intend in plain English")
+    # broadened under-drop coverage
+    assert _is_cross_reference("the meaning ascribed to it in Section 4.1")
+    assert _is_cross_reference("the meanings specified in Annex A")
+    assert _is_cross_reference("as set forth in Section 9.1")
 
 
 def test_build_candidates_drops_cross_reference_pairs():
@@ -95,16 +102,16 @@ def test_build_candidates_drops_cross_reference_pairs():
 
 
 def test_build_candidates_prioritizes_cross_document():
+    # Two same-doc defs (enumerated first by combinations) + one in another doc.
+    # Pairs in combinations order: (s1,s2) same-doc; (s1,x) cross-doc; (s2,x) cross-doc.
+    # Old sort (review-only) would keep the same-doc pair first; new sort must promote a cross-doc pair.
     defs = [
-        _defn("base", "Lender", "a bank that lends"),  # base doc
-        _defn(
-            "amend", "Lender", "a bank or fund that lends"
-        ),  # amendment doc -> cross-doc with base
-        _defn("base", "Lender", "a bank or fund that lends"),  # same-doc as base (different text)
+        _defn("base", "Lender", "a bank that lends money"),  # s1 (same doc as s2)
+        _defn("base", "Lender", "a bank or fund that lends"),  # s2
+        _defn("amend", "Lender", "a bank, fund, or trust that lends"),  # x (other doc)
     ]
     cands = build_candidates(defs, max_pairs=100)
-    # the first candidate must be a cross-document pair (doc_a != doc_b)
-    assert cands[0]["doc_a"] != cands[0]["doc_b"]
+    assert cands[0]["doc_a"] != cands[0]["doc_b"]  # a cross-document pair is first
 
 
 def _pred(label, predicted):
