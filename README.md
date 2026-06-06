@@ -26,8 +26,14 @@ See [`docs/decisions/0015-pairwise-opt-in.md`](docs/decisions/0015-pairwise-opt-
 From PyPI (once published):
 
 ```sh
-pip install consistency-checker
+pipx install consistency-checker   # isolated CLI install (recommended)
+pip install consistency-checker    # or into the current environment
 ```
+
+> **Heads-up — heavy first install.** The first install pulls torch, faiss, and
+> unstructured, so it is multi-GB and can take several minutes. Model weights
+> (sentence-transformers / DeBERTa) download on the first `check` / `--pairwise`
+> run, not at install time.
 
 From source:
 
@@ -149,4 +155,4 @@ Carried forward into the v0.4+ roadmap in [`futureplans.md`](futureplans.md):
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE).
+Apache-2.0. See [`LICENSE`](LICENSE).
