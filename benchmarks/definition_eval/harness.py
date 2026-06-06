@@ -62,11 +62,12 @@ def _metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
             tn += 1
     precision = tp / (tp + fp) if (tp + fp) else None
     recall = tp / (tp + fn) if (tp + fn) else None
-    f1 = (
-        2 * precision * recall / (precision + recall)
-        if precision and recall and (precision + recall) > 0
-        else None
-    )
+    if precision is None and recall is None:
+        f1 = None
+    else:
+        p = precision or 0.0
+        r = recall or 0.0
+        f1 = 2 * p * r / (p + r) if (p + r) else 0.0
     return {
         "confusion": {"tp": tp, "fp": fp, "fn": fn, "tn": tn},
         "precision": precision,
@@ -139,8 +140,11 @@ def main() -> None:
     misses = [p for p in result["predictions"] if not p["correct"]]
     if misses:
         print("\nMisses:")
-        for m in misses:
-            print(f"  [{m['category']}] {m['pair_id']}: label={m['label']} verdict={m['verdict']}")
+        for miss in misses:
+            print(
+                f"  [{miss['category']}] {miss['pair_id']}: "
+                f"label={miss['label']} verdict={miss['verdict']}"
+            )
     if args.metrics:
         args.metrics.write_text(json.dumps(result, indent=2), encoding="utf-8")
         print(f"\nWrote metrics to {args.metrics}")
