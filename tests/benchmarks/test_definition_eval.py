@@ -3,7 +3,11 @@ from types import SimpleNamespace
 import pytest
 
 from benchmarks.definition_eval.harness import _metrics
-from benchmarks.definition_eval.mine_pairs import build_candidates, resolve_corpus_id
+from benchmarks.definition_eval.mine_pairs import (
+    _is_cross_reference,
+    build_candidates,
+    resolve_corpus_id,
+)
 from consistency_checker.extract.schema import Assertion
 
 
@@ -60,6 +64,54 @@ def test_build_candidates_pair_ids_unique_and_stable():
     # stable across re-runs (content hash, not run-order)
     second = build_candidates(defs, max_pairs=100)
     assert [c["pair_id"] for c in second] == ids
+
+
+def test_is_cross_reference():
+    assert _is_cross_reference("has the meaning assigned to such term in Section 2.11(a)")
+    assert _is_cross_reference("the meaning specified in Section 2.11")
+    assert _is_cross_reference("As defined in the Credit Agreement")
+    assert _is_cross_reference("shall have the meaning given to it below")
+    # real definitions are NOT cross-references
+    assert not _is_cross_reference("the board of directors of the Corporation")
+    assert not _is_cross_reference("a majority of the members then in office")
+    assert not _is_cross_reference(
+        "the intended commercial meaning of the parties"
+    )  # 'meaning' mid-text
+    # over-drop guard: "shall have the meaning" WITHOUT a locator is a real def, not a pointer
+    assert not _is_cross_reference("shall have the meaning in ordinary commercial usage")
+    assert not _is_cross_reference("has the meaning the parties intend in plain English")
+    # broadened under-drop coverage
+    assert _is_cross_reference("the meaning ascribed to it in Section 4.1")
+    assert _is_cross_reference("the meanings specified in Annex A")
+    assert _is_cross_reference("as set forth in Section 9.1")
+
+
+def test_build_candidates_drops_cross_reference_pairs():
+    defs = [
+        _defn("d1", "Acceptable Discount", "has the meaning assigned in Section 2.11"),  # xref
+        _defn(
+            "d2", "Acceptable Discount", "the largest of the Offered Discounts specified"
+        ),  # real
+        _defn("d3", "Acceptable Discount", "the smallest qualifying discount offered"),  # real
+    ]
+    cands = build_candidates(defs, max_pairs=100)
+    # pairs touching the xref def are dropped; only the (real, real) pair survives
+    assert len(cands) == 1
+    assert "has the meaning" not in cands[0]["def_a"]
+    assert "has the meaning" not in cands[0]["def_b"]
+
+
+def test_build_candidates_prioritizes_cross_document():
+    # Two same-doc defs (enumerated first by combinations) + one in another doc.
+    # Pairs in combinations order: (s1,s2) same-doc; (s1,x) cross-doc; (s2,x) cross-doc.
+    # Old sort (review-only) would keep the same-doc pair first; new sort must promote a cross-doc pair.
+    defs = [
+        _defn("base", "Lender", "a bank that lends money"),  # s1 (same doc as s2)
+        _defn("base", "Lender", "a bank or fund that lends"),  # s2
+        _defn("amend", "Lender", "a bank, fund, or trust that lends"),  # x (other doc)
+    ]
+    cands = build_candidates(defs, max_pairs=100)
+    assert cands[0]["doc_a"] != cands[0]["doc_b"]  # a cross-document pair is first
 
 
 def _pred(label, predicted):

@@ -1,5 +1,7 @@
 """Mine candidate same-term definition pairs from an ingested corpus into a
-review file for human labeling. The output feeds benchmarks/definition_eval/
+review file for human labeling. Cross-reference pseudo-definitions ("X has the
+meaning assigned in Section Y") are dropped, and cross-document pairs (the
+divergence signal) are surfaced first. The output feeds benchmarks/definition_eval/
 after the maintainer fills the empty ``label`` field (consistent | divergent)
 and deletes junk rows.
 
@@ -15,6 +17,7 @@ import argparse
 import hashlib
 import itertools
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -22,14 +25,31 @@ from consistency_checker.check.definition_terms import canonicalize_term
 from consistency_checker.extract.schema import Assertion, Corpus
 from consistency_checker.index.assertion_store import AssertionStore
 
+# A "definition" that merely points elsewhere ("X has the meaning assigned in Section Y")
+# is a cross-reference, not a definition — useless for divergence comparison. Drop such pairs.
+_CROSS_REF_RE = re.compile(
+    r"^\s*(?:has|have|having|shall\s+have)\s+the\s+meanings?\s+"
+    r"(?:set\s+forth|given|assigned|specified|ascribed|attributed|provided|referred)"
+    r"|^\s*the\s+meanings?\s+"
+    r"(?:set\s+forth|given|assigned|specified|ascribed|attributed|provided)"
+    r"|^\s*as\s+(?:defined|set\s+forth)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_cross_reference(text: str) -> bool:
+    return bool(_CROSS_REF_RE.search(text or ""))
+
 
 def build_candidates(definitions: list[Assertion], max_pairs: int) -> list[dict[str, Any]]:
     """Group definitions by canonical term and enumerate unordered candidate pairs.
 
     ``label`` is left empty for the maintainer to fill. ``category`` is a heuristic
     seed (``identical`` when the two definition texts match exactly, else ``review``).
-    Non-identical ("review") pairs are surfaced first (more label-informative) before
-    the ``max_pairs`` cap is applied.
+    Cross-reference pseudo-definitions (e.g. "has the meaning assigned in Section X")
+    are dropped. Output ordering puts cross-document pairs first (the base-vs-amendment
+    divergence signal), then ``review`` before ``identical``, before the ``max_pairs``
+    cap is applied.
     """
     groups: dict[str, list[Assertion]] = {}
     for a in definitions:
@@ -49,6 +69,8 @@ def build_candidates(definitions: list[Assertion], max_pairs: int) -> list[dict[
             tb = (b.definition_text or "").strip()
             if not ta or not tb:
                 continue
+            if _is_cross_reference(ta) or _is_cross_reference(tb):
+                continue
             lo, hi = sorted([a.assertion_id, b.assertion_id])
             pid = hashlib.sha256(f"{lo}:{hi}".encode()).hexdigest()[:10]
             candidates.append(
@@ -63,7 +85,12 @@ def build_candidates(definitions: list[Assertion], max_pairs: int) -> list[dict[
                     "label": "",  # maintainer: "consistent" | "divergent" (or delete the row)
                 }
             )
-    candidates.sort(key=lambda c: 0 if c["category"] == "review" else 1)
+    candidates.sort(
+        key=lambda c: (
+            0 if c["doc_a"] != c["doc_b"] else 1,  # cross-document first (divergence signal)
+            0 if c["category"] == "review" else 1,
+        )
+    )
     return candidates[:max_pairs]
 
 
