@@ -4,7 +4,7 @@ against a labeled pair set, by category.
 Regression guard, not the primary precision gate. Run manually with a provider
 key configured (reads config.yml like the CLI does):
 
-    uv run python -m benchmarks.definition_eval.harness --baseline benchmarks/definition_eval/baseline.json
+    uv run python -m benchmarks.definition_eval.harness --metrics benchmarks/definition_eval/baseline.json
 
 Dataset format (JSONL, one object per line):
     {"pair_id": str, "category": str, "term": str,
@@ -42,6 +42,40 @@ def _predicted_label(verdict: str) -> str:
     return "divergent" if verdict == "definition_divergent" else "consistent"
 
 
+def _metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
+    """Precision/recall/F1 with ``divergent`` as the positive class.
+
+    Pure over the predictions list so it is unit-testable without a judge.
+    Returns ``None`` for a metric whose denominator is zero.
+    """
+    tp = fp = fn = tn = 0
+    for p in predictions:
+        gold_pos = p["label"] == "divergent"
+        pred_pos = p["predicted"] == "divergent"
+        if gold_pos and pred_pos:
+            tp += 1
+        elif not gold_pos and pred_pos:
+            fp += 1
+        elif gold_pos and not pred_pos:
+            fn += 1
+        else:
+            tn += 1
+    precision = tp / (tp + fp) if (tp + fp) else None
+    recall = tp / (tp + fn) if (tp + fn) else None
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if precision and recall and (precision + recall) > 0
+        else None
+    )
+    return {
+        "confusion": {"tp": tp, "fp": fp, "fn": fn, "tn": tn},
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "n": len(predictions),
+    }
+
+
 def run(pairs_path: Path, config_path: Path | None) -> dict[str, Any]:
     config = Config.from_yaml(config_path) if config_path and config_path.exists() else Config()
     checker = make_definition_checker(config)
@@ -73,7 +107,7 @@ def run(pairs_path: Path, config_path: Path | None) -> dict[str, Any]:
     summary = {
         cat: {"accuracy": c["correct"] / c["total"], **c} for cat, c in sorted(by_cat.items())
     }
-    return {"summary": summary, "predictions": predictions}
+    return {"metrics": _metrics(predictions), "summary": summary, "predictions": predictions}
 
 
 def main() -> None:
@@ -81,23 +115,35 @@ def main() -> None:
     ap.add_argument("--pairs", type=Path, default=DEFAULT_PAIRS)
     ap.add_argument("--config", type=Path, default=Path("config.yml"))
     ap.add_argument(
-        "--baseline",
+        "--metrics",
         type=Path,
         default=None,
-        help="Write per-category summary JSON here (the before/after baseline).",
+        help="Write metrics + per-category summary JSON here.",
     )
     args = ap.parse_args()
     result = run(args.pairs, args.config)
     for cat, s in result["summary"].items():
         print(f"{cat:<32} {s['correct']:>3}/{s['total']:<3}  acc={s['accuracy']:.2f}")
+
+    m = result["metrics"]
+    cm = m["confusion"]
+
+    def _pct(x: float | None) -> str:
+        return "n/a" if x is None else f"{x * 100:.1f}%"
+
+    print(
+        f"\nOverall (divergent = positive): n={m['n']}  "
+        f"P={_pct(m['precision'])}  R={_pct(m['recall'])}  F1={_pct(m['f1'])}"
+    )
+    print(f"  confusion: tp={cm['tp']} fp={cm['fp']} fn={cm['fn']} tn={cm['tn']}")
     misses = [p for p in result["predictions"] if not p["correct"]]
     if misses:
         print("\nMisses:")
         for m in misses:
             print(f"  [{m['category']}] {m['pair_id']}: label={m['label']} verdict={m['verdict']}")
-    if args.baseline:
-        args.baseline.write_text(json.dumps(result["summary"], indent=2), encoding="utf-8")
-        print(f"\nWrote baseline to {args.baseline}")
+    if args.metrics:
+        args.metrics.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        print(f"\nWrote metrics to {args.metrics}")
 
 
 if __name__ == "__main__":
