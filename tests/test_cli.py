@@ -1260,6 +1260,11 @@ def test_ingest_with_corpus_persists(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     # the symbol lives in cli.main's namespace; patching pipeline.make_extractor
     # alone misses that binding.
     monkeypatch.setattr("consistency_checker.cli.main.make_extractor", lambda c: fx)
+    # The ingest command builds the embedder in its body before run_ingest, so a
+    # hermetic embedder is required or CI tries to download all-mpnet-base-v2.
+    monkeypatch.setattr(
+        "consistency_checker.cli.main.make_embedder", lambda c: HashEmbedder(dim=64)
+    )
 
     runner = CliRunner()
     res = runner.invoke(
@@ -1478,6 +1483,12 @@ def _ocr_flag_harness(
         {}, org_fixtures={("doc", "Atkins"): OrgIdentification("Atkins", "org_found")}
     )
     monkeypatch.setattr("consistency_checker.cli.main.make_extractor", lambda c: fx)
+    # The ingest command builds the embedder in its body before run_ingest (which
+    # we fake below), so a hermetic embedder is required or CI tries to download
+    # all-mpnet-base-v2.
+    monkeypatch.setattr(
+        "consistency_checker.cli.main.make_embedder", lambda c: HashEmbedder(dim=64)
+    )
 
     captured: dict[str, Any] = {}
 
