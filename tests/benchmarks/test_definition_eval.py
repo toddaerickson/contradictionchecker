@@ -44,6 +44,20 @@ def test_build_candidates_caps_and_prioritizes_review():
     assert all(c["category"] == "review" for c in cands)  # review pairs sorted ahead of identical
 
 
+def test_build_candidates_pair_ids_unique_and_stable():
+    defs = [
+        _defn("a", "Term", "alpha"),
+        _defn("b", "Term", "beta"),
+        _defn("c", "Term", "gamma"),
+    ]
+    first = build_candidates(defs, max_pairs=100)
+    ids = [c["pair_id"] for c in first]
+    assert len(ids) == len(set(ids))  # unique
+    # stable across re-runs (content hash, not run-order)
+    second = build_candidates(defs, max_pairs=100)
+    assert [c["pair_id"] for c in second] == ids
+
+
 def _pred(label, predicted):
     return {"label": label, "predicted": predicted}
 

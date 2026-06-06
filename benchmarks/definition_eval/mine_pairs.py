@@ -12,6 +12,7 @@ Run:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import itertools
 import json
 from pathlib import Path
@@ -40,7 +41,6 @@ def build_candidates(definitions: list[Assertion], max_pairs: int) -> list[dict[
         groups.setdefault(canon, []).append(a)
 
     candidates: list[dict[str, Any]] = []
-    seq = 0
     for canon, defs in sorted(groups.items()):
         if len(defs) < 2:
             continue
@@ -49,10 +49,11 @@ def build_candidates(definitions: list[Assertion], max_pairs: int) -> list[dict[
             tb = (b.definition_text or "").strip()
             if not ta or not tb:
                 continue
-            seq += 1
+            lo, hi = sorted([a.assertion_id, b.assertion_id])
+            pid = hashlib.sha256(f"{lo}:{hi}".encode()).hexdigest()[:10]
             candidates.append(
                 {
-                    "pair_id": f"{canon[:24]}_{seq:04d}",
+                    "pair_id": f"{canon[:24]}_{pid}",
                     "category": "identical" if ta == tb else "review",
                     "term": a.term,
                     "def_a": ta,
@@ -67,12 +68,9 @@ def build_candidates(definitions: list[Assertion], max_pairs: int) -> list[dict[
 
 
 def mine(db_path: Path, corpus_id: str | None, max_pairs: int) -> list[dict[str, Any]]:
-    store = AssertionStore(db_path)
-    store.migrate()
-    try:
+    with AssertionStore(db_path) as store:
+        store.migrate()
         definitions = [a for a, _org in store.iter_definitions(corpus_id=corpus_id)]
-    finally:
-        store.close()
     return build_candidates(definitions, max_pairs)
 
 
