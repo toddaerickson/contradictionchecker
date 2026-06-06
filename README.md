@@ -59,11 +59,13 @@ cp config.example.yml config.yml
 # baking the key into your shell rc. See CORPORATE_SETUP.md §3.
 export ANTHROPIC_API_KEY=...      # or OPENAI_API_KEY=...
 
-# 3a. Web UI flow (v0.3+)
+# 3a. Web UI flow (single-page UI, ADR-0017)
 uv run consistency-check serve --open    # browser opens to http://127.0.0.1:8000
-# Drop files in the Ingest tab → click Run / Check now (toggle Deep for
-# three-document conditional contradictions) → watch live counters on
-# the Stats tab → drill into each finding from the Contradictions tab.
+# Create a corpus and add files via [+ New corpus] in the sidebar → click
+# [Run check] (toggle Deep for three-document conditional contradictions;
+# live progress shows on the corpus row). Findings stream in the main pane:
+# mark verdicts inline, filter with the chips, open the Assertions /
+# Definitions / Stats drawers to drill in, or Export CSV.
 
 # 3b. CLI-only flow
 uv run consistency-check ingest path/to/corpus/
