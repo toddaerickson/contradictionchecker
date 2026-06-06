@@ -1,4 +1,47 @@
 from benchmarks.definition_eval.harness import _metrics
+from benchmarks.definition_eval.mine_pairs import build_candidates
+from consistency_checker.extract.schema import Assertion
+
+
+def _defn(doc, term, text):
+    return Assertion.build(
+        doc, f'"{term}" means {text}.', kind="definition", term=term, definition_text=text
+    )
+
+
+def test_build_candidates_pairs_same_canonical_term():
+    defs = [
+        _defn("d1", "Board", "the board of directors"),
+        _defn("d2", "board", "the board of directors"),  # identical text, canonical-equal term
+        _defn("d3", "Board", "the supervisory board only"),  # divergent candidate
+    ]
+    cands = build_candidates(defs, max_pairs=100)
+    assert len(cands) == 3  # 3 unordered pairs over 3 same-canonical-term defs
+    cats = {c["category"] for c in cands}
+    assert "identical" in cats and "review" in cats
+    for c in cands:
+        assert c["label"] == ""
+        assert c["term"] and c["def_a"] and c["def_b"]
+        assert c["doc_a"] and c["doc_b"]
+
+
+def test_build_candidates_skips_singletons():
+    defs = [_defn("d1", "Quorum", "a majority"), _defn("d2", "Notice", "written notice")]
+    assert build_candidates(defs, max_pairs=100) == []  # no term has >= 2 defs
+
+
+def test_build_candidates_caps_and_prioritizes_review():
+    # one term, 3 distinct texts -> 3 pairs all "review"; plus an identical pair on another term.
+    defs = [
+        _defn("a", "Term", "alpha"),
+        _defn("b", "Term", "beta"),
+        _defn("c", "Term", "gamma"),
+        _defn("d", "Other", "same"),
+        _defn("e", "Other", "same"),
+    ]
+    cands = build_candidates(defs, max_pairs=2)
+    assert len(cands) == 2
+    assert all(c["category"] == "review" for c in cands)  # review pairs sorted ahead of identical
 
 
 def _pred(label, predicted):
