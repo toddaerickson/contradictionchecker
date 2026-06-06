@@ -1,5 +1,9 @@
+from types import SimpleNamespace
+
+import pytest
+
 from benchmarks.definition_eval.harness import _metrics
-from benchmarks.definition_eval.mine_pairs import build_candidates
+from benchmarks.definition_eval.mine_pairs import build_candidates, resolve_corpus_id
 from consistency_checker.extract.schema import Assertion
 
 
@@ -108,3 +112,16 @@ def test_metrics_all_positives_wrong_is_zero_not_none():
     assert m["precision"] == 0.0  # tp/(tp+fp) = 0/1
     assert m["recall"] == 0.0  # tp/(tp+fn) = 0/1
     assert m["f1"] == 0.0
+
+
+def _corpus(cid, name):
+    return SimpleNamespace(corpus_id=cid, corpus_name=name)
+
+
+def test_resolve_corpus_id_by_name_id_none_and_error():
+    corpora = [_corpus("uuid-abc", "atkins"), _corpus("uuid-def", "fcs-call-report")]
+    assert resolve_corpus_id(corpora, "atkins") == "uuid-abc"  # by name
+    assert resolve_corpus_id(corpora, "uuid-def") == "uuid-def"  # by raw id
+    assert resolve_corpus_id(corpora, None) is None  # all corpora
+    with pytest.raises(ValueError, match="unknown corpus"):
+        resolve_corpus_id(corpora, "nope")

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from consistency_checker.check.definition_terms import canonicalize_term
-from consistency_checker.extract.schema import Assertion
+from consistency_checker.extract.schema import Assertion, Corpus
 from consistency_checker.index.assertion_store import AssertionStore
 
 
@@ -67,9 +67,28 @@ def build_candidates(definitions: list[Assertion], max_pairs: int) -> list[dict[
     return candidates[:max_pairs]
 
 
-def mine(db_path: Path, corpus_id: str | None, max_pairs: int) -> list[dict[str, Any]]:
+def resolve_corpus_id(corpora: list[Corpus], corpus_arg: str | None) -> str | None:
+    """Map a user-supplied corpus NAME (or raw id) to the internal corpus_id.
+
+    ``None`` means "all corpora". Raises ValueError with the available names
+    if the arg matches neither a name nor an id.
+    """
+    if corpus_arg is None:
+        return None
+    by_name = {c.corpus_name: c.corpus_id for c in corpora}
+    if corpus_arg in by_name:
+        return by_name[corpus_arg]
+    ids = {c.corpus_id for c in corpora}
+    if corpus_arg in ids:
+        return corpus_arg
+    available = ", ".join(sorted(by_name)) or "(none)"
+    raise ValueError(f"unknown corpus {corpus_arg!r}; available names: {available}")
+
+
+def mine(db_path: Path, corpus: str | None, max_pairs: int) -> list[dict[str, Any]]:
     with AssertionStore(db_path) as store:
         store.migrate()
+        corpus_id = resolve_corpus_id(store.list_corpora(), corpus)
         definitions = [a for a, _org in store.iter_definitions(corpus_id=corpus_id)]
     return build_candidates(definitions, max_pairs)
 
@@ -77,7 +96,12 @@ def mine(db_path: Path, corpus_id: str | None, max_pairs: int) -> list[dict[str,
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--db", type=Path, required=True)
-    ap.add_argument("--corpus", type=str, default=None, help="corpus_id (or omit for all).")
+    ap.add_argument(
+        "--corpus",
+        type=str,
+        default=None,
+        help="corpus NAME (from 'consistency-check corpus list') or id; omit for all corpora.",
+    )
     ap.add_argument("--out", type=Path, default=Path("benchmarks/definition_eval/candidates.jsonl"))
     ap.add_argument("--max", type=int, default=100)
     args = ap.parse_args()
