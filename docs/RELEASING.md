@@ -73,8 +73,8 @@ version there).
 1. Bump `version` in [`pyproject.toml`](../pyproject.toml) (e.g. `0.3.0` →
    `0.3.1`). Commit it and merge to `main`.
 2. On GitHub: **Releases → Draft a new release**. Create a tag matching the
-   version, prefixed with `v` (e.g. `v0.3.0`), target `main`, write notes, and
-   click **Publish release**.
+   version you bumped in step 1, prefixed with `v` (e.g. `v0.3.1`), target
+   `main`, write notes, and click **Publish release**.
 3. Publishing the release fires the `release` trigger: `release.yml` builds the
    sdist + wheel, smoke-installs the wheel, and `publish-pypi` uploads to PyPI.
 4. Watch the run in the **Actions** tab. When it's green, the version is live at
