@@ -1893,10 +1893,12 @@ def test_chips_and_rows_are_keyboard_accessible(tmp_path: Path) -> None:
 
     client = _client(cfg)
     body = client.get(f"/?new_ui=1&corpus={cid}").text
-    # Chips: real href + tab semantics.
+    # Chips: real <a href> with aria-current on the active one — NOT a broken
+    # tablist (no tabpanel/arrow-key contract exists).
     assert f'href="/?corpus={cid}&filter=open"' in body
-    assert 'role="tab"' in body
-    assert 'aria-selected="true"' in body  # the active "all" chip
+    assert 'aria-current="true"' in body  # the active "all" chip
+    assert 'role="tab"' not in body
+    assert "aria-selected" not in body
     # Corpus row in the sidebar is a real link.
     assert f'href="/?corpus={cid}"' in body
 
