@@ -294,6 +294,10 @@
 .cc-finding-summary::-webkit-details-marker {
   display: none;
 }
+.cc-finding-summary:focus-visible {
+  outline: 2px solid var(--cc-blue);
+  outline-offset: 2px;
+}
 .cc-finding-summary::before {
   content: "\25B8"; /* ▸ */
   display: inline-block;
