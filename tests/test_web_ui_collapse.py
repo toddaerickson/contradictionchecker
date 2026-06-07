@@ -24,7 +24,11 @@ from consistency_checker.config import Config
 from consistency_checker.extract.atomic_facts import FixtureExtractor
 from consistency_checker.extract.schema import Assertion, Document
 from consistency_checker.index.assertion_store import AssertionStore
-from consistency_checker.web.app import create_app
+from consistency_checker.web.app import (
+    _empty_text_files_from_notes,
+    _ingest_progress_label,
+    create_app,
+)
 from tests.conftest import HashEmbedder
 
 
@@ -277,6 +281,36 @@ def test_findings_panel_empty_state(tmp_path: Path) -> None:
     assert "No runs yet" in body
     # Placeholder run button hint.
     assert "Run check" in body
+
+
+# --- 6b) onboarding "How it works" guide --------------------------------
+
+
+def test_onboarding_guide_on_no_corpora(tmp_path: Path) -> None:
+    """With no corpora the main pane shows the numbered walkthrough."""
+    cfg = _config(tmp_path)
+    AssertionStore(cfg.db_path).migrate()  # empty DB, zero corpora
+    client = _client(cfg)
+    resp = client.get("/")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "How it works" in body
+    assert 'class="cc-steps"' in body
+    # First and last step reference the real button labels.
+    assert "New corpus" in body
+    assert "Run check" in body
+
+
+def test_onboarding_disclosure_when_corpus_selected(tmp_path: Path) -> None:
+    """When a corpus is active the guide collapses into a <details> disclosure."""
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Howto corpus")
+    client = _client(cfg)
+    resp = client.get(f"/?corpus={cid}")
+    assert resp.status_code == 200
+    body = resp.text
+    assert 'class="cc-howto"' in body
+    assert "<summary>How it works</summary>" in body
 
 
 # --- 7) ?corpus=<id> overrides default active-corpus pick ----------------
@@ -564,11 +598,32 @@ def test_create_corpus_invalid_judge_provider_returns_400(tmp_path: Path) -> Non
     assert "HX-Trigger" not in resp.headers
 
 
-def test_create_corpus_ingest_failure_rolls_back_corpus_row(
+def _latest_run_for_corpus(cfg: Config, corpus_name: str) -> tuple[str, str, str | None] | None:
+    """(run_kind, run_status, error_message) of a corpus's latest run, or None."""
+    store = AssertionStore(cfg.db_path)
+    try:
+        cid_row = store._conn.execute(
+            "SELECT corpus_id FROM corpora WHERE corpus_name = ?", (corpus_name,)
+        ).fetchone()
+        if cid_row is None:
+            return None
+        run = store._conn.execute(
+            "SELECT run_kind, run_status, error_message FROM pipeline_runs "
+            "WHERE corpus_id = ? ORDER BY started_at DESC, run_id DESC LIMIT 1",
+            (cid_row[0],),
+        ).fetchone()
+        return (run[0], run[1], run[2]) if run is not None else None
+    finally:
+        store.close()
+
+
+def test_create_corpus_ingest_failure_records_failed_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """If ingest raises after corpus creation, the empty corpus row must NOT
-    persist — otherwise the same name 409s on every retry."""
+    """ADR-0019: ingest runs in a background task. A failure there must NOT 500
+    the POST; the request returns 'ingest started' (200) and the corpus is kept
+    with a FAILED ingest run carrying a user-facing message — so the user can
+    see *why* it failed instead of a frozen/disappeared corpus."""
     cfg = _config(tmp_path)
     client = _client(cfg)
 
@@ -577,33 +632,35 @@ def test_create_corpus_ingest_failure_rolls_back_corpus_row(
 
     monkeypatch.setattr("consistency_checker.web.app._ingest_uploaded_paths", _boom)
 
-    data = {"corpus_name": "rollback-me", "judge_provider": "moonshot"}
+    data = {"corpus_name": "fails-me", "judge_provider": "moonshot"}
     files = {"files": ("a.txt", b"some content", "text/plain")}
     resp = client.post("/corpora/new", data=data, files=files)
-    assert resp.status_code == 500
-    assert "rolled back" in resp.text
-    assert "HX-Trigger" not in resp.headers
+    assert resp.status_code == 200
+    assert "Ingest started" in resp.text
+    assert resp.headers.get("HX-Trigger") == "corpus-created"
 
-    store = AssertionStore(cfg.db_path)
-    try:
-        rows = store._conn.execute(
-            "SELECT 1 FROM corpora WHERE corpus_name = ?", ("rollback-me",)
-        ).fetchall()
-        assert rows == []
-    finally:
-        store.close()
+    # TestClient runs the BackgroundTask synchronously after the response, so the
+    # ingest run is already terminal: corpus retained, run marked failed.
+    latest = _latest_run_for_corpus(cfg, "fails-me")
+    assert latest is not None, "corpus must be kept so the failure is visible"
+    run_kind, run_status, error_message = latest
+    assert run_kind == "ingest"
+    assert run_status == "failed"
+    assert error_message  # a user-facing reason is recorded
+    # A terminal failure stamps finished_at (not left NULL).
+    assert _latest_run_row(cfg, "fails-me")["finished_at"] is not None
 
 
-def test_create_corpus_cross_corpus_collision_rolls_back_corpus_row(
+def test_create_corpus_cross_corpus_collision_records_failed_run(
     tmp_path: Path,
 ) -> None:
-    """Re-uploading a doc that already lives under another corpus must roll
-    back the new corpus row in addition to cleaning up the upload dir."""
+    """A cross-corpus document collision surfaces as a failed ingest run with an
+    explanatory message, not a 409 that rolls the corpus away."""
     cfg = _config(tmp_path)
 
     # Seed an existing corpus + ingest one document so its content hash is in
     # the store, then attempt to create a NEW corpus that uploads the same
-    # bytes. _ingest_uploaded_paths will raise CrossCorpusDocumentError.
+    # bytes. The background ingest raises CrossCorpusDocumentError.
     store = AssertionStore(cfg.db_path)
     store.migrate()
     existing_cid = store.get_or_create_corpus("existing", "/existing", "moonshot")
@@ -615,17 +672,100 @@ def test_create_corpus_cross_corpus_collision_rolls_back_corpus_row(
     data = {"corpus_name": "victim-corpus", "judge_provider": "moonshot"}
     files = {"files": ("dup.txt", b"collision body", "text/plain")}
     resp = client.post("/corpora/new", data=data, files=files)
-    assert resp.status_code == 409
-    assert "HX-Trigger" not in resp.headers
+    assert resp.status_code == 200
+    assert "Ingest started" in resp.text
 
+    latest = _latest_run_for_corpus(cfg, "victim-corpus")
+    assert latest is not None
+    run_kind, run_status, error_message = latest
+    assert run_kind == "ingest"
+    assert run_status == "failed"
+    assert "already exists" in (error_message or "")
+
+
+def _latest_run_row(cfg: Config, corpus_name: str) -> dict[str, object] | None:
+    """Full latest-run row for a corpus as a dict, or None."""
     store = AssertionStore(cfg.db_path)
+    store._conn.row_factory = sqlite3.Row
     try:
-        rows = store._conn.execute(
-            "SELECT 1 FROM corpora WHERE corpus_name = ?", ("victim-corpus",)
-        ).fetchall()
-        assert rows == []
+        cid_row = store._conn.execute(
+            "SELECT corpus_id FROM corpora WHERE corpus_name = ?", (corpus_name,)
+        ).fetchone()
+        if cid_row is None:
+            return None
+        row = store._conn.execute(
+            "SELECT * FROM pipeline_runs WHERE corpus_id = ? "
+            "ORDER BY started_at DESC, run_id DESC LIMIT 1",
+            (cid_row[0],),
+        ).fetchone()
+        return dict(row) if row is not None else None
     finally:
         store.close()
+
+
+def test_create_corpus_ingest_runs_as_background_job(tmp_path: Path) -> None:
+    """ADR-0019: a normal upload returns instantly and completes as a DONE
+    ingest run (kind='ingest') with the file counters filled in."""
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    data = {"corpus_name": "bg-corpus", "judge_provider": "moonshot"}
+    files = {"files": ("doc.txt", b"Some ordinary body text.", "text/plain")}
+    resp = client.post("/corpora/new", data=data, files=files)
+    assert resp.status_code == 200
+    assert "Ingest started" in resp.text
+    assert resp.headers.get("HX-Trigger") == "corpus-created"
+
+    row = _latest_run_row(cfg, "bg-corpus")
+    assert row is not None
+    assert row["run_kind"] == "ingest"
+    assert row["run_status"] == "done"
+    assert row["n_files_total"] == 1
+    assert row["n_files_done"] == 1
+    assert row["finished_at"] is not None
+
+    # The upload staging dir is cleaned up after the job — no per-upload leak.
+    uploads_root = cfg.data_dir / "uploads"
+    assert not uploads_root.exists() or list(uploads_root.iterdir()) == []
+
+
+def test_ingest_surfaces_empty_text_files(tmp_path: Path) -> None:
+    """A file that yields no extractable text (scanned image / OCR unavailable)
+    is recorded in the run notes rather than silently counted as success (C)."""
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+    data = {"corpus_name": "empty-corpus", "judge_provider": "moonshot"}
+    files = {"files": ("scan.txt", b"   \n  \t ", "text/plain")}
+    resp = client.post("/corpora/new", data=data, files=files)
+    assert resp.status_code == 200
+
+    row = _latest_run_row(cfg, "empty-corpus")
+    assert row is not None
+    assert row["run_status"] == "done"
+    assert "scan.txt" in _empty_text_files_from_notes(row["notes"])
+
+
+def test_ingest_progress_label_render() -> None:
+    """The ingest progress label branches on status and HTML-escapes filenames."""
+    running = _ingest_progress_label(
+        {"n_files_total": 3, "n_files_done": 1, "n_assertions": 7}, "running"
+    )
+    assert "Ingesting" in running and "1/3 files" in running and "7 assertions" in running
+
+    done = _ingest_progress_label(
+        {
+            "n_files_total": 1,
+            "n_files_done": 1,
+            "n_assertions": 0,
+            "notes": '{"empty_text_files": ["<scan>.pdf"]}',
+        },
+        "done",
+    )
+    assert "no extractable text" in done
+    assert "&lt;scan&gt;.pdf" in done  # escaped, not raw
+    assert "<scan>" not in done
+
+    failed = _ingest_progress_label({"error_message": "boom <x>"}, "failed")
+    assert "Ingest failed" in failed and "boom &lt;x&gt;" in failed
 
 
 def test_sidebar_refresh_endpoint_returns_fragment(tmp_path: Path) -> None:

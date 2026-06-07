@@ -1,14 +1,23 @@
 <dialog class="cc-modal {% if success %}cc-modal--success{% elif error %}cc-modal--error{% endif %}" open>
   {% if success %}
     <header class="cc-modal-head">
-      <h2 class="cc-modal-title">Corpus created</h2>
+      <h2 class="cc-modal-title">{{ 'Ingest started' if ingest_started else 'Corpus created' }}</h2>
     </header>
     <div class="cc-modal-body">
-      <p>
-        Corpus <strong>{{ corpus_name }}</strong> created
-        ({{ n_assertions }} assertion{{ '' if n_assertions == 1 else 's' }} extracted from
-        {{ n_files }} file{{ '' if n_files == 1 else 's' }}).
-      </p>
+      {% if ingest_started %}
+        <p>
+          Corpus <strong>{{ corpus_name }}</strong> created and
+          {{ n_files }} file{{ '' if n_files == 1 else 's' }} queued for ingest.
+          Watch the sidebar row for live progress — assertions appear as each
+          file finishes.
+        </p>
+      {% else %}
+        <p>
+          Corpus <strong>{{ corpus_name }}</strong> created
+          ({{ n_assertions }} assertion{{ '' if n_assertions == 1 else 's' }} extracted from
+          {{ n_files }} file{{ '' if n_files == 1 else 's' }}).
+        </p>
+      {% endif %}
     </div>
     <footer class="cc-modal-actions">
       <a class="cc-button cc-button--primary"
@@ -56,7 +65,8 @@
         <span class="cc-modal-hint">Allowed: {{ allowed_extensions|join(', ') }}</span>
       </label>
       <footer class="cc-modal-actions">
-        <button type="submit" class="cc-button cc-button--primary">Create corpus + ingest</button>
+        <button type="submit" class="cc-button cc-button--primary"
+                hx-disabled-elt="this">Create corpus + ingest</button>
         <button type="button" class="cc-button"
                 onclick="document.getElementById('cc-modal-region').innerHTML = ''">Cancel</button>
       </footer>

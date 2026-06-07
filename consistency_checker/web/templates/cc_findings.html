@@ -1,6 +1,7 @@
 {% if active_corpus is none %}
-  <div class="cc-empty cc-main-empty">
-    <p class="cc-muted">No corpora yet. Create one to get started.</p>
+  <div class="cc-empty">
+    <h3 class="cc-howto-title">How it works</h3>
+    {% include "cc__onboarding.html" %}
     <button type="button" class="cc-button"
             hx-get="/corpora/new/modal"
             hx-target="#cc-modal-region"
@@ -21,6 +22,10 @@
         <span>{{ findings|length }} finding{{ '' if findings|length == 1 else 's' }}</span>
       </div>
     </div>
+    <details class="cc-howto">
+      <summary>How it works</summary>
+      {% include "cc__onboarding.html" %}
+    </details>
     <div class="cc-main-actions">
       <button type="button" class="cc-button cc-button--primary"
               hx-get="/corpora/{{ active_corpus_id }}/run/modal"

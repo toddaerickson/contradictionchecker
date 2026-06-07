@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import html
 import io
 import json
 import math
@@ -19,8 +20,8 @@ import secrets
 import shutil
 import sqlite3
 import uuid
-from collections.abc import AsyncGenerator
-from dataclasses import replace
+from collections.abc import AsyncGenerator, Callable
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -210,6 +211,50 @@ def _live_counters(run: Any, audit: Any = None) -> dict[str, Any]:
         "started_at": run.started_at.isoformat(timespec="seconds") if run.started_at else None,
         "finished_at": run.finished_at.isoformat(timespec="seconds") if run.finished_at else None,
     }
+
+
+def _empty_text_files_from_notes(notes: str | None) -> list[str]:
+    """Parse an ingest run's ``notes`` JSON for files that yielded no text (C).
+
+    Returns ``[]`` on any malformed/legacy value — the field is advisory and
+    must never break progress rendering.
+    """
+    if not notes:
+        return []
+    try:
+        data = json.loads(notes)
+    except (ValueError, TypeError):
+        return []
+    files = data.get("empty_text_files") if isinstance(data, dict) else None
+    return [str(f) for f in files] if isinstance(files, list) else []
+
+
+def _ingest_progress_label(snapshot: dict[str, Any], status: str) -> str:
+    """Build the inline ingest progress label. Output is innerHTML'd raw, so
+    every interpolated value (filenames!) is HTML-escaped here."""
+    total = snapshot.get("n_files_total") or 0
+    done = snapshot.get("n_files_done") or 0
+    n_assertions = snapshot.get("n_assertions") or 0
+    verb = {
+        "pending": "Queued",
+        "running": "Ingesting",
+        "done": "Ingested",
+        "failed": "Ingest failed",
+    }.get(status, "Ingesting")
+    if status == "failed":
+        msg = snapshot.get("error_message") or "Ingest failed."
+        return f"Ingest failed · {html.escape(str(msg))}"
+    base = f"{verb} · {done}/{total} files · {n_assertions} assertions"
+    empties = _empty_text_files_from_notes(snapshot.get("notes"))
+    if status == "done" and empties:
+        shown = ", ".join(html.escape(name) for name in empties[:3])
+        more = f" +{len(empties) - 3} more" if len(empties) > 3 else ""
+        base += (
+            f' · <span class="cc-progress-warn">⚠ {len(empties)} file'
+            f"{'' if len(empties) == 1 else 's'} had no extractable text "
+            f"(scanned image / OCR unavailable): {shown}{more}</span>"
+        )
+    return base
 
 
 def _corpus_banner_context(
@@ -634,6 +679,7 @@ def create_app(
         corpus_id: str | None = None,
         n_assertions: int = 0,
         n_files: int = 0,
+        ingest_started: bool = False,
         hx_trigger: str | None = None,
     ) -> HTMLResponse:
         response = templates.TemplateResponse(
@@ -648,6 +694,7 @@ def create_app(
                 "corpus_id": corpus_id,
                 "n_assertions": n_assertions,
                 "n_files": n_files,
+                "ingest_started": ingest_started,
             },
             status_code=status_code,
         )
@@ -658,6 +705,7 @@ def create_app(
     @app.post("/corpora/new", response_class=HTMLResponse)
     async def post_corpora_new(
         request: Request,
+        background_tasks: BackgroundTasks,
         corpus_name: str = Form(...),
         judge_provider: str = Form("moonshot"),
         files: list[UploadFile] | None = None,
@@ -821,66 +869,32 @@ def create_app(
                 judge_provider=provider,
             )
 
-        store, faiss_store, embedder_inst = _open_stores()
-        ingest_error: tuple[int, str] | None = None
+        # Ingest is offloaded to a background task (ADR-0019) so the heavy
+        # loader/OCR/extraction work never blocks the event loop — a large or
+        # scanned upload used to freeze the whole UI. The corpus row already
+        # exists, so the sidebar shows it immediately with a live progress bar
+        # fed by the same per-corpus SSE channel the check run uses.
+        ingest_store, ingest_audit = _open_audit()
         try:
-            extractor = _make_extractor()
-            try:
-                n_assertions = _ingest_uploaded_paths(
-                    saved,
-                    store=store,
-                    faiss_store=faiss_store,
-                    embedder=embedder_inst,
-                    extractor=extractor,
-                    config=config,
-                    corpus_id=corpus_id,
-                )
-            except CrossCorpusDocumentError as err:
-                names_by_id = {c.corpus_id: c.corpus_name for c in store.list_corpora()}
-                existing_name = names_by_id.get(err.existing_corpus_id, err.existing_corpus_id)
-                requested_name = names_by_id.get(err.requested_corpus_id, err.requested_corpus_id)
-                ingest_error = (
-                    409,
-                    (
-                        f"Document {err.doc_id} already exists under corpus "
-                        f"'{existing_name}' and cannot be re-uploaded into corpus "
-                        f"'{requested_name}'."
-                    ),
-                )
-                shutil.rmtree(upload_dir, ignore_errors=True)
-                store.delete_corpus(corpus_id)
-            except Exception as exc:
-                # PR #73 pattern: render a user-facing error modal instead of
-                # letting FastAPI propagate a 500 traceback into the HTMX swap
-                # target. Roll back the corpus row created above so the user
-                # can retry the same name; otherwise this empty ghost row would
-                # 409 every future attempt.
-                _log.exception("New-corpus ingest failed: %s", exc)
-                shutil.rmtree(upload_dir, ignore_errors=True)
-                store.delete_corpus(corpus_id)
-                ingest_error = (
-                    500,
-                    "Ingest failed unexpectedly. The corpus has been rolled back; you can retry.",
-                )
-        finally:
-            store.close()
-        if ingest_error is not None:
-            status_code, message = ingest_error
-            return _render_new_corpus_modal(
-                request,
-                success=False,
-                error=message,
-                status_code=status_code,
-                corpus_name=corpus_name,
-                judge_provider=provider,
+            ingest_run_id = ingest_audit.begin_run(
+                run_status="pending",
+                corpus_id=corpus_id,
+                run_kind="ingest",
+                n_files_total=len(saved),
             )
+        finally:
+            ingest_store.close()
+
+        background_tasks.add_task(
+            _ingest_in_background, ingest_run_id, corpus_id, saved, upload_dir
+        )
 
         _log.info(
-            "New corpus '%s' (%s): %d files saved, %d assertions extracted",
+            "New corpus '%s' (%s): %d files queued for ingest (run %s)",
             corpus_name,
             corpus_id,
             len(saved),
-            n_assertions,
+            ingest_run_id,
         )
         return _render_new_corpus_modal(
             request,
@@ -890,8 +904,8 @@ def create_app(
             corpus_name=corpus_name,
             judge_provider=provider,
             corpus_id=corpus_id,
-            n_assertions=n_assertions,
             n_files=len(saved),
+            ingest_started=True,
             hx_trigger="corpus-created",
         )
 
@@ -1132,18 +1146,26 @@ def create_app(
             # Reject double-submit: if a run is already pending/running on
             # this corpus, return 409 before begin_run so we don't spawn
             # parallel background tasks racing on the same SQLite + FAISS.
+            # The guard spans both run kinds (ADR-0019) — an in-flight ingest
+            # also blocks a check — so tailor the message to what's running.
             existing_active = store._conn.execute(
-                "SELECT run_id FROM pipeline_runs "
+                "SELECT run_kind FROM pipeline_runs "
                 "WHERE corpus_id = ? AND run_status IN ('pending', 'running') LIMIT 1",
                 (corpus_id,),
             ).fetchone()
             if existing_active is not None:
+                busy_msg = (
+                    "Corpus ingest is still in progress. Wait for it to finish "
+                    "before running a check."
+                    if existing_active[0] == "ingest"
+                    else "A run is already in progress on this corpus. Wait for it to finish."
+                )
                 return _render_new_run_modal(
                     request,
                     corpus_id=corpus_id,
                     corpus_name=corpus_name,
                     success=False,
-                    error="A run is already in progress on this corpus. Wait for it to finish.",
+                    error=busy_msg,
                     status_code=409,
                     pairwise=pairwise,
                     no_definitions=no_definitions,
@@ -1256,6 +1278,28 @@ def create_app(
         extension just innerHTML-swaps whatever we emit.
         """
         status = snapshot.get("status") or "pending"
+        modifier = ""
+        if status == "done":
+            modifier = " cc-progress-bar--done"
+        elif status == "failed":
+            modifier = " cc-progress-bar--failed"
+
+        if snapshot.get("run_kind") == "ingest":
+            label = _ingest_progress_label(snapshot, status)
+            total = snapshot.get("n_files_total") or 0
+            done = snapshot.get("n_files_done") or 0
+            pct = (
+                max(0, min(100, round(100 * done / total)))
+                if total
+                else (100 if status == "done" else 0)
+            )
+            return (
+                f'<div class="cc-progress-label">{label}</div>'
+                f'<div class="cc-progress-bar{modifier}">'
+                f'<div class="cc-progress-bar__fill" style="width: {pct}%"></div>'
+                "</div>"
+            )
+
         gated = snapshot.get("n_pairs_gated") or 0
         judged = snapshot.get("n_pairs_judged") or 0
         findings = snapshot.get("n_findings") or 0
@@ -1275,11 +1319,6 @@ def create_app(
             "done": "Done",
             "failed": "Failed",
         }.get(status, "Unknown")
-        modifier = ""
-        if status == "done":
-            modifier = " cc-progress-bar--done"
-        elif status == "failed":
-            modifier = " cc-progress-bar--failed"
         return (
             '<div class="cc-progress-label">'
             f"{status_label} · {judged}/{gated} judged · {findings} findings"
@@ -1313,6 +1352,12 @@ def create_app(
                 "type": "snapshot",
                 "run_id": run.run_id,
                 "status": run.run_status,
+                "run_kind": run.run_kind,
+                "n_files_total": run.n_files_total,
+                "n_files_done": run.n_files_done,
+                "n_assertions": run.n_assertions,
+                "notes": run.notes,
+                "error_message": run.error_message,
                 "n_pairs_gated": counters["n_pairs_gated"],
                 "n_pairs_judged": counters["n_pairs_judged"],
                 "n_findings": counters["n_findings"],
@@ -1349,8 +1394,8 @@ def create_app(
                     return
 
                 payload = json.dumps(snapshot)
-                html = _render_progress_snapshot(snapshot)
-                yield f"event: snapshot\ndata: {html}\n\n"
+                progress_html = _render_progress_snapshot(snapshot)
+                yield f"event: snapshot\ndata: {progress_html}\n\n"
                 cost_html = _render_cost_gauge(snapshot)
                 yield f"event: cost_update\ndata: {cost_html}\n\n"
                 # Also expose the raw JSON payload as a debug-friendly default
@@ -1657,6 +1702,90 @@ def create_app(
             store.close()
         return templates.TemplateResponse(request, "cc__assertion_detail.html", context)
 
+    def _ingest_in_background(
+        run_id: str,
+        corpus_id: str,
+        paths: list[Path],
+        upload_dir: Path,
+    ) -> None:
+        """Run upload ingest off the event loop, streaming progress (ADR-0019).
+
+        Mirrors :func:`_run_check_in_background`: opens its own thread-local
+        stores, marks the ingest run ``running``, ingests file-by-file (bumping
+        the live counters the sidebar SSE polls), then finalises ``done`` —
+        recording any empty-text files — or ``failed`` with a user-facing
+        message. A failed job leaves the (possibly empty) corpus in place so the
+        user can see why it failed rather than having it silently vanish.
+        """
+        store, faiss_store, embedder_inst = _open_stores()
+        audit_logger = AuditLogger(store)
+        n_total = len(paths)
+        try:
+            audit_logger.update_run_status(run_id, "running")
+            extractor = _make_extractor()
+
+            def _on_progress(files_done: int, n_assertions: int) -> None:
+                audit_logger.update_ingest_progress(
+                    run_id, n_files_done=files_done, n_assertions=n_assertions
+                )
+
+            outcome = _ingest_uploaded_paths(
+                paths,
+                store=store,
+                faiss_store=faiss_store,
+                embedder=embedder_inst,
+                extractor=extractor,
+                config=config,
+                corpus_id=corpus_id,
+                progress_cb=_on_progress,
+            )
+            notes = (
+                json.dumps({"empty_text_files": outcome.empty_text_files})
+                if outcome.empty_text_files
+                else None
+            )
+            audit_logger.end_ingest(
+                run_id,
+                n_files_total=n_total,
+                n_files_done=n_total,
+                n_assertions=outcome.n_assertions,
+                run_status="done",
+                notes=notes,
+            )
+            _log.info(
+                "Ingest run %s done: %d files, %d assertions, %d empty-text files",
+                run_id,
+                n_total,
+                outcome.n_assertions,
+                len(outcome.empty_text_files),
+            )
+        except CrossCorpusDocumentError as err:
+            names_by_id = {c.corpus_id: c.corpus_name for c in store.list_corpora()}
+            existing_name = names_by_id.get(err.existing_corpus_id, err.existing_corpus_id)
+            requested_name = names_by_id.get(err.requested_corpus_id, err.requested_corpus_id)
+            audit_logger.update_run_status(
+                run_id,
+                "failed",
+                error_message=(
+                    f"A document already exists under corpus '{existing_name}' and "
+                    f"cannot be re-uploaded into '{requested_name}'."
+                ),
+            )
+        except Exception as exc:
+            _log.exception("Ingest run %s failed: %s", run_id, exc)
+            audit_logger.update_run_status(
+                run_id,
+                "failed",
+                error_message="Ingest failed unexpectedly. See server logs for details.",
+            )
+        finally:
+            store.close()
+            # The saved uploads are temp copies; their text is now in the store
+            # (or the run failed). Either way they're no longer referenced, so
+            # don't leak the staging dir — the old synchronous path only cleaned
+            # up on failure, leaking it on every success.
+            shutil.rmtree(upload_dir, ignore_errors=True)
+
     def _run_check_in_background(
         run_id: str,
         deep: bool,
@@ -1940,6 +2069,19 @@ def create_app(
     return app
 
 
+@dataclass(frozen=True, slots=True)
+class IngestOutcome:
+    """Result of ingesting a batch of uploaded files.
+
+    ``empty_text_files`` lists the names of files that loaded but yielded no
+    extractable text (scanned images when OCR is unavailable). They contribute
+    zero assertions and are surfaced to the user rather than silently dropped.
+    """
+
+    n_assertions: int
+    empty_text_files: list[str]
+
+
 def _ingest_uploaded_paths(
     paths: list[Path],
     *,
@@ -1949,19 +2091,22 @@ def _ingest_uploaded_paths(
     extractor: Extractor,
     config: Config,
     corpus_id: str,
-) -> int:
+    progress_cb: Callable[[int, int], None] | None = None,
+) -> IngestOutcome:
     """Run loader → chunker → extractor → embedder on a list of file paths.
 
     Mirrors :func:`pipeline.ingest` but takes explicit paths instead of walking
     a directory — the web upload doesn't have a single corpus_dir, just a
-    handful of just-saved files. Returns the number of assertions added.
+    handful of just-saved files. ``progress_cb(files_done, n_assertions)`` is
+    invoked after each file so a background caller can stream live progress.
     """
     junk_audit = (
         JunkAudit(config.data_dir / "junk_drops.jsonl") if config.junk_filter_enabled else None
     )
     ocr_audit = OcrAudit(config.data_dir / "ocr_events.jsonl") if config.ocr_enabled else None
     n_assertions = 0
-    for path in paths:
+    empty_text_files: list[str] = []
+    for files_done, path in enumerate(paths, start=1):
         loaded = load_path(
             path,
             junk_filter_enabled=config.junk_filter_enabled,
@@ -1969,6 +2114,8 @@ def _ingest_uploaded_paths(
             ocr_enabled=config.ocr_enabled,
             ocr_audit=ocr_audit,
         )
+        if not loaded.text.strip():
+            empty_text_files.append(path.name)
         doc = loaded.document
         if config.org_grouping_enabled:
             res = extractor.identify_org(title=doc.title, text=loaded.text)
@@ -1983,9 +2130,11 @@ def _ingest_uploaded_paths(
             if assertions:
                 store.add_assertions(assertions)
                 n_assertions += len(assertions)
+        if progress_cb is not None:
+            progress_cb(files_done, n_assertions)
     embed_pending(store, faiss_store, embedder)
     if junk_audit is not None and junk_audit.counts:
         _log.info("Junk filter dropped (text stage): %s", junk_audit.counts)
     if ocr_audit is not None and ocr_audit.counts:
         _log.info("OCR fallback: %s", ocr_audit.counts)
-    return n_assertions
+    return IngestOutcome(n_assertions=n_assertions, empty_text_files=empty_text_files)
