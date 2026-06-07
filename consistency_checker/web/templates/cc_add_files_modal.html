@@ -1,0 +1,43 @@
+<dialog class="cc-modal {% if success %}cc-modal--success{% elif error %}cc-modal--error{% endif %}" open>
+  {% if success %}
+    <header class="cc-modal-head">
+      <h2 class="cc-modal-title">Files added</h2>
+    </header>
+    <div class="cc-modal-body">
+      <p>
+        {{ n_files }} file{{ '' if n_files == 1 else 's' }} queued for ingest into
+        <strong>{{ corpus_name }}</strong>. Watch the sidebar row for live progress.
+      </p>
+    </div>
+    <footer class="cc-modal-actions">
+      <a class="cc-button cc-button--primary" href="/?corpus={{ corpus_id }}">View corpus</a>
+      <button type="button" class="cc-button"
+              onclick="document.getElementById('cc-modal-region').innerHTML = ''">Close</button>
+    </footer>
+  {% else %}
+    <header class="cc-modal-head">
+      <h2 class="cc-modal-title">Add files — {{ corpus_name }}</h2>
+    </header>
+    <form class="cc-modal-form"
+          hx-post="/corpora/{{ corpus_id }}/add"
+          hx-target="#cc-modal-region"
+          hx-swap="innerHTML"
+          hx-encoding="multipart/form-data"
+          enctype="multipart/form-data">
+      {% if error %}
+        <div class="cc-modal-error" role="alert">{{ error }}</div>
+      {% endif %}
+      <label class="cc-modal-field">
+        <span class="cc-modal-label">Files</span>
+        <input type="file" name="files" multiple accept="{{ allowed_extensions|join(',') }}">
+        <span class="cc-modal-hint">Allowed: {{ allowed_extensions|join(', ') }}</span>
+      </label>
+      <footer class="cc-modal-actions">
+        <button type="submit" class="cc-button cc-button--primary"
+                hx-disabled-elt="this">Add files + ingest</button>
+        <button type="button" class="cc-button"
+                onclick="document.getElementById('cc-modal-region').innerHTML = ''">Cancel</button>
+      </footer>
+    </form>
+  {% endif %}
+</dialog>
