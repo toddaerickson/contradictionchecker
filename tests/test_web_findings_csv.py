@@ -315,3 +315,71 @@ def test_export_button_carries_active_filter(tmp_path: Path) -> None:
     resp = client.get(f"/?corpus={cid}&filter=confirmed")
     assert resp.status_code == 200
     assert f'href="/corpora/{cid}/findings.csv?filter=confirmed"' in resp.text
+
+
+# --- assertions.csv / definitions.csv exports (PR 2 CRUD essentials) ----------
+
+
+def _seed_corpus_with_assertions(cfg: Config, *, name: str = "exp") -> str:
+    """Seed one corpus with a claim assertion and a definition assertion."""
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    cid = store.get_or_create_corpus(name, f"/{name}", "moonshot")
+    doc = Document.from_content("body text", source_path="d.txt", title="d.txt")
+    store.add_document(doc, corpus_id=cid)
+    claim = Assertion.build(doc.doc_id, "Revenue grew 12% in fiscal 2025.")
+    defn = Assertion.build(
+        doc.doc_id,
+        "ARR means annual recurring revenue.",
+        kind="definition",
+        term="ARR",
+        definition_text="annual recurring revenue",
+    )
+    store.add_assertions([claim, defn])
+    store.close()
+    return cid
+
+
+def test_assertions_csv_export(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_corpus_with_assertions(cfg)
+    client = _client(cfg)
+    resp = client.get(f"/corpora/{cid}/assertions.csv")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/csv")
+    assert f"assertions-{cid}.csv" in resp.headers["content-disposition"]
+    rows = list(csv.reader(io.StringIO(resp.text)))
+    assert rows[0] == ["assertion_id", "document", "kind", "term", "text", "char_start", "char_end"]
+    texts = [r[4] for r in rows[1:]]
+    assert "Revenue grew 12% in fiscal 2025." in texts
+    assert "ARR means annual recurring revenue." in texts
+
+
+def test_definitions_csv_export_only_definitions(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_corpus_with_assertions(cfg)
+    client = _client(cfg)
+    resp = client.get(f"/corpora/{cid}/definitions.csv")
+    assert resp.status_code == 200
+    rows = list(csv.reader(io.StringIO(resp.text)))
+    assert rows[0] == ["assertion_id", "document", "term", "definition"]
+    body = rows[1:]
+    # only the kind='definition' row, not the claim
+    assert len(body) == 1
+    assert body[0][2] == "ARR"
+    assert body[0][3] == "annual recurring revenue"
+
+
+def test_export_csv_404_on_unknown_corpus(tmp_path: Path) -> None:
+    client = _client(_config(tmp_path))
+    assert client.get("/corpora/nope/assertions.csv").status_code == 404
+    assert client.get("/corpora/nope/definitions.csv").status_code == 404
+
+
+def test_assertions_drawer_shows_export_buttons(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_corpus_with_assertions(cfg)
+    client = _client(cfg)
+    body = client.get(f"/corpora/{cid}/drawer/assertions").text
+    assert f'href="/corpora/{cid}/assertions.csv"' in body
+    assert f'href="/corpora/{cid}/definitions.csv"' in body

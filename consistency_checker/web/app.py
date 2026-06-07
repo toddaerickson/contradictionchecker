@@ -1074,6 +1074,75 @@ def create_app(
             },
         )
 
+    def _corpus_assertions_for_export(corpus_id: str) -> tuple[list[Any], dict[str, Any]]:
+        """Load every assertion for a corpus plus its documents (404 on unknown)."""
+        store, _audit = _open_audit()
+        try:
+            row = store._conn.execute(
+                "SELECT 1 FROM corpora WHERE corpus_id = ?", (corpus_id,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"corpus_id {corpus_id!r} not found")
+            assertions = list(store.iter_assertions(corpus_id=corpus_id))
+            documents = store.get_documents_bulk([a.doc_id for a in assertions])
+        finally:
+            store.close()
+        return assertions, documents
+
+    @app.get("/corpora/{corpus_id}/assertions.csv")
+    def corpora_assertions_csv(corpus_id: str) -> Response:
+        """Download every extracted assertion for the corpus as CSV (for analysis)."""
+        assertions, documents = _corpus_assertions_for_export(corpus_id)
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(
+            ["assertion_id", "document", "kind", "term", "text", "char_start", "char_end"]
+        )
+        for a in assertions:
+            writer.writerow(
+                [
+                    a.assertion_id,
+                    _document_label(documents.get(a.doc_id), a.doc_id),
+                    a.kind,
+                    a.term or "",
+                    a.assertion_text,
+                    a.char_start if a.char_start is not None else "",
+                    a.char_end if a.char_end is not None else "",
+                ]
+            )
+        return Response(
+            content=buf.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="assertions-{corpus_id}.csv"'},
+        )
+
+    @app.get("/corpora/{corpus_id}/definitions.csv")
+    def corpora_definitions_csv(corpus_id: str) -> Response:
+        """Download the corpus's extracted term→definition pairs as CSV (for analysis).
+
+        This is the definition *assertions* (``kind == 'definition'``), distinct
+        from the definition-inconsistency *findings* already in findings.csv.
+        """
+        assertions, documents = _corpus_assertions_for_export(corpus_id)
+        definitions = [a for a in assertions if a.kind == "definition"]
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["assertion_id", "document", "term", "definition"])
+        for a in definitions:
+            writer.writerow(
+                [
+                    a.assertion_id,
+                    _document_label(documents.get(a.doc_id), a.doc_id),
+                    a.term or "",
+                    a.definition_text or a.assertion_text,
+                ]
+            )
+        return Response(
+            content=buf.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="definitions-{corpus_id}.csv"'},
+        )
+
     # --- ADR-0017 Phase 3: Run Check modal + per-corpus SSE progress ------
 
     def _corpus_name_or_404(store: AssertionStore, corpus_id: str) -> str:
@@ -1097,6 +1166,8 @@ def create_app(
         deep: bool = False,
         max_cost: float | None = None,
         run_id: str | None = None,
+        show_clear_run: bool = False,
+        active_run_kind: str | None = None,
         hx_trigger: str | None = None,
     ) -> HTMLResponse:
         response = templates.TemplateResponse(
@@ -1113,6 +1184,8 @@ def create_app(
                 "deep": deep,
                 "max_cost": max_cost,
                 "run_id_short": (run_id[:8] if run_id else None),
+                "show_clear_run": show_clear_run,
+                "active_run_kind": active_run_kind,
             },
             status_code=status_code,
         )
@@ -1198,6 +1271,8 @@ def create_app(
                     no_definitions=no_definitions,
                     deep=deep,
                     max_cost=max_cost,
+                    show_clear_run=True,
+                    active_run_kind=existing_active[0],
                 )
 
             pairwise_override: bool | None = None if pairwise == "" else (pairwise == "true")
@@ -1271,6 +1346,41 @@ def create_app(
             max_cost=max_cost,
             run_id=run_id,
             hx_trigger="run-started",
+        )
+
+    @app.post("/corpora/{corpus_id}/runs/clear", response_class=HTMLResponse)
+    def post_corpora_runs_clear(request: Request, corpus_id: str) -> HTMLResponse:
+        """Force-clear a stuck pending/running run so the corpus isn't blocked.
+
+        A worker that crashes mid-run leaves its ``pipeline_runs`` row in a
+        non-terminal state, and the double-submit guard then refuses every new
+        run forever. This marks any active run on the corpus ``failed`` and
+        re-renders the run form so the user can retry. Idempotent: clearing a
+        corpus with no active run just returns the fresh form.
+        """
+        store, audit = _open_audit()
+        try:
+            corpus_name = _corpus_name_or_404(store, corpus_id)
+            active = store._conn.execute(
+                "SELECT run_id FROM pipeline_runs "
+                "WHERE corpus_id = ? AND run_status IN ('pending', 'running')",
+                (corpus_id,),
+            ).fetchall()
+            for (run_id,) in active:
+                audit.update_run_status(
+                    run_id, "failed", error_message="Cleared by user before completion."
+                )
+            if active:
+                _log.info("Cleared %d stuck run(s) on corpus %s", len(active), corpus_id)
+        finally:
+            store.close()
+        return _render_new_run_modal(
+            request,
+            corpus_id=corpus_id,
+            corpus_name=corpus_name,
+            success=False,
+            error=None,
+            status_code=200,
         )
 
     def _render_cost_gauge(snapshot: dict[str, Any] | None) -> str:
@@ -1517,6 +1627,7 @@ def create_app(
                 "body_template": "cc_assertions.html",
                 "htmx": True,
                 "active_tab": "assertions",
+                "corpus_id": corpus_id,
                 "assertions": rows,
                 "pagination": pag,
                 "pagination_url": pagination_url,

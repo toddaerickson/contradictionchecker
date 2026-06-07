@@ -23,7 +23,19 @@
           hx-target="#cc-modal-region"
           hx-swap="innerHTML">
       {% if error %}
-        <div class="cc-modal-error" role="alert">{{ error }}</div>
+        <div class="cc-modal-error" role="alert">
+          {{ error }}
+          {% if show_clear_run %}
+            {% set blocker = 'ingest' if active_run_kind == 'ingest' else 'run' %}
+            <button type="button"
+                    class="cc-button cc-button--small cc-button--danger"
+                    hx-post="/corpora/{{ corpus_id }}/runs/clear"
+                    hx-target="#cc-modal-region"
+                    hx-swap="innerHTML"
+                    hx-confirm="Force-clear the in-progress {{ blocker }} on this corpus? This abandons it — only do this if it is stuck (its process crashed), not if it is still working."
+                    hx-disabled-elt="this">Clear stuck {{ blocker }}</button>
+          {% endif %}
+        </div>
       {% endif %}
       <label class="cc-modal-field">
         <span class="cc-modal-label">Pairwise contradiction detector</span>
