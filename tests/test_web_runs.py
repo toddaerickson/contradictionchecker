@@ -296,3 +296,25 @@ def test_clear_stuck_run_marks_failed_and_unblocks(
     again = client.post(f"/corpora/{corpus_id}/run", data={"pairwise": "false"})
     assert again.status_code == 200
     assert again.headers.get("HX-Trigger") == "run-started"
+
+
+def test_terminal_run_status_is_write_once(
+    hermetic_client: tuple[TestClient, Config, str],
+) -> None:
+    """A force-cleared (failed) run must not be flipped back to 'done' by a late
+    worker finalisation, and a completed run must not be flipped to 'failed'."""
+    _client_unused, cfg, corpus_id = hermetic_client
+    stuck_id = _start_stuck_run(cfg, corpus_id)
+
+    store = AssertionStore(cfg.db_path)
+    try:
+        audit = AuditLogger(store)
+        audit.update_run_status(stuck_id, "failed", error_message="cleared")
+        # A racing worker finalisation arriving afterwards is a no-op.
+        audit.end_run(stuck_id, n_assertions=5, n_findings=2, run_status="done")
+        status = store._conn.execute(
+            "SELECT run_status FROM pipeline_runs WHERE run_id = ?", (stuck_id,)
+        ).fetchone()[0]
+    finally:
+        store.close()
+    assert status == "failed"

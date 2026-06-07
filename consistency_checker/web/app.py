@@ -1098,7 +1098,10 @@ def create_app(
                 raise HTTPException(status_code=404, detail=f"corpus_id {corpus_id!r} not found")
             corpus_name = str(row[0])
             assertions = list(store.iter_assertions(corpus_id=corpus_id))
-            documents = store.get_documents_bulk([a.doc_id for a in assertions])
+            # Dedupe doc_ids: many assertions share a document, and the bulk
+            # lookup binds one SQL parameter per id (would hit SQLite's variable
+            # limit on a very large corpus otherwise).
+            documents = store.get_documents_bulk(list({a.doc_id for a in assertions}))
         finally:
             store.close()
         return assertions, documents, corpus_name
