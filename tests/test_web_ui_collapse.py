@@ -1849,3 +1849,120 @@ def test_chips_and_rows_are_keyboard_accessible(tmp_path: Path) -> None:
     assert 'aria-selected="true"' in body  # the active "all" chip
     # Corpus row in the sidebar is a real link.
     assert f'href="/?corpus={cid}"' in body
+
+
+# --- add files to existing corpus + rename corpus (CRUD) ---------------------
+
+
+def test_add_files_modal_renders(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Growable")
+    client = _client(cfg)
+    body = client.get(f"/corpora/{cid}/add-files/modal").text
+    assert "Add files" in body and "Growable" in body
+    assert f'hx-post="/corpora/{cid}/add"' in body
+
+
+def test_add_files_ingests_into_existing_corpus(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Growable")
+    client = _client(cfg)
+    resp = client.post(
+        f"/corpora/{cid}/add",
+        files={"files": ("more.txt", b"some additional content", "text/plain")},
+    )
+    assert resp.status_code == 200
+    assert "Files added" in resp.text
+    assert resp.headers.get("HX-Trigger") == "corpus-created"
+    # Background ingest runs synchronously under TestClient -> a done ingest run.
+    row = _latest_run_row(cfg, "Growable")
+    assert row is not None
+    assert row["run_kind"] == "ingest" and row["run_status"] == "done"
+    assert row["n_files_total"] == 1
+
+
+def test_add_files_requires_at_least_one_file(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg)
+    client = _client(cfg)
+    resp = client.post(f"/corpora/{cid}/add")
+    assert resp.status_code == 400
+    assert "at least one file" in resp.text
+
+
+def test_add_files_blocked_by_active_run(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg)
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    AuditLogger(store).begin_run(corpus_id=cid, run_status="running", run_kind="ingest")
+    store.close()
+    client = _client(cfg)
+    resp = client.post(f"/corpora/{cid}/add", files={"files": ("x.txt", b"body", "text/plain")})
+    assert resp.status_code == 409
+    assert "already in progress" in resp.text
+
+
+def test_add_files_404_on_unknown_corpus(tmp_path: Path) -> None:
+    client = _client(_config(tmp_path))
+    assert client.get("/corpora/nope/add-files/modal").status_code == 404
+    assert (
+        client.post("/corpora/nope/add", files={"files": ("x.txt", b"b", "text/plain")}).status_code
+        == 404
+    )
+
+
+def test_rename_modal_prefills_current_name(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Old name")
+    client = _client(cfg)
+    body = client.get(f"/corpora/{cid}/rename/modal").text
+    assert "Rename corpus" in body
+    assert 'value="Old name"' in body
+
+
+def test_rename_corpus_succeeds(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Before")
+    client = _client(cfg)
+    resp = client.post(f"/corpora/{cid}/rename", data={"new_name": "After"})
+    assert resp.status_code == 200
+    assert resp.headers.get("HX-Redirect") == f"/?corpus={cid}"
+    assert _corpus_id_by_name(cfg, "After") == cid
+    assert _corpus_id_by_name(cfg, "Before") is None
+
+
+def test_rename_rejects_duplicate_name(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid_a = _seed_one_corpus(cfg, name="Alpha")
+    _seed_one_corpus(cfg, name="Beta")
+    client = _client(cfg)
+    resp = client.post(f"/corpora/{cid_a}/rename", data={"new_name": "Beta"})
+    assert resp.status_code == 409
+    assert "already exists" in resp.text
+    assert _corpus_id_by_name(cfg, "Alpha") == cid_a  # unchanged
+
+
+def test_rename_rejects_invalid_name(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Keep")
+    client = _client(cfg)
+    resp = client.post(f"/corpora/{cid}/rename", data={"new_name": "bad/name"})
+    assert resp.status_code == 400
+    assert "invalid characters" in resp.text
+    assert _corpus_id_by_name(cfg, "Keep") == cid
+
+
+def test_rename_404_on_unknown_corpus(tmp_path: Path) -> None:
+    client = _client(_config(tmp_path))
+    assert client.post("/corpora/nope/rename", data={"new_name": "X"}).status_code == 404
+
+
+def test_rename_to_same_name_is_noop_redirect(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Same")
+    client = _client(cfg)
+    resp = client.post(f"/corpora/{cid}/rename", data={"new_name": "Same"})
+    assert resp.status_code == 200
+    assert resp.headers.get("HX-Redirect") == f"/?corpus={cid}"
+    assert _corpus_id_by_name(cfg, "Same") == cid

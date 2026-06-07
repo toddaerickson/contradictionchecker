@@ -713,6 +713,123 @@ def create_app(
             response.headers["HX-Trigger"] = hx_trigger
         return response
 
+    def _render_add_files_modal(
+        request: Request,
+        *,
+        corpus_id: str,
+        corpus_name: str,
+        success: bool,
+        error: str | None,
+        status_code: int,
+        n_files: int = 0,
+        hx_trigger: str | None = None,
+    ) -> HTMLResponse:
+        response = templates.TemplateResponse(
+            request,
+            "cc_add_files_modal.html",
+            {
+                "allowed_extensions": sorted(_ALLOWED_EXTENSIONS),
+                "corpus_id": corpus_id,
+                "corpus_name": corpus_name,
+                "success": success,
+                "error": error,
+                "n_files": n_files,
+            },
+            status_code=status_code,
+        )
+        if hx_trigger:
+            response.headers["HX-Trigger"] = hx_trigger
+        return response
+
+    def _render_rename_modal(
+        request: Request,
+        *,
+        corpus_id: str,
+        corpus_name: str,
+        error: str | None = None,
+        status_code: int = 200,
+    ) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request,
+            "cc_rename_corpus_modal.html",
+            {"corpus_id": corpus_id, "corpus_name": corpus_name, "error": error},
+            status_code=status_code,
+        )
+
+    def _corpus_name_error(name: str) -> str | None:
+        """Validate a corpus name (shared by create + rename). None == ok."""
+        if not name or len(name) > 80:
+            return "Corpus name must be 1-80 characters."
+        if any(c in name for c in set(r'\/:"*?<>|')):
+            return 'Corpus name contains invalid characters: \\ / : " * ? < > |'
+        return None
+
+    async def _save_uploaded_files(upload_files: list[UploadFile]) -> tuple[Path, list[Path]]:
+        """Save uploads to a fresh staging dir, enforcing the per-request caps.
+
+        Shared by ``POST /corpora/new`` and ``POST /corpora/{id}/add``. Raises
+        ``HTTPException`` (400/413) on a bad type or cap violation, cleaning up
+        its own staging dir first; the caller handles any corpus-level rollback.
+        """
+        upload_id = _generate_upload_id()
+        upload_dir = config.data_dir / "uploads" / upload_id
+        upload_dir.mkdir(parents=True, exist_ok=False)
+        saved: list[Path] = []
+        try:
+            if len(upload_files) > MAX_UPLOAD_FILES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Too many files (max {MAX_UPLOAD_FILES} per request)",
+                )
+            total_bytes = 0
+            for file in upload_files:
+                assert file.filename is not None  # pre-filtered to truthy filenames
+                ext = Path(file.filename).suffix.lower()
+                if not ext:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="File has no extension; expected .txt, .md, .pdf, or .docx",
+                    )
+                if ext not in _ALLOWED_EXTENSIONS:
+                    raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext!r}")
+                content = await file.read(MAX_UPLOAD_BYTES + 1)
+                if len(content) > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="File too large (max 100 MB)")
+                total_bytes += len(content)
+                if total_bytes > MAX_UPLOAD_TOTAL_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            f"Upload too large (max {MAX_UPLOAD_TOTAL_BYTES // (1024 * 1024)} "
+                            "MB total per request)"
+                        ),
+                    )
+                target = upload_dir / Path(file.filename).name
+                target.write_bytes(content)
+                saved.append(target)
+        except HTTPException:
+            shutil.rmtree(upload_dir, ignore_errors=True)
+            raise
+        return upload_dir, saved
+
+    def _begin_ingest_job(corpus_id: str, saved: list[Path]) -> str:
+        """Create a pending ingest run row and return its id (ADR-0019).
+
+        The caller queues ``_ingest_in_background`` with the staged ``upload_dir``;
+        this helper only owns the run-row creation.
+        """
+        ingest_store, ingest_audit = _open_audit()
+        try:
+            run_id = ingest_audit.begin_run(
+                run_status="pending",
+                corpus_id=corpus_id,
+                run_kind="ingest",
+                n_files_total=len(saved),
+            )
+        finally:
+            ingest_store.close()
+        return run_id
+
     @app.post("/corpora/new", response_class=HTMLResponse)
     async def post_corpora_new(
         request: Request,
@@ -733,21 +850,12 @@ def create_app(
         corpus_name = (corpus_name or "").strip()
         provider = (judge_provider or "").strip()
 
-        if not corpus_name or len(corpus_name) > 80:
+        name_error = _corpus_name_error(corpus_name)
+        if name_error is not None:
             return _render_new_corpus_modal(
                 request,
                 success=False,
-                error="Corpus name must be 1-80 characters.",
-                status_code=400,
-                corpus_name=corpus_name,
-                judge_provider=provider or "moonshot",
-            )
-        invalid_chars = set(r'\/:"*?<>|')
-        if any(c in corpus_name for c in invalid_chars):
-            return _render_new_corpus_modal(
-                request,
-                success=False,
-                error='Corpus name contains invalid characters: \\ / : " * ? < > |',
+                error=name_error,
                 status_code=400,
                 corpus_name=corpus_name,
                 judge_provider=provider or "moonshot",
@@ -822,49 +930,12 @@ def create_app(
                 hx_trigger="corpus-created",
             )
 
-        upload_id = _generate_upload_id()
-        upload_dir = config.data_dir / "uploads" / upload_id
-        upload_dir.mkdir(parents=True, exist_ok=False)
-
-        saved: list[Path] = []
         try:
-            if len(upload_files) > MAX_UPLOAD_FILES:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"Too many files (max {MAX_UPLOAD_FILES} per request)",
-                )
-            total_bytes = 0
-            for file in upload_files:
-                # upload_files is pre-filtered to truthy filenames above; assert for mypy.
-                assert file.filename is not None
-                ext = Path(file.filename).suffix.lower()
-                if not ext:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="File has no extension; expected .txt, .md, .pdf, or .docx",
-                    )
-                if ext not in _ALLOWED_EXTENSIONS:
-                    raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext!r}")
-                content = await file.read(MAX_UPLOAD_BYTES + 1)
-                if len(content) > MAX_UPLOAD_BYTES:
-                    raise HTTPException(status_code=413, detail="File too large (max 100 MB)")
-                total_bytes += len(content)
-                if total_bytes > MAX_UPLOAD_TOTAL_BYTES:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=(
-                            f"Upload too large (max {MAX_UPLOAD_TOTAL_BYTES // (1024 * 1024)} "
-                            "MB total per request)"
-                        ),
-                    )
-                target = upload_dir / Path(file.filename).name
-                target.write_bytes(content)
-                saved.append(target)
+            upload_dir, saved = await _save_uploaded_files(upload_files)
         except HTTPException as exc:
-            shutil.rmtree(upload_dir, ignore_errors=True)
             # Roll back the corpus row created above so the user can retry the
             # same name; otherwise this empty ghost row would 409 every future
-            # attempt. No store is open in this scope, so open a fresh one.
+            # attempt. (_save_uploaded_files already removed its staging dir.)
             rollback_store = AssertionStore(config.db_path)
             rollback_store.migrate()
             try:
@@ -881,21 +952,10 @@ def create_app(
             )
 
         # Ingest is offloaded to a background task (ADR-0019) so the heavy
-        # loader/OCR/extraction work never blocks the event loop — a large or
-        # scanned upload used to freeze the whole UI. The corpus row already
-        # exists, so the sidebar shows it immediately with a live progress bar
-        # fed by the same per-corpus SSE channel the check run uses.
-        ingest_store, ingest_audit = _open_audit()
-        try:
-            ingest_run_id = ingest_audit.begin_run(
-                run_status="pending",
-                corpus_id=corpus_id,
-                run_kind="ingest",
-                n_files_total=len(saved),
-            )
-        finally:
-            ingest_store.close()
-
+        # loader/OCR/extraction work never blocks the event loop. The corpus row
+        # already exists, so the sidebar shows it immediately with a live
+        # progress bar fed by the same per-corpus SSE channel the check uses.
+        ingest_run_id = _begin_ingest_job(corpus_id, saved)
         background_tasks.add_task(
             _ingest_in_background, ingest_run_id, corpus_id, saved, upload_dir
         )
@@ -945,6 +1005,139 @@ def create_app(
         _log.info("Deleted corpus %s", corpus_id)
         response = Response(status_code=200)
         response.headers["HX-Redirect"] = "/"
+        return response
+
+    @app.get("/corpora/{corpus_id}/add-files/modal", response_class=HTMLResponse)
+    def corpora_add_files_modal(request: Request, corpus_id: str) -> HTMLResponse:
+        store, _audit = _open_audit()
+        try:
+            corpus_name = _corpus_name_or_404(store, corpus_id)
+        finally:
+            store.close()
+        return _render_add_files_modal(
+            request,
+            corpus_id=corpus_id,
+            corpus_name=corpus_name,
+            success=False,
+            error=None,
+            status_code=200,
+        )
+
+    @app.post("/corpora/{corpus_id}/add", response_class=HTMLResponse)
+    async def post_corpora_add(
+        request: Request,
+        background_tasks: BackgroundTasks,
+        corpus_id: str,
+        files: list[UploadFile] | None = None,
+    ) -> HTMLResponse:
+        """Ingest more files into an existing corpus, reusing the background
+        ingest job (ADR-0019). Blocks while another run/ingest is in flight."""
+        store, _audit = _open_audit()
+        try:
+            corpus_name = _corpus_name_or_404(store, corpus_id)
+            active = store._conn.execute(
+                "SELECT run_kind FROM pipeline_runs "
+                "WHERE corpus_id = ? AND run_status IN ('pending', 'running') LIMIT 1",
+                (corpus_id,),
+            ).fetchone()
+        finally:
+            store.close()
+        if active is not None:
+            busy = "ingest" if active[0] == "ingest" else "run"
+            return _render_add_files_modal(
+                request,
+                corpus_id=corpus_id,
+                corpus_name=corpus_name,
+                success=False,
+                error=f"A {busy} is already in progress on this corpus. Wait for it to finish.",
+                status_code=409,
+            )
+
+        upload_files = [f for f in (files or []) if f and f.filename]
+        if not upload_files:
+            return _render_add_files_modal(
+                request,
+                corpus_id=corpus_id,
+                corpus_name=corpus_name,
+                success=False,
+                error="Select at least one file to add.",
+                status_code=400,
+            )
+        try:
+            upload_dir, saved = await _save_uploaded_files(upload_files)
+        except HTTPException as exc:
+            return _render_add_files_modal(
+                request,
+                corpus_id=corpus_id,
+                corpus_name=corpus_name,
+                success=False,
+                error=f"Upload rejected: {exc.detail}",
+                status_code=exc.status_code,
+            )
+
+        run_id = _begin_ingest_job(corpus_id, saved)
+        background_tasks.add_task(_ingest_in_background, run_id, corpus_id, saved, upload_dir)
+        _log.info("Corpus %s: %d files queued for ingest (run %s)", corpus_id, len(saved), run_id)
+        return _render_add_files_modal(
+            request,
+            corpus_id=corpus_id,
+            corpus_name=corpus_name,
+            success=True,
+            error=None,
+            status_code=200,
+            n_files=len(saved),
+            hx_trigger="corpus-created",
+        )
+
+    @app.get("/corpora/{corpus_id}/rename/modal", response_class=HTMLResponse)
+    def corpora_rename_modal(request: Request, corpus_id: str) -> HTMLResponse:
+        store, _audit = _open_audit()
+        try:
+            corpus_name = _corpus_name_or_404(store, corpus_id)
+        finally:
+            store.close()
+        return _render_rename_modal(request, corpus_id=corpus_id, corpus_name=corpus_name)
+
+    @app.post("/corpora/{corpus_id}/rename", response_class=HTMLResponse)
+    def post_corpora_rename(
+        request: Request, corpus_id: str, new_name: str = Form(...)
+    ) -> Response:
+        """Rename a corpus. HX-Redirect on success so the sidebar + title refresh."""
+        new_name = (new_name or "").strip()
+        name_error = _corpus_name_error(new_name)
+        store, _audit = _open_audit()
+        try:
+            current = _corpus_name_or_404(store, corpus_id)
+            if name_error is not None:
+                return _render_rename_modal(
+                    request,
+                    corpus_id=corpus_id,
+                    corpus_name=current,
+                    error=name_error,
+                    status_code=400,
+                )
+            # A no-op same-name rename falls through to the redirect below so the
+            # modal closes cleanly rather than sitting open with no feedback.
+            if new_name != current:
+                try:
+                    with store._conn:
+                        store._conn.execute(
+                            "UPDATE corpora SET corpus_name = ? WHERE corpus_id = ?",
+                            (new_name, corpus_id),
+                        )
+                except sqlite3.IntegrityError:
+                    return _render_rename_modal(
+                        request,
+                        corpus_id=corpus_id,
+                        corpus_name=current,
+                        error=f"Corpus '{new_name}' already exists.",
+                        status_code=409,
+                    )
+                _log.info("Renamed corpus %s to %r", corpus_id, new_name)
+        finally:
+            store.close()
+        response = Response(status_code=200)
+        response.headers["HX-Redirect"] = f"/?corpus={corpus_id}"
         return response
 
     @app.get("/corpora/{corpus_id}/findings", response_class=HTMLResponse)

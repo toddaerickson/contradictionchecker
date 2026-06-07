@@ -1,0 +1,29 @@
+<dialog class="cc-modal {% if error %}cc-modal--error{% endif %}" open>
+  <header class="cc-modal-head">
+    <h2 class="cc-modal-title">Rename corpus</h2>
+  </header>
+  <form class="cc-modal-form"
+        hx-post="/corpora/{{ corpus_id }}/rename"
+        hx-target="#cc-modal-region"
+        hx-swap="innerHTML">
+    {% if error %}
+      <div class="cc-modal-error" role="alert">{{ error }}</div>
+    {% endif %}
+    <label class="cc-modal-field">
+      <span class="cc-modal-label">Corpus name</span>
+      <input type="text"
+             name="new_name"
+             required
+             minlength="1"
+             maxlength="80"
+             value="{{ corpus_name }}"
+             autofocus>
+    </label>
+    <footer class="cc-modal-actions">
+      <button type="submit" class="cc-button cc-button--primary"
+              hx-disabled-elt="this">Rename</button>
+      <button type="button" class="cc-button"
+              onclick="document.getElementById('cc-modal-region').innerHTML = ''">Cancel</button>
+    </footer>
+  </form>
+</dialog>

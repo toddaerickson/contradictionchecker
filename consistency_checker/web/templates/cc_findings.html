@@ -33,6 +33,10 @@
               hx-swap="innerHTML"
               {% if not active_corpus_id %}disabled{% endif %}>Run check ▾</button>
       <button type="button" class="cc-button"
+              hx-get="/corpora/{{ active_corpus_id }}/add-files/modal"
+              hx-target="#cc-modal-region"
+              hx-swap="innerHTML">Add files</button>
+      <button type="button" class="cc-button"
               hx-get="/corpora/{{ active_corpus_id }}/drawer/assertions"
               hx-target="#cc-drawer-region"
               hx-swap="innerHTML">Assertions</button>
@@ -49,6 +53,10 @@
            download
            class="cc-button cc-button--ghost cc-button--small">Export CSV</a>
       {% endif %}
+      <button type="button" class="cc-button cc-button--ghost cc-button--small"
+              hx-get="/corpora/{{ active_corpus_id }}/rename/modal"
+              hx-target="#cc-modal-region"
+              hx-swap="innerHTML">Rename</button>
       <button type="button"
               class="cc-button cc-button--ghost cc-button--small cc-button--danger"
               hx-post="/corpora/{{ active_corpus_id }}/delete"
