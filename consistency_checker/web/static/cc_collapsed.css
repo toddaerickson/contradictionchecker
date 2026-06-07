@@ -280,10 +280,77 @@
   text-transform: uppercase;
 }
 
-.cc-finding-text {
+/* Expandable per-finding source context: collapsed shows the one-line summary
+   (list density unchanged); expanded shows both full assertions + rationale. */
+.cc-finding-detail {
   margin: 0;
+}
+.cc-finding-summary {
+  cursor: pointer;
   font-size: 0.92rem;
   line-height: 1.45;
+  list-style: none;
+}
+.cc-finding-summary::-webkit-details-marker {
+  display: none;
+}
+.cc-finding-summary:focus-visible {
+  outline: 2px solid var(--cc-blue);
+  outline-offset: 2px;
+}
+.cc-finding-summary::before {
+  content: "\25B8"; /* ▸ */
+  display: inline-block;
+  width: 1em;
+  color: var(--cc-muted);
+  transition: transform 0.12s ease;
+}
+.cc-finding-detail[open] .cc-finding-summary::before {
+  transform: rotate(90deg);
+}
+.cc-finding-bodies {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin: 0.6rem 0 0.4rem 1em;
+}
+.cc-finding-side {
+  background: var(--cc-bg);
+  border: 1px solid var(--cc-border);
+  border-radius: 4px;
+  padding: 0.5rem 0.7rem;
+}
+.cc-finding-doc {
+  display: block;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cc-muted);
+  margin-bottom: 0.25rem;
+}
+.cc-finding-assertion {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+.cc-finding-rationale {
+  margin: 0.3rem 0 0 1em;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.cc-finding-rationale-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cc-muted);
+  margin-right: 0.4rem;
+}
+@media (max-width: 700px) {
+  .cc-finding-bodies {
+    grid-template-columns: 1fr;
+  }
 }
 
 .cc-finding-meta {

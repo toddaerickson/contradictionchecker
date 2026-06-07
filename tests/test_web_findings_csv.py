@@ -283,7 +283,7 @@ def test_export_button_renders_when_active_filter_yields_zero_rows(tmp_path: Pat
     assert resp.status_code == 200
     body = resp.text
     # Active filter yields no confirmed rows...
-    assert "No findings yet." in body
+    assert "No findings match" in body
     # ...but the Export button is present and carries the active filter.
     assert "Export CSV" in body
     assert f'href="/corpora/{cid}/findings.csv?filter=confirmed"' in body

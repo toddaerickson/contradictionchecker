@@ -72,7 +72,24 @@
         {% for finding in findings %}
           <li class="cc-finding" id="finding-{{ finding.finding_id }}">
             <span class="cc-finding-kind">⚠ {{ finding.verdict|replace('_', ' ')|title }}</span>
-            <p class="cc-finding-text">{{ finding.label_or_quote }}</p>
+            <details class="cc-finding-detail">
+              <summary class="cc-finding-summary">{{ finding.label_or_quote }}</summary>
+              <div class="cc-finding-bodies">
+                <div class="cc-finding-side">
+                  <span class="cc-finding-doc">{{ finding.doc_a_label }}</span>
+                  <p class="cc-finding-assertion">{{ finding.assertion_a_text }}</p>
+                </div>
+                <div class="cc-finding-side">
+                  <span class="cc-finding-doc">{{ finding.doc_b_label }}</span>
+                  <p class="cc-finding-assertion">{{ finding.assertion_b_text }}</p>
+                </div>
+              </div>
+              {% if finding.judge_rationale %}
+                <p class="cc-finding-rationale">
+                  <span class="cc-finding-rationale-label">Why</span>{{ finding.judge_rationale }}
+                </p>
+              {% endif %}
+            </details>
             <div class="cc-finding-meta">
               {% with pair_key=finding.pair_key,
                       detector_type=finding.detector_type,
@@ -86,11 +103,25 @@
       </ol>
     {% else %}
       <div class="cc-empty">
-        <p class="cc-muted">No findings yet.</p>
-        <button type="button" class="cc-button"
-                hx-get="/corpora/{{ active_corpus_id }}/run/modal"
-                hx-target="#cc-modal-region"
-                hx-swap="innerHTML">Run check</button>
+        {% if last_run is none %}
+          <p class="cc-muted">No runs yet.</p>
+          <button type="button" class="cc-button"
+                  hx-get="/corpora/{{ active_corpus_id }}/run/modal"
+                  hx-target="#cc-modal-region"
+                  hx-swap="innerHTML">Run check</button>
+        {% elif counts.all %}
+          {# The run has findings but the active filter excludes them all. #}
+          <p class="cc-muted">No findings match the “{{ filter|replace('_', ' ') }}” filter.</p>
+          <a class="cc-button cc-button--ghost cc-button--small"
+             href="/?corpus={{ active_corpus_id }}&filter=all">Show all</a>
+        {% else %}
+          {# A completed run that surfaced nothing is the success case. #}
+          <p class="cc-muted">✓ No contradictions found in the latest run.</p>
+          <button type="button" class="cc-button"
+                  hx-get="/corpora/{{ active_corpus_id }}/run/modal"
+                  hx-target="#cc-modal-region"
+                  hx-swap="innerHTML">Run again</button>
+        {% endif %}
       </div>
     {% endif %}
   </section>

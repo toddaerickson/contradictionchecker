@@ -4,7 +4,7 @@
 <div class="cc-stats-layout">
 <div class="cc-tab-header">
   <h2 class="cc-tab-title">07 — Stats</h2>
-  <p class="cc-tab-desc">Corpus health and run summary. Verdicts set in Action Items update these numbers.</p>
+  <p class="cc-tab-desc">Corpus health and run summary. Reviewer verdicts update these numbers.</p>
 </div>
 
 <section class="cc-section">
@@ -14,8 +14,7 @@
 
   {% if status == "none" %}
     <p class="cc-muted">
-      No runs yet. Go to the <strong>Ingest</strong> tab to upload documents,
-      then start a check.
+      No runs yet. Add documents to this corpus, then run a check.
     </p>
   {% elif status == "failed" %}
     {% include "cc__stats_failed.html" %}
