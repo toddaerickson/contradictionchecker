@@ -128,7 +128,8 @@ def test_findings_csv_returns_csv_with_header_and_rows(tmp_path: Path) -> None:
     assert resp.headers["content-type"].startswith("text/csv")
     cd = resp.headers["content-disposition"]
     assert cd.startswith("attachment; filename=")
-    assert f"findings-{cid}-all.csv" in cd
+    # Filename uses the slugified corpus name ("CSV corpus" -> "csv-corpus").
+    assert "csv-corpus-findings-all.csv" in cd
 
     rows = list(csv.reader(io.StringIO(resp.text)))
     # Header + one row per finding (2 findings).
@@ -172,7 +173,7 @@ def test_findings_csv_filter_narrows_rows(tmp_path: Path) -> None:
     resp_conf = client.get(f"/corpora/{cid}/findings.csv?filter=confirmed")
     assert resp_conf.status_code == 200
     assert "filename=" in resp_conf.headers["content-disposition"]
-    assert f"findings-{cid}-confirmed.csv" in resp_conf.headers["content-disposition"]
+    assert "csv-corpus-findings-confirmed.csv" in resp_conf.headers["content-disposition"]
     rows_conf = list(csv.reader(io.StringIO(resp_conf.text)))
     # Header + exactly the one confirmed finding.
     assert len(rows_conf) == 2
@@ -250,7 +251,7 @@ def test_findings_csv_unknown_filter_falls_back_to_all(tmp_path: Path) -> None:
     resp = client.get(f"/corpora/{cid}/findings.csv?filter=banana")
     assert resp.status_code == 200
     # Filename reflects the sanitized filter, and both findings are present.
-    assert f"findings-{cid}-all.csv" in resp.headers["content-disposition"]
+    assert "csv-corpus-findings-all.csv" in resp.headers["content-disposition"]
     rows = list(csv.reader(io.StringIO(resp.text)))
     assert len(rows) == 3
 
@@ -347,7 +348,8 @@ def test_assertions_csv_export(tmp_path: Path) -> None:
     resp = client.get(f"/corpora/{cid}/assertions.csv")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/csv")
-    assert f"assertions-{cid}.csv" in resp.headers["content-disposition"]
+    # Filename uses the slugified corpus name (seeded as "exp").
+    assert "exp-assertions.csv" in resp.headers["content-disposition"]
     rows = list(csv.reader(io.StringIO(resp.text)))
     assert rows[0] == ["assertion_id", "document", "kind", "term", "text", "char_start", "char_end"]
     texts = [r[4] for r in rows[1:]]
@@ -374,6 +376,17 @@ def test_export_csv_404_on_unknown_corpus(tmp_path: Path) -> None:
     client = _client(_config(tmp_path))
     assert client.get("/corpora/nope/assertions.csv").status_code == 404
     assert client.get("/corpora/nope/definitions.csv").status_code == 404
+
+
+def test_export_filenames_slugify_corpus_name(tmp_path: Path) -> None:
+    """A spaced/cased corpus name becomes a clean filename slug."""
+    cfg = _config(tmp_path)
+    cid = _seed_corpus_with_assertions(cfg, name="Atkins V2")
+    client = _client(cfg)
+    a_cd = client.get(f"/corpora/{cid}/assertions.csv").headers["content-disposition"]
+    d_cd = client.get(f"/corpora/{cid}/definitions.csv").headers["content-disposition"]
+    assert "atkins-v2-assertions.csv" in a_cd
+    assert "atkins-v2-definitions.csv" in d_cd
 
 
 def test_assertions_drawer_shows_export_buttons(tmp_path: Path) -> None:

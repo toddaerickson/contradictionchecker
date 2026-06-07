@@ -213,6 +213,17 @@ def _live_counters(run: Any, audit: Any = None) -> dict[str, Any]:
     }
 
 
+def _filename_slug(name: str, *, fallback: str) -> str:
+    """Slugify a corpus name for a download filename (e.g. 'Atkins v2' -> 'atkins-v2').
+
+    Corpus names are validated to exclude path separators, but can still carry
+    spaces/punctuation; collapse anything outside [A-Za-z0-9._-] to a single
+    dash. Falls back to the corpus id if the name slugs to nothing.
+    """
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-.").lower()
+    return slug or fallback
+
+
 def _empty_text_files_from_notes(notes: str | None) -> list[str]:
     """Parse an ingest run's ``notes`` JSON for files that yielded no text (C).
 
@@ -1026,10 +1037,11 @@ def create_app(
         store, audit = _open_audit()
         try:
             row = store._conn.execute(
-                "SELECT 1 FROM corpora WHERE corpus_id = ?", (corpus_id,)
+                "SELECT corpus_name FROM corpora WHERE corpus_id = ?", (corpus_id,)
             ).fetchone()
             if row is None:
                 raise HTTPException(status_code=404, detail=f"corpus_id {corpus_id!r} not found")
+            corpus_name = str(row[0])
             last_run = _most_recent_run_for_corpus(store, corpus_id)
             findings: list[dict[str, Any]] = []
             if last_run is not None:
@@ -1066,33 +1078,35 @@ def create_app(
                     f["judge_rationale"] or "",
                 ]
             )
+        slug = _filename_slug(corpus_name, fallback=corpus_id)
         return Response(
             content=buf.getvalue(),
             media_type="text/csv",
-            headers={
-                "Content-Disposition": f'attachment; filename="findings-{corpus_id}-{filter}.csv"'
-            },
+            headers={"Content-Disposition": f'attachment; filename="{slug}-findings-{filter}.csv"'},
         )
 
-    def _corpus_assertions_for_export(corpus_id: str) -> tuple[list[Any], dict[str, Any]]:
-        """Load every assertion for a corpus plus its documents (404 on unknown)."""
+    def _corpus_assertions_for_export(
+        corpus_id: str,
+    ) -> tuple[list[Any], dict[str, Any], str]:
+        """Load every assertion for a corpus + its documents + name (404 on unknown)."""
         store, _audit = _open_audit()
         try:
             row = store._conn.execute(
-                "SELECT 1 FROM corpora WHERE corpus_id = ?", (corpus_id,)
+                "SELECT corpus_name FROM corpora WHERE corpus_id = ?", (corpus_id,)
             ).fetchone()
             if row is None:
                 raise HTTPException(status_code=404, detail=f"corpus_id {corpus_id!r} not found")
+            corpus_name = str(row[0])
             assertions = list(store.iter_assertions(corpus_id=corpus_id))
             documents = store.get_documents_bulk([a.doc_id for a in assertions])
         finally:
             store.close()
-        return assertions, documents
+        return assertions, documents, corpus_name
 
     @app.get("/corpora/{corpus_id}/assertions.csv")
     def corpora_assertions_csv(corpus_id: str) -> Response:
         """Download every extracted assertion for the corpus as CSV (for analysis)."""
-        assertions, documents = _corpus_assertions_for_export(corpus_id)
+        assertions, documents, corpus_name = _corpus_assertions_for_export(corpus_id)
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow(
@@ -1110,10 +1124,11 @@ def create_app(
                     a.char_end if a.char_end is not None else "",
                 ]
             )
+        slug = _filename_slug(corpus_name, fallback=corpus_id)
         return Response(
             content=buf.getvalue(),
             media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="assertions-{corpus_id}.csv"'},
+            headers={"Content-Disposition": f'attachment; filename="{slug}-assertions.csv"'},
         )
 
     @app.get("/corpora/{corpus_id}/definitions.csv")
@@ -1123,7 +1138,7 @@ def create_app(
         This is the definition *assertions* (``kind == 'definition'``), distinct
         from the definition-inconsistency *findings* already in findings.csv.
         """
-        assertions, documents = _corpus_assertions_for_export(corpus_id)
+        assertions, documents, corpus_name = _corpus_assertions_for_export(corpus_id)
         definitions = [a for a in assertions if a.kind == "definition"]
         buf = io.StringIO()
         writer = csv.writer(buf)
@@ -1137,10 +1152,11 @@ def create_app(
                     a.definition_text or a.assertion_text,
                 ]
             )
+        slug = _filename_slug(corpus_name, fallback=corpus_id)
         return Response(
             content=buf.getvalue(),
             media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="definitions-{corpus_id}.csv"'},
+            headers={"Content-Disposition": f'attachment; filename="{slug}-definitions.csv"'},
         )
 
     # --- ADR-0017 Phase 3: Run Check modal + per-corpus SSE progress ------
