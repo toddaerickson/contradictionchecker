@@ -794,7 +794,7 @@ git commit -m "feat: --no-ocr CLI flag + post-ingest OCR summary"
 
 **Files:**
 - Modify: `README.md` (Known limitations + Supported formats)
-- Modify: `CORPORATE_SETUP.md` (system dependency note)
+- Modify: `docs/corporate-setup.md` (system dependency note)
 - Modify: `futureplans.md` (move OCR item to Completed)
 
 - [ ] **Step 1: Update README**
@@ -828,7 +828,7 @@ Add to the "Completed" section:
 - [ ] **Step 4: Commit**
 
 ```bash
-git add README.md CORPORATE_SETUP.md futureplans.md
+git add README.md docs/corporate-setup.md futureplans.md
 git commit -m "docs: OCR fallback in README + CORPORATE_SETUP + futureplans"
 ```
 

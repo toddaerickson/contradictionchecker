@@ -108,12 +108,12 @@ job, and the **Moonshot/Kimi** provider plus **OCR** for scanned PDFs land.
   warning fires when MemAvailable is below the ~2.5 GB peak estimate even
   without the config field. Skips silently when `psutil` isn't installed.
 - **Runtime dep:** `psutil>=5.9` for the pre-flight check.
-- **`CORPORATE_SETUP.md` §4.5** documents the memory budget, devcontainer /
+- **[`docs/corporate-setup.md`](docs/corporate-setup.md) §4** documents the memory budget, devcontainer /
   WSL2 caps, and the smaller `DeBERTa-v3-base` fallback for tight envs.
 
 ## [0.3.0] — 2026-05-14
 
-The FastAPI + HTMX web UI lands. `consistency-check serve --open` boots a localhost server, opens the default browser, and offers the full ingest → check → review loop without leaving the page. See [`docs/plans/v0.3-block-g.md`](docs/plans/v0.3-block-g.md) for the step-by-step build.
+The FastAPI + HTMX web UI lands. `consistency-check serve --open` boots a localhost server, opens the default browser, and offers the full ingest → check → review loop without leaving the page. See ADR-0007 for the architectural decisions.
 
 ### Added (Block G — web UI)
 
@@ -132,7 +132,7 @@ The FastAPI + HTMX web UI lands. `consistency-check serve --open` boots a localh
 
 ## [0.2.0] — 2026-05-14
 
-Three-document conditional contradictions, numeric short-circuit, and PDF/DOCX loaders. See [`docs/plans/v0.2-build-plan.md`](docs/plans/v0.2-build-plan.md) for the step-by-step build.
+Three-document conditional contradictions, numeric short-circuit, and PDF/DOCX loaders. See ADR-0004, ADR-0005, and ADR-0006 for the architectural decisions.
 
 ### Added (Block D — loaders)
 

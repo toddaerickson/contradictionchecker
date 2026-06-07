@@ -1,8 +1,10 @@
 # ADR-0011: Workflow-Ordered Tab Navigation and Persistent Corpora
 
-**Status:** Accepted  
+**Status:** Superseded by ADR-0017  
 **Date:** 2026-05-17  
-**Relates to:** ADR-0007 (Web UI)
+**Relates to:** ADR-0007 (Web UI), ADR-0017 (UI collapse: single-page shell)
+
+> **Note:** This ADR described a 7-tab workflow UI that was later replaced by the single-page shell in ADR-0017. The decision to use persistent corpora and workflow ordering was retained; the 7-tab presentation was abandoned. This record is kept for provenance.
 
 ---
 
@@ -87,7 +89,5 @@ The redesign adopts a **Precision Instrument** aesthetic:
 
 ## References
 
-- Spec: `docs/superpowers/specs/2026-05-16-ui-redesign.md`
 - Migration: `consistency_checker/index/migrations/0011_ui_redesign_schema.sql`
-- Data models: `consistency_checker/models/ui.py`
-- API: `consistency_checker/web/api/corpora.py`, `consistency_checker/web/api/runs.py`
+- Superseded by: ADR-0017 (single-page shell)

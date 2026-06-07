@@ -43,7 +43,7 @@ cd contradictionchecker
 uv sync
 ```
 
-> **Corporate / sensitive-data users:** read [`CORPORATE_SETUP.md`](CORPORATE_SETUP.md) **first**. This tool sends every document chunk to a third-party LLM API — confirm that's allowed by your data-classification policy before running it.
+> **Corporate / sensitive-data users:** read [`docs/corporate-setup.md`](docs/corporate-setup.md) **first**. This tool sends every document chunk to a third-party LLM API — confirm that's allowed by your data-classification policy before running it.
 
 ## Quickstart
 
@@ -56,7 +56,7 @@ cp config.example.yml config.yml
 
 # 2. Set credentials for whichever provider you chose
 # Prefer your corporate secret manager or a .gitignore'd .env file over
-# baking the key into your shell rc. See CORPORATE_SETUP.md §3.
+# baking the key into your shell rc. See docs/corporate-setup.md §3.
 export ANTHROPIC_API_KEY=...      # or OPENAI_API_KEY=...
 
 # 3a. Web UI flow (single-page UI, ADR-0017)
