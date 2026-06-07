@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pytest
+
 from consistency_checker.check.definition_judge import (
     DefinitionJudgeVerdict,
     FixtureDefinitionJudge,
@@ -15,7 +19,22 @@ from consistency_checker.check.providers.definition_base import (
     DEFINITION_CONSISTENT_AUTO,
     DefinitionJudgePayload,
 )
+from consistency_checker.check.providers.openai import OpenAIDefinitionProvider
 from consistency_checker.extract.schema import Assertion
+
+
+def test_openai_definition_provider_empty_choices_raises_clean_error() -> None:
+    """An empty choices list must raise ValueError, not IndexError."""
+
+    def parse(**_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(choices=[])
+
+    fake = SimpleNamespace(
+        beta=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(parse=parse)))
+    )
+    provider = OpenAIDefinitionProvider(client=fake)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="no validated payload"):
+        provider.request_payload(system="sys", user="usr")
 
 
 def _mae_pair() -> tuple[Assertion, Assertion]:

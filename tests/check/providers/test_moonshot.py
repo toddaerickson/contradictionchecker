@@ -2,13 +2,27 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from consistency_checker.check.providers.base import JudgePayload, MultiPartyJudgePayload
 from consistency_checker.check.providers.moonshot import (
+    MoonshotDefinitionProvider,
     MoonshotJudgeProvider,
     MoonshotMultiPartyJudgeProvider,
 )
+
+
+def _client_returning_choices(choices: list[object]) -> SimpleNamespace:
+    """Fake openai.OpenAI whose parse(...) returns a response with the given choices."""
+
+    def parse(**_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(choices=choices)
+
+    return SimpleNamespace(
+        beta=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(parse=parse)))
+    )
 
 
 def test_moonshot_judge_provider_returns_valid_payload(monkeypatch):
@@ -127,6 +141,28 @@ def test_moonshot_judge_validates_payload():
     # (OpenAI SDK validates via pydantic.parse internally)
     with pytest.raises((ValidationError, AttributeError, ValueError)):
         provider.request_payload("system", "user")
+
+
+def test_moonshot_judge_provider_empty_choices_raises_clean_error():
+    """An empty choices list must raise a clean ValueError, not IndexError."""
+    provider = MoonshotJudgeProvider(api_key="sk-test")
+    provider.client = _client_returning_choices([])
+    with pytest.raises(ValueError, match="None payload"):
+        provider.request_payload(system="sys", user="usr")
+
+
+def test_moonshot_multi_party_provider_empty_choices_raises_clean_error():
+    provider = MoonshotMultiPartyJudgeProvider(api_key="sk-test")
+    provider.client = _client_returning_choices([])
+    with pytest.raises(ValueError, match="None payload"):
+        provider.request_payload(system="sys", user="usr")
+
+
+def test_moonshot_definition_provider_empty_choices_raises_clean_error():
+    provider = MoonshotDefinitionProvider(api_key="sk-test")
+    provider.client = _client_returning_choices([])
+    with pytest.raises(ValueError, match="None payload"):
+        provider.request_payload(system="sys", user="usr")
 
 
 @pytest.mark.live

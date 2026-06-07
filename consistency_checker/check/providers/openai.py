@@ -46,7 +46,7 @@ class OpenAIProvider:
             ],
             response_format=JudgePayload,
         )
-        parsed = response.choices[0].message.parsed
+        parsed = response.choices[0].message.parsed if response.choices else None
         if parsed is None:
             raise ValueError("OpenAI structured-output parse returned no validated payload")
         if isinstance(parsed, JudgePayload):
@@ -77,7 +77,7 @@ class OpenAIMultiPartyProvider:
             ],
             response_format=MultiPartyJudgePayload,
         )
-        parsed = response.choices[0].message.parsed
+        parsed = response.choices[0].message.parsed if response.choices else None
         if parsed is None:
             raise ValueError("OpenAI structured-output parse returned no validated payload")
         if isinstance(parsed, MultiPartyJudgePayload):
@@ -111,7 +111,7 @@ class OpenAIDefinitionProvider:
             ],
             response_format=DefinitionJudgePayload,
         )
-        parsed = response.choices[0].message.parsed
+        parsed = response.choices[0].message.parsed if response.choices else None
         if parsed is None:
             raise ValueError("OpenAI structured-output parse returned no validated payload")
         if isinstance(parsed, DefinitionJudgePayload):

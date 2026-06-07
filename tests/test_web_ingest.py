@@ -131,3 +131,27 @@ def test_static_assets_served(tmp_path: Path) -> None:
     assert css.status_code == 200
     js = client.get("/static/htmx.min.js")
     assert js.status_code == 200
+
+
+# --- _require_filename: explicit guard replacing a -O-stripped assert (audit #5) ---
+
+
+def test_require_filename_returns_truthy_name() -> None:
+    from types import SimpleNamespace
+
+    from consistency_checker.web.app import _require_filename
+
+    assert _require_filename(SimpleNamespace(filename="report.pdf")) == "report.pdf"  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("bad_name", [None, ""])
+def test_require_filename_rejects_missing_name(bad_name: str | None) -> None:
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from consistency_checker.web.app import _require_filename
+
+    with pytest.raises(HTTPException) as exc_info:
+        _require_filename(SimpleNamespace(filename=bad_name))  # type: ignore[arg-type]
+    assert exc_info.value.status_code == 400

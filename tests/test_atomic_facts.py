@@ -395,6 +395,19 @@ def test_moonshot_extractor_none_payload_returns_empty() -> None:
     assert ext.extract(make_chunk()) == []
 
 
+def test_moonshot_extractor_empty_choices_returns_empty() -> None:
+    """An empty choices list must be skipped gracefully, not raise IndexError."""
+
+    def parse(**_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(choices=[])
+
+    client = SimpleNamespace(
+        beta=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(parse=parse)))
+    )
+    ext = MoonshotExtractor(client=client)
+    assert ext.extract(make_chunk()) == []
+
+
 def test_moonshot_extractor_requires_key_when_no_client(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MOONSHOT_API_KEY", raising=False)
     with pytest.raises(ValueError, match="MOONSHOT_API_KEY"):

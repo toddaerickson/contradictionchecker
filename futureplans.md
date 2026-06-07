@@ -250,6 +250,46 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
 - The benchmark harness bypasses Stage 7 (atomic-fact extraction). Worth surfacing in `docs/benchmarks.md` more loudly so users don't compare CONTRADOC F1 to "full pipeline F1" and get confused.
 - v0.1.0 ships with `embedder_model: "hash"` accepted by config validation only because Pydantic doesn't enforce the model name. A `Literal[...]` would catch typos at config-load time, but it would also lock out user-supplied HF model ids. Decide whether validation should be strict or permissive — currently permissive by accident.
 
+### Architecture/debug audit triage (2026-06-07) — deferred items
+
+A 10-finding architecture audit was triaged before the PyPI release. The
+safe, low-risk batch shipped on branch `fix/pre-pypi-hardening` (empty
+`choices[]` guard across all 7 provider/extractor sites; narrowed the bare
+`except` in `_warn_if_model_download_needed` to debug-log unexpected errors;
+replaced an `assert file.filename` with a `_require_filename` 400-guard that
+survives `python -O`). Two findings were **false positives** and need no
+work: the CLI *does* handle `CostCeilingExceeded` cleanly
+(`cli/main.py` `check`), and a CLI cost-ceiling test already exists
+(`tests/test_cli.py::test_check_max_cost_flag_aborts_when_exceeded`).
+
+The rest were deferred as too large/risky for a pre-release batch:
+
+- **Ingest logic duplication (#1).** `pipeline.ingest()` and
+  `web.app._ingest_uploaded_paths()` mirror each other (~30 lines; the
+  docstring even says "Mirrors pipeline.ingest"). Extract a shared core that
+  takes a `LoadedDocument` iterator + optional `progress_cb`, so the
+  directory-walk path and the explicit-paths path stop drifting. Refactor
+  with regression risk — do it test-first, on its own branch.
+- **Provider-factory dispatch repeated 4× (#3).** `make_judge`,
+  `make_multi_party_judge`, `make_definition_judge`, `make_extractor` each
+  re-switch on `judge_provider`. A provider-registry map would collapse them,
+  but it touches every judge-construction path — pure churn risk, low value.
+  Only worth it alongside a new provider (#12 local-LLM).
+- **No rollback on partial ingest (#6).** `_ingest_uploaded_paths` commits
+  documents/assertions incrementally; a mid-loop loader failure leaves a
+  half-ingested corpus. Content-hash idempotency already makes re-ingest
+  safe, so this is a UX nicety, not a correctness bug. Wrapping the loop in a
+  single transaction is a behavior change worth its own design pass.
+- **`store._conn` accessed directly across web routes (#7).** 20+ sites in
+  `web/app.py` reach into the private SQLite connection instead of a public
+  `AssertionStore` API. Real encapsulation smell, pre-existing, no functional
+  bug. Large mechanical refactor — pairs naturally with #15 (bulk-fetch
+  helpers on `AssertionStore`).
+- **OCR fallback not covered in CI (#9).** The `hi_res` path is `slow`-marked
+  because it needs the model download, so default CI skips it. A small mocked
+  test of the escalation decision (without the real OCR engine) would close
+  the gap cheaply.
+
 ## Completed
 
 (Move items here as they ship, keep a one-line note on which release.)

@@ -367,7 +367,7 @@ class MoonshotExtractor:
                 response_format=_ExtractionPayload,
                 extra_body=self._extra_body,
             )
-            payload = response.choices[0].message.parsed
+            payload = response.choices[0].message.parsed if response.choices else None
             if payload is None:
                 raise ValueError("Moonshot extraction returned None payload")
             if not isinstance(payload, _ExtractionPayload):
