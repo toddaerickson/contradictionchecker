@@ -52,3 +52,10 @@ data/
 # OS
 .DS_Store
 Thumbs.db
+
+# Definition-eval: mined candidates + human labels are derived from private
+# corpora (e.g. the Atkins agreement); keep that document text out of the repo.
+# The committed pairs.jsonl is a small synthetic sanity set, not corpus-derived.
+benchmarks/definition_eval/candidates_*.jsonl
+benchmarks/definition_eval/pairs_labeled.jsonl
+benchmarks/definition_eval/review.jsonl

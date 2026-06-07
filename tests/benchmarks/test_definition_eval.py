@@ -1,8 +1,12 @@
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
 
 from benchmarks.definition_eval.harness import _metrics
+from benchmarks.definition_eval.label import _load_candidates, _load_labels, create_app
 from benchmarks.definition_eval.mine_pairs import (
     _is_cross_reference,
     build_candidates,
@@ -177,3 +181,107 @@ def test_resolve_corpus_id_by_name_id_none_and_error():
     assert resolve_corpus_id(corpora, None) is None  # all corpora
     with pytest.raises(ValueError, match="unknown corpus"):
         resolve_corpus_id(corpora, "nope")
+
+
+# --- labeler (label.py) ------------------------------------------------------
+
+
+def _write_candidates(path: Path, rows: list[dict]) -> None:
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+
+def _candidate(pid: str, term: str = "Board") -> dict:
+    return {
+        "pair_id": pid,
+        "category": "review",
+        "term": term,
+        "def_a": "the board of directors",
+        "def_b": "the supervisory board only",
+        "doc_a": "deadbeef00000000",
+        "doc_b": "feedface00000000",
+        "label": "",
+    }
+
+
+def test_load_candidates_dedupes_across_files(tmp_path: Path) -> None:
+    f1 = tmp_path / "a.jsonl"
+    f2 = tmp_path / "b.jsonl"
+    _write_candidates(f1, [_candidate("p1"), _candidate("p2")])
+    _write_candidates(f2, [_candidate("p2"), _candidate("p3")])  # p2 overlaps
+    cands = _load_candidates([f1, f2])
+    assert [c["pair_id"] for c in cands] == ["p1", "p2", "p3"]
+
+
+def test_labeler_writes_harness_schema_and_resumes(tmp_path: Path) -> None:
+    src = tmp_path / "cand.jsonl"
+    _write_candidates(src, [_candidate("p1"), _candidate("p2")])
+    out = tmp_path / "labeled.jsonl"
+    client = TestClient(create_app(_load_candidates([src]), out))
+
+    assert client.post("/label", json={"pair_id": "p1", "label": "divergent"}).json() == {
+        "ok": True,
+        "labeled": 1,
+        "total": 2,
+    }
+    rows = [json.loads(line) for line in out.read_text().splitlines() if line.strip()]
+    assert len(rows) == 1
+    assert rows[0]["pair_id"] == "p1" and rows[0]["label"] == "divergent"
+    # harness reads term/def_a/def_b/label/category — all present
+    assert {"pair_id", "category", "term", "def_a", "def_b", "label"} <= set(rows[0])
+
+    # A fresh app over the same out file resumes the label.
+    assert _load_labels(out) == {"p1": "divergent"}
+
+
+def test_labeler_relabel_and_clear(tmp_path: Path) -> None:
+    src = tmp_path / "cand.jsonl"
+    _write_candidates(src, [_candidate("p1")])
+    out = tmp_path / "labeled.jsonl"
+    client = TestClient(create_app(_load_candidates([src]), out))
+
+    client.post("/label", json={"pair_id": "p1", "label": "divergent"})
+    client.post("/label", json={"pair_id": "p1", "label": "consistent"})  # correction
+    assert json.loads(out.read_text().splitlines()[0])["label"] == "consistent"
+
+    client.post("/label", json={"pair_id": "p1", "label": ""})  # clear
+    assert [line for line in out.read_text().splitlines() if line.strip()] == []
+
+
+def test_labeler_rejects_bad_input(tmp_path: Path) -> None:
+    src = tmp_path / "cand.jsonl"
+    _write_candidates(src, [_candidate("p1")])
+    client = TestClient(create_app(_load_candidates([src]), tmp_path / "out.jsonl"))
+    assert client.post("/label", json={"pair_id": "p1", "label": "maybe"}).status_code == 400
+    assert client.post("/label", json={"pair_id": "ghost", "label": "divergent"}).status_code == 404
+
+
+def test_labeler_page_injects_data_not_placeholder(tmp_path: Path) -> None:
+    src = tmp_path / "cand.jsonl"
+    _write_candidates(src, [_candidate("p1", term="Quorum")])
+    client = TestClient(create_app(_load_candidates([src]), tmp_path / "out.jsonl"))
+    body = client.get("/").text
+    assert "__DATA__" not in body  # template token replaced
+    assert "Quorum" in body
+
+
+def test_labeler_refuses_to_clobber_foreign_labels(tmp_path: Path) -> None:
+    """--out containing labels for pair_ids outside the candidate set must abort,
+    not get silently rewritten (e.g. someone aims --out at the curated set)."""
+    src = tmp_path / "cand.jsonl"
+    _write_candidates(src, [_candidate("p1")])
+    out = tmp_path / "curated.jsonl"
+    out.write_text(json.dumps({"pair_id": "other", "label": "consistent"}) + "\n")
+    with pytest.raises(ValueError, match="not in the"):
+        create_app(_load_candidates([src]), out)
+
+
+def test_labeler_escapes_script_close_in_embedded_json(tmp_path: Path) -> None:
+    """Corpus text with </script> must not break out of the inline <script>."""
+    src = tmp_path / "cand.jsonl"
+    evil = _candidate("p1")
+    evil["def_a"] = "ends here </script><script>alert(1)</script>"
+    _write_candidates(src, [evil])
+    client = TestClient(create_app(_load_candidates([src]), tmp_path / "out.jsonl"))
+    body = client.get("/").text
+    assert "</script><script>alert(1)" not in body
+    assert "<\\/script>" in body  # neutralized form present
