@@ -365,6 +365,79 @@ tr.cc-finding-row:focus {
 
 .cc-stats-layout { display: flex; flex-direction: column; gap: 1rem; }
 
+.cc-button--danger {
+  border-color: var(--cc-border-strong);
+  color: var(--cc-accent);
+  margin-left: auto;
+}
+.cc-button--danger:hover {
+  background: var(--cc-accent);
+  border-color: var(--cc-accent);
+  color: white;
+}
+
+/* --- Button busy / disabled feedback (htmx) -------------------------------- */
+/* htmx adds .htmx-request to the element issuing a request for its duration, so
+   every action button shows a busy state with no per-button wiring — fixing the
+   "I clicked and nothing happened" feel during a swap or POST. */
+.cc-button:disabled,
+.cc-button.htmx-request {
+  opacity: 0.6;
+  cursor: progress;
+  pointer-events: none;
+}
+.cc-button.htmx-request::after {
+  content: "";
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-left: 0.45em;
+  vertical-align: -0.05em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: cc-spin 0.6s linear infinite;  /* reuses the @keyframes cc-spin defined above */
+}
+.cc-progress-warn { color: var(--cc-accent); }
+
+/* --- Onboarding "How it works" -------------------------------------------- */
+
+.cc-howto-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cc-muted);
+  margin: 0 0 0.5rem;
+}
+.cc-steps {
+  margin: 0 0 0.6rem;
+  padding-left: 1.25rem;
+  color: var(--cc-fg);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.cc-steps li { margin: 0.15rem 0; }
+.cc-steps code { font-size: 0.85em; }
+
+.cc-howto {
+  margin: 0.35rem 0 0;
+  border: 1px solid var(--cc-border);
+  border-radius: 4px;
+  background: var(--cc-surface);
+}
+.cc-howto summary {
+  cursor: pointer;
+  padding: 0.35rem 0.6rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
+  color: var(--cc-muted);
+}
+.cc-howto[open] summary { border-bottom: 1px solid var(--cc-border); }
+.cc-howto .cc-steps { margin: 0.5rem 0 0.6rem; padding-left: 1.75rem; }
+
 /* --- Mobile adjustments (≤700 px) ----------------------------------------- */
 
 @media (max-width: 700px) {

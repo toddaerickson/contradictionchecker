@@ -243,7 +243,10 @@
 
 .cc-main-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.4rem;
+  row-gap: 0.4rem;
+  align-items: center;
 }
 
 /* --- Findings list ------------------------------------------------------- */

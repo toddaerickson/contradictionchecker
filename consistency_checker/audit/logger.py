@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 _log = get_logger(__name__)
 
 RunStatus = Literal["pending", "running", "done", "failed"]
+RunKind = Literal["check", "ingest"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +53,9 @@ class PipelineRun:
     run_status: RunStatus = "pending"
     error_message: str | None = None
     corpus_id: str | None = None
+    run_kind: RunKind = "check"
+    n_files_total: int = 0
+    n_files_done: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +121,9 @@ def _row_to_run(row: sqlite3.Row) -> PipelineRun:
         run_status=row["run_status"],
         error_message=row["error_message"],
         corpus_id=row["corpus_id"] if "corpus_id" in keys else None,
+        run_kind=row["run_kind"] if "run_kind" in keys else "check",
+        n_files_total=int(row["n_files_total"]) if "n_files_total" in keys else 0,
+        n_files_done=int(row["n_files_done"]) if "n_files_done" in keys else 0,
     )
 
 
@@ -188,16 +195,57 @@ class AuditLogger:
         notes: str | None = None,
         run_status: RunStatus = "running",
         corpus_id: str | None = None,
+        run_kind: RunKind = "check",
+        n_files_total: int = 0,
     ) -> str:
         rid = run_id or uuid.uuid4().hex
         config_json = json.dumps(config, default=str) if config is not None else None
         with self._conn:
             self._conn.execute(
-                "INSERT INTO pipeline_runs (run_id, config_json, notes, run_status, corpus_id) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (rid, config_json, notes, run_status, corpus_id),
+                "INSERT INTO pipeline_runs "
+                "(run_id, config_json, notes, run_status, corpus_id, run_kind, n_files_total) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (rid, config_json, notes, run_status, corpus_id, run_kind, n_files_total),
             )
         return rid
+
+    def update_ingest_progress(self, run_id: str, *, n_files_done: int, n_assertions: int) -> None:
+        """Bump an ingest job's live counters so the SSE poller advances the bar."""
+        with self._conn:
+            self._conn.execute(
+                "UPDATE pipeline_runs SET n_files_done = ?, n_assertions = ? WHERE run_id = ?",
+                (n_files_done, n_assertions, run_id),
+            )
+
+    def end_ingest(
+        self,
+        run_id: str,
+        *,
+        n_files_total: int,
+        n_files_done: int,
+        n_assertions: int,
+        run_status: RunStatus = "done",
+        notes: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Finalise an ingest job. ``notes`` carries the empty-text-file JSON (C)."""
+        finished = datetime.now().isoformat(timespec="seconds")
+        with self._conn:
+            self._conn.execute(
+                "UPDATE pipeline_runs SET finished_at = ?, n_files_total = ?, "
+                "n_files_done = ?, n_assertions = ?, run_status = ?, notes = ?, "
+                "error_message = ? WHERE run_id = ?",
+                (
+                    finished,
+                    n_files_total,
+                    n_files_done,
+                    n_assertions,
+                    run_status,
+                    notes,
+                    error_message,
+                    run_id,
+                ),
+            )
 
     def end_run(
         self,
@@ -243,11 +291,24 @@ class AuditLogger:
     def update_run_status(
         self, run_id: str, status: RunStatus, *, error_message: str | None = None
     ) -> None:
+        # Stamp finished_at when transitioning to a terminal state so a run that
+        # fails via this path (ingest and check both do) doesn't keep a NULL
+        # finished_at. Non-terminal transitions ('running') leave it NULL.
+        finished_at = (
+            datetime.now().isoformat(timespec="seconds") if status in ("done", "failed") else None
+        )
         with self._conn:
-            self._conn.execute(
-                "UPDATE pipeline_runs SET run_status = ?, error_message = ? WHERE run_id = ?",
-                (status, error_message, run_id),
-            )
+            if finished_at is not None:
+                self._conn.execute(
+                    "UPDATE pipeline_runs SET run_status = ?, error_message = ?, "
+                    "finished_at = ? WHERE run_id = ?",
+                    (status, error_message, finished_at, run_id),
+                )
+            else:
+                self._conn.execute(
+                    "UPDATE pipeline_runs SET run_status = ?, error_message = ? WHERE run_id = ?",
+                    (status, error_message, run_id),
+                )
 
     # --- writes -------------------------------------------------------------
 
