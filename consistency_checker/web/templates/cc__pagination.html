@@ -3,18 +3,19 @@
   {% set _pag_base = pagination_url|default('') %}
   {% set _pag_target = pagination_target|default('#cc-tab-content') %}
   {% set _pag_swap = pagination_swap|default('outerHTML') %}
+  {# <button>, not <a> without href — the latter is not keyboard-focusable. #}
   {% if pagination.has_prev %}
-    <a class="cc-button"
+    <button type="button" class="cc-button"
        hx-get="{{ _pag_base }}?page={{ pagination.prev }}"
        hx-target="{{ _pag_target }}"
        hx-swap="{{ _pag_swap }}"
-       {% if not pagination_url %}hx-push-url="true"{% endif %}>← Prev</a>
+       {% if not pagination_url %}hx-push-url="true"{% endif %}>← Prev</button>
   {% endif %}
   {% if pagination.has_next %}
-    <a class="cc-button"
+    <button type="button" class="cc-button"
        hx-get="{{ _pag_base }}?page={{ pagination.next }}"
        hx-target="{{ _pag_target }}"
        hx-swap="{{ _pag_swap }}"
-       {% if not pagination_url %}hx-push-url="true"{% endif %}>Next →</a>
+       {% if not pagination_url %}hx-push-url="true"{% endif %}>Next →</button>
   {% endif %}
 </nav>

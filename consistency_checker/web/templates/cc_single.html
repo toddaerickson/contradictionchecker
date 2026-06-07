@@ -24,7 +24,9 @@
            title="Estimated cost (upper bound) for the active corpus's most recent run.">
         {% include "cc__cost_gauge.html" %}
       </div>
-      <button type="button" class="cc-settings-cog" disabled title="Settings drawer — out of scope for ADR-0017">⚙</button>
+      <button type="button" class="cc-settings-cog" disabled
+              aria-label="Settings (unavailable)"
+              title="Settings drawer — out of scope for ADR-0017"><span aria-hidden="true">⚙</span></button>
     </header>
     <div class="cc-shell">
       <aside class="cc-sidebar" id="cc-sidebar"

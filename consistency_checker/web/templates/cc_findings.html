@@ -71,7 +71,7 @@
       <ol class="cc-findings-list">
         {% for finding in findings %}
           <li class="cc-finding" id="finding-{{ finding.finding_id }}" tabindex="0">
-            <span class="cc-finding-kind">⚠ {{ finding.verdict|replace('_', ' ')|title }}</span>
+            <span class="cc-finding-kind"><span aria-hidden="true">⚠</span> {{ finding.verdict|replace('_', ' ')|title }}</span>
             <details class="cc-finding-detail">
               <summary class="cc-finding-summary">{{ finding.label_or_quote }}</summary>
               <div class="cc-finding-bodies">
