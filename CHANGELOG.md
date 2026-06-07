@@ -6,6 +6,57 @@ the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-06-06
+
+First public PyPI release. Since 0.3.0 the product reorients around the
+**definition-inconsistency detector** (pairwise contradiction is now opt-in), the
+web UI is rebuilt as a **single page**, ingest moves to a non-blocking background
+job, and the **Moonshot/Kimi** provider plus **OCR** for scanned PDFs land.
+
+### Added
+
+- **Single-page web UI (ADR-0017).** Replaces the 7-tab UI with a corpora
+  sidebar + findings pane: New Corpus and Run Check modals, slide-over
+  Assertions / Definitions / Stats drawers, inline reviewer verdicts with filter
+  chips, a persistent estimated-cost gauge, and per-corpus SSE run progress.
+  `GET /` serves it; `?legacy=1` and `/tabs/*` return 410.
+- **Background corpus ingest (ADR-0019).** Uploads run as a tracked background
+  job with a live "files done / total" progress bar in the sidebar, instead of
+  blocking the request (a large or scanned upload used to freeze the whole UI).
+  Adds an on-page "How it works" onboarding guide and button loading states, and
+  surfaces files that yield no extractable text (scanned images / OCR
+  unavailable) rather than reporting a silent 0-assertion success.
+- **Corpus & run management.** Delete corpus (cascades documents / runs /
+  findings); clear a stuck pending/running run so a crashed worker can't block a
+  corpus.
+- **Exports for analysis.** Findings CSV (honours the active filter), plus
+  assertions and term→definition CSV exports; download files are named after the
+  corpus (e.g. `atkins-assertions.csv`).
+- **Moonshot (Kimi) provider** for the judge and extractor, wired through the
+  provider abstraction; loads a gitignored `.env`. Now the default provider.
+- **OCR fallback for scanned PDFs (ADR-0014).** Auto-escalates to `unstructured`
+  hi-res when fast extraction returns near-empty text; `--no-ocr` to disable.
+- **Corpus isolation.** Logical, single-DB corpora; `--corpus` is required on
+  `ingest` / `check` / `estimate-cost` / `export`. Corpus-composition warning and
+  opt-in, advisory org-grouping.
+- **Pairwise contradiction detector is opt-in (ADR-0015):** `--pairwise`
+  (default off); the definition-inconsistency detector is the default lever. The
+  first pairwise check downloads the ~440 MB DeBERTa NLI model; the default check
+  does not.
+- **Cost ceiling (ADR-0016).** `--max-cost` aborts before judge/NLI bootstrap if
+  the conservative estimate is exceeded; provider-aware `estimate-cost` defaults.
+- **Definition-inconsistency detector** with a judge short-circuit, plus
+  evaluation tooling under `benchmarks/definition_eval/`: a P/R/F1 harness, a pair
+  miner, and a keyboard-driven labeler.
+- **PyPI packaging.** Apache-2.0 license, OIDC Trusted-Publishing release
+  workflow (no stored tokens), `docs/RELEASING.md`, and a `pipx` install path.
+
+### Changed
+
+- **Default NLI model → `DeBERTa-v3-base`** and weights are released after the
+  pair loop (see the memory-hardening notes below).
+- **PDF extraction junk filter** at the text and assertion stages.
+
 ### Removed — judge confidence score (ADR-0018)
 
 - **The LLM judge `confidence` score is gone, end to end.** It was the model's
