@@ -1956,3 +1956,13 @@ def test_rename_rejects_invalid_name(tmp_path: Path) -> None:
 def test_rename_404_on_unknown_corpus(tmp_path: Path) -> None:
     client = _client(_config(tmp_path))
     assert client.post("/corpora/nope/rename", data={"new_name": "X"}).status_code == 404
+
+
+def test_rename_to_same_name_is_noop_redirect(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Same")
+    client = _client(cfg)
+    resp = client.post(f"/corpora/{cid}/rename", data={"new_name": "Same"})
+    assert resp.status_code == 200
+    assert resp.headers.get("HX-Redirect") == f"/?corpus={cid}"
+    assert _corpus_id_by_name(cfg, "Same") == cid

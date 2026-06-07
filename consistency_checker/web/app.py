@@ -1116,27 +1116,26 @@ def create_app(
                     error=name_error,
                     status_code=400,
                 )
-            if new_name == current:
-                return _render_rename_modal(
-                    request, corpus_id=corpus_id, corpus_name=current, error=None, status_code=200
-                )
-            try:
-                with store._conn:
-                    store._conn.execute(
-                        "UPDATE corpora SET corpus_name = ? WHERE corpus_id = ?",
-                        (new_name, corpus_id),
+            # A no-op same-name rename falls through to the redirect below so the
+            # modal closes cleanly rather than sitting open with no feedback.
+            if new_name != current:
+                try:
+                    with store._conn:
+                        store._conn.execute(
+                            "UPDATE corpora SET corpus_name = ? WHERE corpus_id = ?",
+                            (new_name, corpus_id),
+                        )
+                except sqlite3.IntegrityError:
+                    return _render_rename_modal(
+                        request,
+                        corpus_id=corpus_id,
+                        corpus_name=current,
+                        error=f"Corpus '{new_name}' already exists.",
+                        status_code=409,
                     )
-            except sqlite3.IntegrityError:
-                return _render_rename_modal(
-                    request,
-                    corpus_id=corpus_id,
-                    corpus_name=current,
-                    error=f"Corpus '{new_name}' already exists.",
-                    status_code=409,
-                )
+                _log.info("Renamed corpus %s to %r", corpus_id, new_name)
         finally:
             store.close()
-        _log.info("Renamed corpus %s to %r", corpus_id, new_name)
         response = Response(status_code=200)
         response.headers["HX-Redirect"] = f"/?corpus={corpus_id}"
         return response
