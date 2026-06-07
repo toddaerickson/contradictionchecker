@@ -228,13 +228,18 @@ class AuditLogger:
         notes: str | None = None,
         error_message: str | None = None,
     ) -> None:
-        """Finalise an ingest job. ``notes`` carries the empty-text-file JSON (C)."""
+        """Finalise an ingest job. ``notes`` carries the empty-text-file JSON (C).
+
+        Write-once on the terminal state (``... NOT IN ('done', 'failed')``): if
+        a user force-cleared this run while its worker was still alive, the clear
+        already wrote ``failed`` and this finalisation must not flip it back.
+        """
         finished = datetime.now().isoformat(timespec="seconds")
         with self._conn:
             self._conn.execute(
                 "UPDATE pipeline_runs SET finished_at = ?, n_files_total = ?, "
                 "n_files_done = ?, n_assertions = ?, run_status = ?, notes = ?, "
-                "error_message = ? WHERE run_id = ?",
+                "error_message = ? WHERE run_id = ? AND run_status NOT IN ('done', 'failed')",
                 (
                     finished,
                     n_files_total,
@@ -273,10 +278,12 @@ class AuditLogger:
             n_findings = int(pair_count) + int(mp_count)
         finished = datetime.now().isoformat(timespec="seconds")
         with self._conn:
+            # Write-once terminal state: a run already force-cleared to 'failed'
+            # (or otherwise terminal) must not be flipped by a late finalisation.
             self._conn.execute(
                 "UPDATE pipeline_runs SET finished_at = ?, n_assertions = ?, "
                 "n_pairs_gated = ?, n_pairs_judged = ?, n_findings = ?, "
-                "run_status = ? WHERE run_id = ?",
+                "run_status = ? WHERE run_id = ? AND run_status NOT IN ('done', 'failed')",
                 (
                     finished,
                     n_assertions,
@@ -294,6 +301,11 @@ class AuditLogger:
         # Stamp finished_at when transitioning to a terminal state so a run that
         # fails via this path (ingest and check both do) doesn't keep a NULL
         # finished_at. Non-terminal transitions ('running') leave it NULL.
+        #
+        # Terminal transitions are write-once (``... NOT IN ('done', 'failed')``)
+        # so a force-clear and a racing worker finalisation can't ping-pong the
+        # status; whichever reaches a terminal state first wins. A non-terminal
+        # transition ('pending'->'running') stays unconditional.
         finished_at = (
             datetime.now().isoformat(timespec="seconds") if status in ("done", "failed") else None
         )
@@ -301,7 +313,7 @@ class AuditLogger:
             if finished_at is not None:
                 self._conn.execute(
                     "UPDATE pipeline_runs SET run_status = ?, error_message = ?, "
-                    "finished_at = ? WHERE run_id = ?",
+                    "finished_at = ? WHERE run_id = ? AND run_status NOT IN ('done', 'failed')",
                     (status, error_message, finished_at, run_id),
                 )
             else:

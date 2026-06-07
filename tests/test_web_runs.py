@@ -231,3 +231,90 @@ def test_generic_run_failure_does_not_leak_raw_exception_text(
     assert (
         run.error_message == "The check failed. See server logs for details."  # type: ignore[attr-defined]
     )
+
+
+# --- clear stuck run (PR 2 CRUD essentials) ----------------------------------
+
+
+def _start_stuck_run(cfg: Config, corpus_id: str, *, run_kind: str = "check") -> str:
+    """Insert a run wedged in 'running' (as if its worker crashed)."""
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    try:
+        return AuditLogger(store).begin_run(
+            run_status="running", corpus_id=corpus_id, run_kind=run_kind
+        )
+    finally:
+        store.close()
+
+
+def test_run_blocked_by_stuck_run_offers_clear(
+    hermetic_client: tuple[TestClient, Config, str],
+) -> None:
+    client, cfg, corpus_id = hermetic_client
+    _start_stuck_run(cfg, corpus_id)
+    resp = client.post(f"/corpora/{corpus_id}/run", data={"pairwise": "false"})
+    assert resp.status_code == 409
+    assert "already in progress" in resp.text
+    assert f'hx-post="/corpora/{corpus_id}/runs/clear"' in resp.text
+    assert "Clear stuck run" in resp.text
+
+
+def test_run_blocked_by_ingest_offers_kind_aware_clear(
+    hermetic_client: tuple[TestClient, Config, str],
+) -> None:
+    """A blocking *ingest* must label the clear control as an ingest and warn it
+    abandons in-flight work, so a user doesn't nuke a long-but-healthy ingest."""
+    client, cfg, corpus_id = hermetic_client
+    _start_stuck_run(cfg, corpus_id, run_kind="ingest")
+    resp = client.post(f"/corpora/{corpus_id}/run", data={"pairwise": "false"})
+    assert resp.status_code == 409
+    assert "ingest is still in progress" in resp.text.lower()
+    assert "Clear stuck ingest" in resp.text
+    assert "abandons it" in resp.text
+
+
+def test_clear_stuck_run_marks_failed_and_unblocks(
+    hermetic_client: tuple[TestClient, Config, str],
+) -> None:
+    client, cfg, corpus_id = hermetic_client
+    stuck_id = _start_stuck_run(cfg, corpus_id)
+
+    cleared = client.post(f"/corpora/{corpus_id}/runs/clear")
+    assert cleared.status_code == 200
+
+    store = AssertionStore(cfg.db_path)
+    try:
+        status = store._conn.execute(
+            "SELECT run_status FROM pipeline_runs WHERE run_id = ?", (stuck_id,)
+        ).fetchone()[0]
+    finally:
+        store.close()
+    assert status == "failed"
+
+    # The corpus is no longer blocked — a fresh run starts.
+    again = client.post(f"/corpora/{corpus_id}/run", data={"pairwise": "false"})
+    assert again.status_code == 200
+    assert again.headers.get("HX-Trigger") == "run-started"
+
+
+def test_terminal_run_status_is_write_once(
+    hermetic_client: tuple[TestClient, Config, str],
+) -> None:
+    """A force-cleared (failed) run must not be flipped back to 'done' by a late
+    worker finalisation, and a completed run must not be flipped to 'failed'."""
+    _client_unused, cfg, corpus_id = hermetic_client
+    stuck_id = _start_stuck_run(cfg, corpus_id)
+
+    store = AssertionStore(cfg.db_path)
+    try:
+        audit = AuditLogger(store)
+        audit.update_run_status(stuck_id, "failed", error_message="cleared")
+        # A racing worker finalisation arriving afterwards is a no-op.
+        audit.end_run(stuck_id, n_assertions=5, n_findings=2, run_status="done")
+        status = store._conn.execute(
+            "SELECT run_status FROM pipeline_runs WHERE run_id = ?", (stuck_id,)
+        ).fetchone()[0]
+    finally:
+        store.close()
+    assert status == "failed"

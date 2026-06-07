@@ -128,7 +128,8 @@ def test_findings_csv_returns_csv_with_header_and_rows(tmp_path: Path) -> None:
     assert resp.headers["content-type"].startswith("text/csv")
     cd = resp.headers["content-disposition"]
     assert cd.startswith("attachment; filename=")
-    assert f"findings-{cid}-all.csv" in cd
+    # Filename uses the slugified corpus name ("CSV corpus" -> "csv-corpus").
+    assert "csv-corpus-findings-all.csv" in cd
 
     rows = list(csv.reader(io.StringIO(resp.text)))
     # Header + one row per finding (2 findings).
@@ -172,7 +173,7 @@ def test_findings_csv_filter_narrows_rows(tmp_path: Path) -> None:
     resp_conf = client.get(f"/corpora/{cid}/findings.csv?filter=confirmed")
     assert resp_conf.status_code == 200
     assert "filename=" in resp_conf.headers["content-disposition"]
-    assert f"findings-{cid}-confirmed.csv" in resp_conf.headers["content-disposition"]
+    assert "csv-corpus-findings-confirmed.csv" in resp_conf.headers["content-disposition"]
     rows_conf = list(csv.reader(io.StringIO(resp_conf.text)))
     # Header + exactly the one confirmed finding.
     assert len(rows_conf) == 2
@@ -250,7 +251,7 @@ def test_findings_csv_unknown_filter_falls_back_to_all(tmp_path: Path) -> None:
     resp = client.get(f"/corpora/{cid}/findings.csv?filter=banana")
     assert resp.status_code == 200
     # Filename reflects the sanitized filter, and both findings are present.
-    assert f"findings-{cid}-all.csv" in resp.headers["content-disposition"]
+    assert "csv-corpus-findings-all.csv" in resp.headers["content-disposition"]
     rows = list(csv.reader(io.StringIO(resp.text)))
     assert len(rows) == 3
 
@@ -315,3 +316,83 @@ def test_export_button_carries_active_filter(tmp_path: Path) -> None:
     resp = client.get(f"/?corpus={cid}&filter=confirmed")
     assert resp.status_code == 200
     assert f'href="/corpora/{cid}/findings.csv?filter=confirmed"' in resp.text
+
+
+# --- assertions.csv / definitions.csv exports (PR 2 CRUD essentials) ----------
+
+
+def _seed_corpus_with_assertions(cfg: Config, *, name: str = "exp") -> str:
+    """Seed one corpus with a claim assertion and a definition assertion."""
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    cid = store.get_or_create_corpus(name, f"/{name}", "moonshot")
+    doc = Document.from_content("body text", source_path="d.txt", title="d.txt")
+    store.add_document(doc, corpus_id=cid)
+    claim = Assertion.build(doc.doc_id, "Revenue grew 12% in fiscal 2025.")
+    defn = Assertion.build(
+        doc.doc_id,
+        "ARR means annual recurring revenue.",
+        kind="definition",
+        term="ARR",
+        definition_text="annual recurring revenue",
+    )
+    store.add_assertions([claim, defn])
+    store.close()
+    return cid
+
+
+def test_assertions_csv_export(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_corpus_with_assertions(cfg)
+    client = _client(cfg)
+    resp = client.get(f"/corpora/{cid}/assertions.csv")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/csv")
+    # Filename uses the slugified corpus name (seeded as "exp").
+    assert "exp-assertions.csv" in resp.headers["content-disposition"]
+    rows = list(csv.reader(io.StringIO(resp.text)))
+    assert rows[0] == ["assertion_id", "document", "kind", "term", "text", "char_start", "char_end"]
+    texts = [r[4] for r in rows[1:]]
+    assert "Revenue grew 12% in fiscal 2025." in texts
+    assert "ARR means annual recurring revenue." in texts
+
+
+def test_definitions_csv_export_only_definitions(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_corpus_with_assertions(cfg)
+    client = _client(cfg)
+    resp = client.get(f"/corpora/{cid}/definitions.csv")
+    assert resp.status_code == 200
+    rows = list(csv.reader(io.StringIO(resp.text)))
+    assert rows[0] == ["assertion_id", "document", "term", "definition"]
+    body = rows[1:]
+    # only the kind='definition' row, not the claim
+    assert len(body) == 1
+    assert body[0][2] == "ARR"
+    assert body[0][3] == "annual recurring revenue"
+
+
+def test_export_csv_404_on_unknown_corpus(tmp_path: Path) -> None:
+    client = _client(_config(tmp_path))
+    assert client.get("/corpora/nope/assertions.csv").status_code == 404
+    assert client.get("/corpora/nope/definitions.csv").status_code == 404
+
+
+def test_export_filenames_slugify_corpus_name(tmp_path: Path) -> None:
+    """A spaced/cased corpus name becomes a clean filename slug."""
+    cfg = _config(tmp_path)
+    cid = _seed_corpus_with_assertions(cfg, name="Atkins V2")
+    client = _client(cfg)
+    a_cd = client.get(f"/corpora/{cid}/assertions.csv").headers["content-disposition"]
+    d_cd = client.get(f"/corpora/{cid}/definitions.csv").headers["content-disposition"]
+    assert "atkins-v2-assertions.csv" in a_cd
+    assert "atkins-v2-definitions.csv" in d_cd
+
+
+def test_assertions_drawer_shows_export_buttons(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_corpus_with_assertions(cfg)
+    client = _client(cfg)
+    body = client.get(f"/corpora/{cid}/drawer/assertions").text
+    assert f'href="/corpora/{cid}/assertions.csv"' in body
+    assert f'href="/corpora/{cid}/definitions.csv"' in body
