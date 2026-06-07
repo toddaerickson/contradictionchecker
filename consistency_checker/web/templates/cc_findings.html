@@ -49,6 +49,11 @@
            download
            class="cc-button cc-button--ghost cc-button--small">Export CSV</a>
       {% endif %}
+      <button type="button"
+              class="cc-button cc-button--ghost cc-button--small cc-button--danger"
+              hx-post="/corpora/{{ active_corpus_id }}/delete"
+              hx-confirm="Delete corpus &quot;{{ active_corpus.corpus_name }}&quot; and all of its documents, runs, and findings? This cannot be undone."
+              hx-disabled-elt="this">Delete corpus</button>
     </div>
     {% include "cc__filter_chips.html" %}
   </header>

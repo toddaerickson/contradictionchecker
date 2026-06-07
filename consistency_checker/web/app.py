@@ -909,6 +909,33 @@ def create_app(
             hx_trigger="corpus-created",
         )
 
+    @app.post("/corpora/{corpus_id}/delete")
+    def post_corpora_delete(corpus_id: str) -> Response:
+        """Delete a corpus and everything under it (ADR-0019).
+
+        This is the escape hatch for the "keep the corpus on a failed ingest"
+        behavior: a failed/empty corpus would otherwise 409 the same name on
+        every retry with no way to clear it. ``delete_corpus`` cascades to
+        documents / runs / findings; orphaned FAISS vectors are harmless (the
+        index is a derived view, rebuildable from SQLite). Returns an
+        ``HX-Redirect`` so the client reloads onto the default corpus rather
+        than swapping a fragment for a resource that no longer exists.
+        """
+        store, _audit = _open_audit()
+        try:
+            row = store._conn.execute(
+                "SELECT 1 FROM corpora WHERE corpus_id = ?", (corpus_id,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"corpus_id {corpus_id!r} not found")
+            store.delete_corpus(corpus_id)
+        finally:
+            store.close()
+        _log.info("Deleted corpus %s", corpus_id)
+        response = Response(status_code=200)
+        response.headers["HX-Redirect"] = "/"
+        return response
+
     @app.get("/corpora/{corpus_id}/findings", response_class=HTMLResponse)
     def corpora_findings(
         request: Request,

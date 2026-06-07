@@ -683,6 +683,62 @@ def test_create_corpus_cross_corpus_collision_records_failed_run(
     assert "already exists" in (error_message or "")
 
 
+def _corpus_id_by_name(cfg: Config, name: str) -> str | None:
+    store = AssertionStore(cfg.db_path)
+    try:
+        row = store._conn.execute(
+            "SELECT corpus_id FROM corpora WHERE corpus_name = ?", (name,)
+        ).fetchone()
+        return row[0] if row else None
+    finally:
+        store.close()
+
+
+def test_delete_corpus_removes_it_and_redirects(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="deleteme")
+    client = _client(cfg)
+    resp = client.post(f"/corpora/{cid}/delete")
+    assert resp.status_code == 200
+    assert resp.headers.get("HX-Redirect") == "/"
+    assert _corpus_id_by_name(cfg, "deleteme") is None
+
+
+def test_delete_corpus_404_on_unknown_id(tmp_path: Path) -> None:
+    client = _client(_config(tmp_path))
+    assert client.post("/corpora/does-not-exist/delete").status_code == 404
+
+
+def test_failed_ingest_corpus_can_be_deleted_then_name_reused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Escape hatch for ADR-0019's 'keep the corpus on failure': a failed ingest
+    keeps the corpus, but Delete frees the name so the same name is reusable —
+    closing the orphan-corpus 409-on-retry trap."""
+    cfg = _config(tmp_path)
+    client = _client(cfg)
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("synthetic ingest failure")
+
+    monkeypatch.setattr("consistency_checker.web.app._ingest_uploaded_paths", _boom)
+    data = {"corpus_name": "retry-name", "judge_provider": "moonshot"}
+    files = {"files": ("a.txt", b"some content", "text/plain")}
+    assert client.post("/corpora/new", data=data, files=files).status_code == 200
+
+    # Same name is blocked while the failed corpus lingers...
+    blocked = client.post("/corpora/new", data=data, files=files)
+    assert blocked.status_code == 409
+    assert "already exists" in blocked.text
+
+    # ...until the user deletes it, after which the name is reusable.
+    cid = _corpus_id_by_name(cfg, "retry-name")
+    assert cid is not None
+    assert client.post(f"/corpora/{cid}/delete").status_code == 200
+    monkeypatch.undo()  # let the retry actually ingest
+    assert client.post("/corpora/new", data=data, files=files).status_code == 200
+
+
 def _latest_run_row(cfg: Config, corpus_name: str) -> dict[str, object] | None:
     """Full latest-run row for a corpus as a dict, or None."""
     store = AssertionStore(cfg.db_path)
