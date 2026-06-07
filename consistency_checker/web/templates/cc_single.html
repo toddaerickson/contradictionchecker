@@ -50,10 +50,20 @@
     // (the buttons advertise these keys). Ignored while typing in a field.
     (function () {
       function cards() { return Array.prototype.slice.call(document.querySelectorAll('.cc-finding')); }
+      function overlayOpen() {
+        var modal = document.getElementById('cc-modal-region');
+        var drawer = document.getElementById('cc-drawer-region');
+        var diff = document.getElementById('cc-diff-dialog');
+        return (modal && modal.children.length > 0)
+          || (drawer && !drawer.hidden)
+          || (diff && diff.open);
+      }
       document.addEventListener('keydown', function (e) {
         var t = e.target;
         if (e.metaKey || e.ctrlKey || e.altKey) return;
         if (t && (t.matches('input, textarea, select') || t.isContentEditable)) return;
+        // Don't steal keys while a modal / drawer / diff dialog is open.
+        if (overlayOpen()) return;
         var list = cards();
         if (!list.length) return;
         var cur = t && t.closest ? t.closest('.cc-finding') : null;
