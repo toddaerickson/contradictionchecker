@@ -37,7 +37,7 @@ Flip the `pairwise_enabled` default to **False**. Pairwise becomes an opt-in det
 - `--deep` (the multi-party triangle pass) shares the strong NLI gate, so `--deep --no-pairwise` is rejected as a config error with a clear message. `--deep --pairwise` is the supported way to opt into both at once.
 - The pairwise code path is **not removed**. Modules, prompts, providers, tests — all stay. Re-enabling it for the right corpus shape is one flag, not a revert. If the eval reverses on a numeric/spec corpus down the road, the only change is the default.
 
-The implementation plan that produced this decision is at [`docs/superpowers/plans/2026-05-31-pairwise-opt-in.md`](../superpowers/plans/2026-05-31-pairwise-opt-in.md).
+The implementation plan that produced this decision is at [`docs/superpowers/archive/plans/2026-05-31-pairwise-opt-in.md`](../superpowers/plans/2026-05-31-pairwise-opt-in.md).
 
 ## Consequences
 

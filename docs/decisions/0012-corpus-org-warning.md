@@ -2,8 +2,8 @@
 
 **Date:** 2026-05-24
 **Status:** Accepted
-**Spec:** [`docs/superpowers/specs/2026-05-24-corpus-org-warning-design.md`](../superpowers/specs/2026-05-24-corpus-org-warning-design.md)
-**Plan:** [`docs/superpowers/plans/2026-05-24-corpus-org-warning.md`](../superpowers/plans/2026-05-24-corpus-org-warning.md)
+**Spec:** [`docs/superpowers/archive/specs/2026-05-24-corpus-org-warning-design.md`](../superpowers/specs/2026-05-24-corpus-org-warning-design.md)
+**Plan:** [`docs/superpowers/archive/plans/2026-05-24-corpus-org-warning.md`](../superpowers/plans/2026-05-24-corpus-org-warning.md)
 
 ## Context
 

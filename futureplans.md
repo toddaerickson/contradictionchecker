@@ -273,7 +273,7 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
 
 - **Pre-flight cost ceiling + provider-aware estimate-cost defaults (commercial blocker #2, 2026-05-31)**
   Branch: `feat/max-cost-ceiling`. ADR-0016. Plan:
-  `docs/superpowers/plans/2026-05-31-max-cost-ceiling.md`.
+  `docs/superpowers/archive/plans/2026-05-31-max-cost-ceiling.md`.
   `Config.max_cost_usd: float | None` defaults to `None`; `--max-cost <USD>`
   on `check` runs `estimate_cost()` as a pre-flight and raises
   `CostCeilingExceeded` (CLI exit 2) BEFORE any NLI or judge bootstrap when
@@ -291,7 +291,7 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
 
 - **Pairwise contradiction detector flipped to opt-in (2026-05-31)**
   Branch: `feat/pairwise-opt-in`. ADR-0015. Plan:
-  `docs/superpowers/plans/2026-05-31-pairwise-opt-in.md`.
+  `docs/superpowers/archive/plans/2026-05-31-pairwise-opt-in.md`.
   `Config.pairwise_enabled` defaults to `False`; tri-state CLI
   `--pairwise / --no-pairwise` on `check` and `estimate-cost`; pipeline
   and web entrypoints skip the NLI model load entirely when pairwise is
@@ -307,13 +307,13 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
   Auto-escalates fast-strategy PDF extraction to hi_res (Tesseract via
   unstructured) when the extracted text is near-empty on a multi-page
   non-trivial PDF. Disable with `--no-ocr` / `ocr_enabled: false`.
-  Spec: inline in `docs/superpowers/plans/2026-05-31-ocr-fallback.md`.
+  Spec: inline in `docs/superpowers/archive/plans/2026-05-31-ocr-fallback.md`.
   ADR-0014. Resolves the Atkins-corpus silent-drop failure mode recorded
   in `project_atkins_corpus_2026-05-30.md`.
 
 - **Corpus isolation (item: retention gap, 2026-05-25)**
-  Spec: `docs/superpowers/specs/2026-05-25-corpus-isolation-design.md`.
-  Plan: `docs/superpowers/plans/2026-05-25-corpus-isolation.md`.
+  Spec: `do../superpowers/archive/specs/2026-05-25-corpus-isolation-design.md`.
+  Plan: `docs/superpowers/archive/plans/2026-05-25-corpus-isolation.md`.
   ADR-0013. Migration 0014 (additive). --corpus required on ingest /
   check / estimate-cost / export / store reidentify-orgs (interactive
   picker on TTY, hard error in scripts). FAISS gate post-filter so
@@ -321,8 +321,8 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
   spec deferred (see below).
 
 - **Corpus-composition warning + opt-in org grouping (item #2, 2026-05-24)**
-  Spec: `docs/superpowers/specs/2026-05-24-corpus-org-warning-design.md`.
-  Plan: `docs/superpowers/plans/2026-05-24-corpus-org-warning.md`.
+  Spec: `docs/superpowers/archive/specs/2026-05-24-corpus-org-warning-design.md`.
+  Plan: `docs/superpowers/archive/plans/2026-05-24-corpus-org-warning.md`.
   ADR-0012. Default-on advisory warning; `--org-scope` suppression with
   audit-logged `findings.suppressed=1` rows.
   Measurement (§9 of the spec): divergent-rate delta on the bylaws corpus =

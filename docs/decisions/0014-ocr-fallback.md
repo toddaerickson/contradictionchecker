@@ -29,7 +29,7 @@ Auto-escalate `strategy="fast"` to `strategy="hi_res"` inside `UnstructuredLoade
 
 System Tesseract becomes a **soft dependency**: `unstructured`'s `hi_res` path shells out to it. The package is documented in README and CORPORATE_SETUP as required only when OCR escalation is enabled; the hermetic test suite (`pytest -m "not slow and not live"`) does not depend on it because escalation paths are exercised via the `FixtureExtractor`-style seam.
 
-The implementation plan that produced this decision is at [`docs/superpowers/plans/2026-05-31-ocr-fallback.md`](../superpowers/plans/2026-05-31-ocr-fallback.md).
+The implementation plan that produced this decision is at [`docs/superpowers/archive/plans/2026-05-31-ocr-fallback.md`](../superpowers/plans/2026-05-31-ocr-fallback.md).
 
 ## Consequences
 

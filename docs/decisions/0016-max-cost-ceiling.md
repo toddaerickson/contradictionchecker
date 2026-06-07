@@ -34,4 +34,4 @@ The pre-flight memory check (ADR-0015's `max_memory_mb`) is the closest analog: 
 - `CostEstimate.per_call_low`/`per_call_high` still record what was used for the projection. Replay and audit are unchanged; the only change is whether a run was permitted to start.
 - README + CORPORATE_SETUP gain a one-line mention of the field; `config.example.yml` shows a commented `max_cost_usd: null` so operators can see the knob exists without it being on.
 
-Reference: [`docs/superpowers/plans/2026-05-31-max-cost-ceiling.md`](../superpowers/plans/2026-05-31-max-cost-ceiling.md).
+Reference: [`docs/superpowers/archive/plans/2026-05-31-max-cost-ceiling.md`](../superpowers/plans/2026-05-31-max-cost-ceiling.md).

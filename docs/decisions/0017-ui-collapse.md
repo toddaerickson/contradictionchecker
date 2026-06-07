@@ -49,4 +49,4 @@ Cost was also just promoted to a first-class concern via ADR-0016 (`--max-cost`,
 - Phases 1-5 ship behind a flag, so a regression is recoverable by removing `?new_ui=1` from the URL. Phase 6 removes that escape hatch.
 - **Phase 5 cost-gauge caveat:** the schema has no measured ``spent_usd`` column, so the header gauge renders an upper-bound estimate (`(n_pairs_judged + n_definition_pairs_judged) * per_call_high`, the same formula ADR-0016 uses for the pre-flight ceiling gate). The label is explicit ("Est. spent"). Replacing this with a measured-spend column is a future schema change.
 
-Reference: [`docs/superpowers/plans/2026-06-01-ui-collapse.md`](../superpowers/plans/2026-06-01-ui-collapse.md).
+Reference: [`docs/superpowers/archive/plans/2026-06-01-ui-collapse.md`](../superpowers/plans/2026-06-01-ui-collapse.md).

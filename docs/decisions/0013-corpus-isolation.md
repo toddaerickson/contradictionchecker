@@ -2,8 +2,8 @@
 
 **Date:** 2026-05-25
 **Status:** Accepted
-**Spec:** [`docs/superpowers/specs/2026-05-25-corpus-isolation-design.md`](../superpowers/specs/2026-05-25-corpus-isolation-design.md)
-**Plan:** [`docs/superpowers/plans/2026-05-25-corpus-isolation.md`](../superpowers/plans/2026-05-25-corpus-isolation.md)
+**Spec:** [`do../superpowers/archive/specs/2026-05-25-corpus-isolation-design.md`](../superpowers/archive/specs/2026-05-25-corpus-isolation-design.md)
+**Plan:** [`docs/superpowers/archive/plans/2026-05-25-corpus-isolation.md`](../superpowers/plans/2026-05-25-corpus-isolation.md)
 
 ## Context
 
