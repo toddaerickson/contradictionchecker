@@ -47,6 +47,38 @@
     </dialog>
     <div id="cc-toast-region" class="cc-toast-region" role="status" aria-live="polite"></div>
     <script>
+    // Modal manager: the modal partials are swapped into #cc-modal-region as
+    // <dialog> (no `open`); promote to a real modal via showModal() so the UA
+    // gives us a focus trap, Esc, and a backdrop. Restore focus to the opener.
+    (function () {
+      var region = document.getElementById('cc-modal-region');
+      if (!region) return;
+      var trigger = null;
+      document.addEventListener('click', function (e) {
+        var t = e.target.closest && e.target.closest('[hx-get]');
+        if (t && /\/modal$/.test(t.getAttribute('hx-get') || '')) trigger = t;
+      }, true);
+      function closeModal() {
+        var dlg = region.querySelector('dialog');
+        if (dlg && dlg.open) { try { dlg.close(); } catch (_) {} }
+        region.innerHTML = '';
+        if (trigger && trigger.focus) trigger.focus();
+        trigger = null;
+      }
+      window.__ccCloseModal = closeModal;
+      document.body.addEventListener('htmx:afterSwap', function (e) {
+        if (!e.target || e.target.id !== 'cc-modal-region') return;
+        var dlg = region.querySelector('dialog.cc-modal');
+        if (!dlg) return;
+        if (!dlg.open) { try { dlg.showModal(); } catch (_) {} }
+        dlg.addEventListener('cancel', function (ev) { ev.preventDefault(); closeModal(); });
+        var first = dlg.querySelector('[autofocus]')
+          || dlg.querySelector('input, select, textarea, button, [href]');
+        if (first) first.focus();
+      });
+    })();
+    </script>
+    <script>
     // Keyboard triage for the findings list (survives HTMX swaps — document-level).
     // j/k move focus between finding cards; c/f/d set the focused card's verdict
     // (the buttons advertise these keys). Ignored while typing in a field.

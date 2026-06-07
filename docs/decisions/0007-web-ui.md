@@ -67,4 +67,4 @@ No auth. Default bind is `127.0.0.1:8000` via the CLI's `consistency-check serve
 - One new migration (`0004_run_status.sql`). Additive; existing rows backfill with `'done'`.
 - The CLI surface gains `consistency-check serve --host 127.0.0.1 --port 8000`.
 - The report renderer's markdown output stays canonical. The web UI renders the same markdown to HTML via `mistune`; we don't fork a parallel HTML report.
-- Out of scope: token-level diff highlighting, SSE for live stats, run-picker UI, authentication, upload GC, async ingest. All deferred to v0.4 with rationale recorded in `docs/plans/v0.3-block-g.md`.
+- Out of scope: token-level diff highlighting, SSE for live stats, run-picker UI, authentication, upload GC, async ingest. All deferred to v0.4 with rationale recorded in ADR-0017.

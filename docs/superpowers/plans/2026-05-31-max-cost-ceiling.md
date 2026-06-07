@@ -40,7 +40,7 @@ Two cases this PR fixes:
 | `tests/test_estimate_cost.py` | `test_estimate_cost_uses_moonshot_defaults_when_provider_moonshot`. `test_estimate_cost_explicit_overrides_win`. |
 | `tests/test_cli.py` | `test_check_max_cost_flag_aborts_when_exceeded`. `test_check_max_cost_flag_under_budget_runs`. `test_estimate_cost_moonshot_provider_uses_moonshot_defaults`. |
 | `README.md` | Add `--max-cost` mention in CLI section; note that estimate-cost now defaults to the provider's pricing. |
-| `CORPORATE_SETUP.md` | Note `--max-cost` as a budget guardrail in the operational hygiene section. |
+| `docs/corporate-setup.md` | Note `--max-cost` as a budget guardrail in the operational hygiene section. |
 | `config.example.yml` | Add `max_cost_usd: null` (commented) example with a one-line note about how to use it. |
 | `futureplans.md` | Move blocker #2 to Completed with date + branch + ADR ref. |
 

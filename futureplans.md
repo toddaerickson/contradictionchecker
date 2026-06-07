@@ -24,7 +24,7 @@ Higher-effort items that require more design discussion. Some carry from the old
 
 ### 6. Three-document conditional contradictions — cluster-by-entity second pass
 
-v0.2 shipped the graph-triangle approach (see [`docs/plans/v0.2-build-plan.md`](docs/plans/v0.2-build-plan.md) Block F): triangles enumerated on FAISS-similarity edges, opt-in via `--deep`. That catches conditional contradictions whose three assertions are pairwise similar enough to clear the gate threshold. It **misses** triangles whose edges fall below the gate — e.g. `A` and `C` referencing the same entity but in vocabulary that the embedder doesn't place near each other.
+v0.2 shipped the graph-triangle approach (see ADR-0006): triangles enumerated on FAISS-similarity edges, opt-in via `--deep`. That catches conditional contradictions whose three assertions are pairwise similar enough to clear the gate threshold. It **misses** triangles whose edges fall below the gate — e.g. `A` and `C` referencing the same entity but in vocabulary that the embedder doesn't place near each other.
 
 v0.4 adds a second pass that fires **after** the triangle pass and shares the same `multi_party_findings` table:
 
@@ -67,8 +67,8 @@ to that corpus's assertion-id set.
 ### 10. Incremental scans
 Today every `check` invocation re-scans the whole corpus. If only one new document was added since last run, only its assertions need to be paired against pre-existing ones. Use the `documents.ingested_at` timestamp to compute a "new assertions" set, then gate against the old set without re-pairing the old set with itself. Audit logger gains a `prior_run_id` link so report can show "new vs. carry-forward findings."
 
-### 11. Web review surface (extends v0.3 Block G)
-The FastAPI + HTMX app shell shipped in v0.3 ([`docs/plans/v0.3-block-g.md`](docs/plans/v0.3-block-g.md)). #11 adds the reviewer-specific routes once #9 lands: read-only mode for stakeholders, reviewer mode for analysts who can set `reviewer_verdict`.
+### 11. Web review surface (extends v0.3)
+The FastAPI + HTMX app shell shipped in v0.3. #11 adds the reviewer-specific routes once #9 lands: read-only mode for stakeholders, reviewer mode for analysts who can set `reviewer_verdict`.
 
 ### 12. Local-LLM judge provider
 For air-gapped deployments: a `LocalLlamaProvider` against `llama.cpp` or vLLM. The `JudgeProvider` Protocol already exists — this is mostly prompt tuning and tooling, not architecture. Document the quality trade-off in a new ADR.
@@ -127,16 +127,6 @@ Four focused improvements to gate quality and triangle recall. These emerged fro
 
 Phased plan targeting analysts, paralegals, and other "normal tech users" who are
 not comfortable with the CLI. Each phase is independently shippable.
-
-### Phase 0 UI — surface the three Phase 0 eval signals in the web UI
-
-See [`docs/plans/phase0-ui-plan.md`](docs/plans/phase0-ui-plan.md). Brings the
-CLI-only outputs of PRs #51 (in-flight precision + calibration mining), #52
-(targeted-eval on 120 pairs), and #53 (Claude-Projects baseline) into the
-existing FastAPI + HTMX web UI so a non-programmer analyst never opens a
-terminal to operate Phase 0. Four PRs (Blocks A, B, C1, C2). Sequenced before
-the existing Phase 1–3 accessibility work because there is no point in
-polishing terminology before the actual data signals are reachable.
 
 ### Phase 1 — Zero-effort wins (no architecture changes, ~1 session)
 
@@ -355,11 +345,11 @@ Parked from the v0.4 definition-inconsistency build (ADR-0009). Shape: `(definit
 - **f4-fixups** — `AuditLogger.most_recent_run()` + CLI private-attr fix (already done on branch); `FaissStore.open_or_create` made `dim`-optional (reads from existing index header); `_run_check_in_background` no longer loads the ~800 MB embedder model for check runs; `pipeline.check` now requires a pre-created `run_id` — callers own `begin_run` (items #16, #18, and the `main.py:140` known issue).
 
 - **v0.1.0** — full 17-step build plan: ingest → chunk → atomic-fact extraction → embed → gate → NLI → judge → audit → report → CLI → CONTRADOC harness → CI. See `CHANGELOG.md`.
-- **v0.2.0** — Block D (PDF/DOCX loaders via `unstructured`), Block E (numeric short-circuit + range-overlap hint), Block F (three-document conditional contradictions via graph triangles, `--deep` flag). See [`docs/plans/v0.2-build-plan.md`](docs/plans/v0.2-build-plan.md).
+- **v0.2.0** — Block D (PDF/DOCX loaders via `unstructured`), Block E (numeric short-circuit + range-overlap hint), Block F (three-document conditional contradictions via graph triangles, `--deep` flag). See ADR-0004, ADR-0005, and ADR-0006.
   - Item #1 (PDF/DOCX) — D2 / ADR-0004.
   - Item #3 (numeric extractor) — E1–E3 / ADR-0005.
-  - Items #6 partial (three-doc graph-triangle half) — Block F / ADR-0006. Cluster-by-entity second pass still pending in v0.4.
-- **v0.3.0** — Block G web UI: FastAPI + HTMX, Contradictions / Documents / Assertions / Stats / Ingest tabs, Diff partials, HTMX self-polling, `consistency-check serve --open` CLI command, `run_status` migration + `BackgroundTasks` for check. See [`docs/plans/v0.3-block-g.md`](docs/plans/v0.3-block-g.md).
+  - Items #6 partial (three-doc graph-triangle half) — ADR-0006. Cluster-by-entity second pass still pending in v0.4.
+- **v0.3.0** — Block G web UI: FastAPI + HTMX, Contradictions / Documents / Assertions / Stats / Ingest tabs, Diff partials, HTMX self-polling, `consistency-check serve --open` CLI command, `run_status` migration + `BackgroundTasks` for check. See ADR-0007.
   - Output naming helper (`audit/naming.py`) + optional `--out` on `report` / `export` (G0b).
   - simplify pass: `RunStatus` Literal type, closure-captured overrides, dead-code cleanup.
 - **v0.4 (definition-inconsistency detector)** — flavor A of item #20: divergent definitions of the same canonical term across the corpus. New migrations `0007_assertion_kind.sql` (`assertions.kind/term/definition_text`) and `0008_finding_detector_type.sql` (`findings.detector_type`); definitions extracted alongside atomic facts via the existing tool-use schema; new `DefinitionChecker` skips the NLI gate in favour of canonical-term grouping; new `DefinitionJudge` provider surface (Anthropic + OpenAI); audit, report, web UI, and CLI extended; `--no-definitions` opt-out. ADR-0009. Flavor B (definition ↔ usage) parked as item #20a.

@@ -46,7 +46,7 @@ A pairwise-by-default checker pays all of that cost on every run, on every corpu
 | `docs/decisions/0015-pairwise-opt-in.md` | New ADR — eval data, decision, consequences, when to flip it back on. |
 | `README.md` | Update "what runs by default" / install section — note NLI model is now downloaded only when `--pairwise` is used. |
 | `futureplans.md` | Move item #3 (pairwise opt-in) to Completed section with this date. |
-| `CORPORATE_SETUP.md` | If it mentions the NLI download as required, soften to "downloaded only when pairwise detector is enabled." |
+| `docs/corporate-setup.md` | If it mentions the NLI download as required, soften to "downloaded only when pairwise detector is enabled." |
 
 ## Tasks (TDD)
 
