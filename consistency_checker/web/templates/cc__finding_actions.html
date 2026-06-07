@@ -18,16 +18,22 @@
             hx-swap="outerHTML">undo</button>
   {% else %}
     <button type="button" class="cc-button cc-button--small"
+            data-verdict="confirmed"
+            title="Real issue — model flagged this correctly (C)"
             hx-post="/verdicts"
             hx-vals='{"pair_key": "{{ pair_key }}", "detector_type": "{{ detector_type }}", "verdict": "confirmed"}'
             hx-target="#{{ actions_id }}"
             hx-swap="outerHTML">✓ Confirmed</button>
     <button type="button" class="cc-button cc-button--small"
+            data-verdict="false_positive"
+            title="Not an issue — model flagged this incorrectly (F)"
             hx-post="/verdicts"
             hx-vals='{"pair_key": "{{ pair_key }}", "detector_type": "{{ detector_type }}", "verdict": "false_positive"}'
             hx-target="#{{ actions_id }}"
             hx-swap="outerHTML">✗ False positive</button>
     <button type="button" class="cc-button cc-button--small"
+            data-verdict="dismissed"
+            title="Dismiss — real but not yours to resolve (D)"
             hx-post="/verdicts"
             hx-vals='{"pair_key": "{{ pair_key }}", "detector_type": "{{ detector_type }}", "verdict": "dismissed"}'
             hx-target="#{{ actions_id }}"

@@ -44,5 +44,33 @@
       <button type="button" class="cc-button" onclick="document.getElementById('cc-diff-dialog').close()">Close</button>
     </dialog>
     <div id="cc-toast-region" class="cc-toast-region" role="status" aria-live="polite"></div>
+    <script>
+    // Keyboard triage for the findings list (survives HTMX swaps — document-level).
+    // j/k move focus between finding cards; c/f/d set the focused card's verdict
+    // (the buttons advertise these keys). Ignored while typing in a field.
+    (function () {
+      function cards() { return Array.prototype.slice.call(document.querySelectorAll('.cc-finding')); }
+      document.addEventListener('keydown', function (e) {
+        var t = e.target;
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        if (t && (t.matches('input, textarea, select') || t.isContentEditable)) return;
+        var list = cards();
+        if (!list.length) return;
+        var cur = t && t.closest ? t.closest('.cc-finding') : null;
+        var idx = cur ? list.indexOf(cur) : -1;
+        if (e.key === 'j' || e.key === 'k') {
+          e.preventDefault();
+          var to = e.key === 'j' ? Math.min(list.length - 1, idx + 1) : Math.max(0, (idx < 0 ? 0 : idx) - 1);
+          if (idx < 0) to = 0;
+          list[to].focus();
+          list[to].scrollIntoView({ block: 'nearest' });
+        } else if (cur && (e.key === 'c' || e.key === 'f' || e.key === 'd')) {
+          var map = { c: 'confirmed', f: 'false_positive', d: 'dismissed' };
+          var btn = cur.querySelector('[data-verdict="' + map[e.key] + '"]');
+          if (btn) { e.preventDefault(); btn.click(); }
+        }
+      });
+    })();
+    </script>
   </body>
 </html>
