@@ -542,11 +542,12 @@
 }
 .cc-modal--error[open] { border-color: #c53030; }
 .cc-modal--success[open] { border-color: var(--cc-accent); }
-/* No `::backdrop` rule — the dialog is inserted with the `open` attribute
-   rather than via `dialog.showModal()`, so `::backdrop` would never fire.
-   Phase 4 owns drawer-style focus management; that PR can convert this
-   to `showModal()` + native backdrop if a visual overlay becomes
-   necessary. */
+/* The modal is now promoted via dialog.showModal() (see the modal manager in
+   cc_single.html), so it centers in the viewport (UA default) and ::backdrop
+   fires — dim it to match the drawer's overlay. */
+.cc-modal::backdrop {
+  background: rgba(17, 17, 17, 0.32);
+}
 
 .cc-modal-head { margin-bottom: 1rem; }
 .cc-modal-title { margin: 0; font-size: 1.05rem; font-weight: 600; }

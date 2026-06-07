@@ -1,4 +1,4 @@
-<dialog class="cc-modal {% if error %}cc-modal--error{% endif %}" open>
+<dialog class="cc-modal {% if error %}cc-modal--error{% endif %}">
   <header class="cc-modal-head">
     <h2 class="cc-modal-title">Rename corpus</h2>
   </header>
@@ -23,7 +23,7 @@
       <button type="submit" class="cc-button cc-button--primary"
               hx-disabled-elt="this">Rename</button>
       <button type="button" class="cc-button"
-              onclick="document.getElementById('cc-modal-region').innerHTML = ''">Cancel</button>
+              onclick="window.__ccCloseModal && window.__ccCloseModal()">Cancel</button>
     </footer>
   </form>
 </dialog>
