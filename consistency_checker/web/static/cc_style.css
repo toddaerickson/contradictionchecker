@@ -6,12 +6,13 @@
   --cc-header-bg: #111111;
   --cc-header-fg: #e8e8e4;
   --cc-fg: #1a1a1a;
-  --cc-muted: #767672;
+  --cc-muted: #6a6a66; /* darkened for AA (4.5:1) on the page bg */
   --cc-accent: #c9450a;
+  --cc-accent-text: #b33d08; /* accent as small TEXT on tinted surfaces (AA 4.5:1) */
   --cc-accent-soft: #fdf0ea;
   --cc-blue: #1a52c9;
   --cc-border: #e2e0db;
-  --cc-border-strong: #b0ada6;
+  --cc-border-strong: #8a8780; /* darkened to meet 3:1 non-text contrast on controls */
   --cc-success-bg: #eef6ee;
   --cc-success-border: #b0d4b0;
   --cc-error-bg: #fdf0ea;
@@ -19,6 +20,27 @@
 }
 
 * { box-sizing: border-box; }
+
+/* A visible focus indicator on every interactive control (WCAG 2.4.7/2.4.11).
+   Light variant on the dark header so it keeps 3:1 contrast there. */
+:focus-visible {
+  outline: 2px solid var(--cc-blue);
+  outline-offset: 2px;
+}
+.cc-header :focus-visible {
+  outline-color: #ffffff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 body {
   margin: 0;
@@ -262,6 +284,8 @@ code {
 .cc-verdict-btn {
   width: 1.8em;
   height: 1.8em;
+  min-width: 24px; /* WCAG 2.5.8 minimum target size */
+  min-height: 24px;
   line-height: 1;
   font-size: 1em;
   padding: 0;
@@ -398,7 +422,7 @@ tr.cc-finding-row:focus {
   border-radius: 50%;
   animation: cc-spin 0.6s linear infinite;  /* reuses the @keyframes cc-spin defined above */
 }
-.cc-progress-warn { color: var(--cc-accent); }
+.cc-progress-warn { color: var(--cc-accent-text); }
 .cc-section-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
 
 /* --- Onboarding "How it works" -------------------------------------------- */
