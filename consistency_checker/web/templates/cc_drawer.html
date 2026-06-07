@@ -22,10 +22,17 @@
   var drawer = region.querySelector('.cc-drawer');
   if (!drawer) return;
   var previouslyFocused = document.activeElement;
-  var focusable = drawer.querySelectorAll(
-    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-  );
-  if (focusable.length) focusable[0].focus();
+  drawer.setAttribute('tabindex', '-1');
+  // Query lazily: an in-drawer HTMX swap (e.g. the "Show reviewed" toggle, or a
+  // verdict that re-renders its row) changes the focusable set, so capturing it
+  // once at open would let Tab escape the trap.
+  function getFocusable() {
+    return drawer.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+  }
+  var initialFocusable = getFocusable();
+  if (initialFocusable.length) { initialFocusable[0].focus(); } else { drawer.focus(); }
 
   function close(opts) {
     opts = opts || {};
@@ -47,12 +54,17 @@
     if (e.key === 'Escape') {
       e.preventDefault();
       close();
-    } else if (e.key === 'Tab' && focusable.length) {
-      var first = focusable[0];
-      var last = focusable[focusable.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
+    } else if (e.key === 'Tab') {
+      var f = getFocusable();
+      if (!f.length) { e.preventDefault(); drawer.focus(); return; }
+      var first = f[0];
+      var last = f[f.length - 1];
+      var active = document.activeElement;
+      var inside = drawer.contains(active);
+      // Wrap at the ends, and pull focus back if a swap dropped it outside.
+      if (e.shiftKey && (active === first || !inside)) {
         e.preventDefault(); last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
+      } else if (!e.shiftKey && (active === last || !inside)) {
         e.preventDefault(); first.focus();
       }
     }

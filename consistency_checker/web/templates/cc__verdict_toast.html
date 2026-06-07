@@ -5,7 +5,9 @@
    from the toast flips the card back in place, then removes its own toast. #}
 {% set pk_safe = pair_key|replace(':', '-') %}
 {% set actions_id = 'cc-actions-' ~ pk_safe ~ '-' ~ detector_type %}
-<div class="cc-toast" role="status" hx-swap-oob="afterbegin:#cc-toast-region">
+{# No role="status" here — #cc-toast-region is already the polite live region;
+   nesting a second status region causes double / missed announcements. #}
+<div class="cc-toast" hx-swap-oob="afterbegin:#cc-toast-region">
   Marked as <strong>{{ verdict_label }}</strong>.
   <button class="cc-toast-undo"
           hx-post="/verdicts/undo"
