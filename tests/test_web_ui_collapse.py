@@ -254,6 +254,19 @@ def test_finding_card_shows_source_context(tmp_path: Path) -> None:
     assert rationale in body
 
 
+def test_finding_cards_wired_for_keyboard_triage(tmp_path: Path) -> None:
+    """Phase 1b/1c: cards are focusable, verdict buttons carry data-verdict, and
+    the j/k + c/f/d handler ships in the shell."""
+    cfg = _config(tmp_path)
+    _seed_corpus_with_finding(cfg)
+    body = _client(cfg).get("/").text
+    assert 'class="cc-finding" id="finding-' in body and 'tabindex="0"' in body
+    assert 'data-verdict="confirmed"' in body
+    assert 'data-verdict="false_positive"' in body
+    assert 'data-verdict="dismissed"' in body
+    assert "e.key === 'j'" in body  # the keyboard handler ships in the shell
+
+
 def test_empty_state_distinguishes_no_run_from_found_nothing(tmp_path: Path) -> None:
     """Phase 1d: a completed run with zero findings is the success case, not the
     same 'no run yet' message."""
