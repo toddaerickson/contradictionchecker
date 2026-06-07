@@ -237,6 +237,43 @@ def test_findings_panel_shows_findings_from_active_corpus(tmp_path: Path) -> Non
     assert "Findings corpus" in body
 
 
+def test_finding_card_shows_source_context(tmp_path: Path) -> None:
+    """Phase 1a: each finding card carries both full assertions, their source
+    documents, and the rationale (expandable in place), not just a one-liner."""
+    cfg = _config(tmp_path)
+    _cid, _rid, rationale = _seed_corpus_with_finding(cfg)
+    client = _client(cfg)
+    body = client.get("/").text
+    assert 'class="cc-finding-detail"' in body  # expandable wrapper
+    # Both full assertions are present (not just the truncated summary line).
+    assert "Revenue grew 12% in fiscal 2025." in body
+    assert "Revenue declined 5% in fiscal 2025." in body
+    # Both source-document labels are shown.
+    assert "Alpha" in body and "Beta" in body
+    # The full rationale is rendered.
+    assert rationale in body
+
+
+def test_empty_state_distinguishes_no_run_from_found_nothing(tmp_path: Path) -> None:
+    """Phase 1d: a completed run with zero findings is the success case, not the
+    same 'no run yet' message."""
+    cfg = _config(tmp_path)
+    cid = _seed_one_corpus(cfg, name="Quiet")
+    client = _client(cfg)
+    assert "No runs yet." in client.get(f"/?corpus={cid}").text
+
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    audit = AuditLogger(store)
+    rid = audit.begin_run(corpus_id=cid)
+    audit.end_run(rid, n_assertions=3, n_pairs_gated=1, n_pairs_judged=1, n_findings=0)
+    store.close()
+
+    body = client.get(f"/?corpus={cid}").text
+    assert "No contradictions found" in body
+    assert "No runs yet." not in body
+
+
 # --- 5) fragment route returns no <html>/<head> wrapper ------------------
 
 
