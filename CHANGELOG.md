@@ -57,6 +57,15 @@ job, and the **Moonshot/Kimi** provider plus **OCR** for scanned PDFs land.
   pair loop (see the memory-hardening notes below).
 - **PDF extraction junk filter** at the text and assertion stages.
 
+### Fixed
+
+- **Provider error-path hardening.** An empty `choices` list from an
+  OpenAI-compatible API (Moonshot/OpenAI) now raises the clean `ValueError`
+  callers already handle instead of an `IndexError`; the model-download cache
+  probe debug-logs unexpected failures instead of swallowing them silently; and
+  upload filename validation uses an explicit `400` guard rather than an
+  `assert` that `python -O` strips.
+
 ### Removed — judge confidence score (ADR-0018)
 
 - **The LLM judge `confidence` score is gone, end to end.** It was the model's
