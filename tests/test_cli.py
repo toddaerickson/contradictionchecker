@@ -1593,3 +1593,46 @@ def test_report_errors_when_corpus_mismatches_run(tmp_path: Path) -> None:
     assert res.exit_code != 0
     out_text = (res.output or "") + str(res.exception or "")
     assert "mismatch" in out_text.lower() or "corpus" in out_text.lower()
+
+
+# --- _warn_if_model_download_needed: error handling (audit #4) ---------------
+
+
+def test_warn_if_model_download_silent_when_hf_not_installed(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A missing huggingface_hub is an expected condition — return silently, no log noise."""
+    import logging
+    import sys
+
+    from consistency_checker.cli.main import _warn_if_model_download_needed
+
+    # Setting a module to None in sys.modules forces ImportError on `import` even
+    # when the package is already loaded — the canonical "absent module" idiom.
+    monkeypatch.setitem(sys.modules, "huggingface_hub", None)
+    monkeypatch.setattr(logging.getLogger("consistency_checker"), "propagate", True)
+    with caplog.at_level(logging.DEBUG, logger="consistency_checker.cli.main"):
+        _warn_if_model_download_needed("some/model")  # must not raise
+    assert caplog.records == []
+
+
+def test_warn_if_model_download_logs_unexpected_lookup_error(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An unexpected cache-lookup failure must be debug-logged, not silently swallowed."""
+    import logging
+
+    import huggingface_hub
+
+    from consistency_checker.cli.main import _warn_if_model_download_needed
+
+    def boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("cache backend exploded")
+
+    monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache", boom)
+    # configure_logging() (called by earlier CLI tests) sets propagate=False on
+    # the package logger, which would hide the record from caplog's root handler.
+    monkeypatch.setattr(logging.getLogger("consistency_checker"), "propagate", True)
+    with caplog.at_level(logging.DEBUG, logger="consistency_checker.cli.main"):
+        _warn_if_model_download_needed("some/model")  # must not raise
+    assert any("cache backend exploded" in r.getMessage() for r in caplog.records)

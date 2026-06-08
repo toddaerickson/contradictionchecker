@@ -12,6 +12,7 @@ Thin wrapper around :mod:`consistency_checker.pipeline`. Subcommands:
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import typer
@@ -61,6 +62,8 @@ from consistency_checker.pipeline import (
 from consistency_checker.pipeline import (
     ingest as run_ingest,
 )
+
+_log = logging.getLogger(__name__)
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Consistency checker CLI.")
 store_app = typer.Typer(help="Assertion-store maintenance commands.")
@@ -125,15 +128,18 @@ def _warn_if_model_download_needed(model_name: str) -> None:
     """Print a one-line warning if the HF model isn't in the local cache."""
     try:
         from huggingface_hub import try_to_load_from_cache
-
+    except ImportError:
+        return  # huggingface_hub not installed — nothing to check, skip silently
+    try:
         result = try_to_load_from_cache(model_name, "config.json")
-        if result is None:
-            typer.echo(
-                f"Note: first run will download ~440 MB ({model_name}). "
-                "This may take a few minutes — the tool is not hung."
-            )
-    except Exception:
-        pass  # huggingface_hub not available or lookup failed — skip silently
+    except Exception as exc:  # best-effort cache probe; never abort the run over it
+        _log.debug("HF cache probe for %s failed: %s", model_name, exc)
+        return
+    if result is None:
+        typer.echo(
+            f"Note: first run will download ~440 MB ({model_name}). "
+            "This may take a few minutes — the tool is not hung."
+        )
 
 
 # Estimated peak RSS for a typical check() run: mpnet embedder + DeBERTa-large

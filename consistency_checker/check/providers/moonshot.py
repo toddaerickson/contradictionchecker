@@ -65,8 +65,7 @@ class MoonshotJudgeProvider:
             response_format=JudgePayload,
         )
 
-        # response.choices[0].message.parsed is a JudgePayload instance
-        payload = response.choices[0].message.parsed
+        payload = response.choices[0].message.parsed if response.choices else None
         if payload is None:
             raise ValueError("Moonshot API returned None payload")
 
@@ -118,7 +117,7 @@ class MoonshotMultiPartyJudgeProvider:
             response_format=MultiPartyJudgePayload,
         )
 
-        payload = response.choices[0].message.parsed
+        payload = response.choices[0].message.parsed if response.choices else None
         if payload is None:
             raise ValueError("Moonshot API returned None payload")
 
@@ -168,7 +167,7 @@ class MoonshotDefinitionProvider:
             response_format=DefinitionJudgePayload,
             extra_body=self._extra_body,
         )
-        parsed = response.choices[0].message.parsed
+        parsed = response.choices[0].message.parsed if response.choices else None
         if parsed is None:
             raise ValueError("Moonshot API returned None payload")
         if isinstance(parsed, DefinitionJudgePayload):

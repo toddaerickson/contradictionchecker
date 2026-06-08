@@ -365,6 +365,20 @@ def test_openai_multi_party_provider_raises_when_parsed_is_none() -> None:
         provider.request_payload(system="sys", user="usr")
 
 
+def test_openai_multi_party_provider_empty_choices_raises_clean_error() -> None:
+    """An empty choices list must raise ValueError, not IndexError."""
+
+    def parse(**_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(choices=[])
+
+    fake = SimpleNamespace(
+        beta=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(parse=parse)))
+    )
+    provider = OpenAIMultiPartyProvider(client=fake)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="no validated payload"):
+        provider.request_payload(system="sys", user="usr")
+
+
 # --- Live tests (gated) ---------------------------------------------------
 
 

@@ -94,6 +94,18 @@ def _generate_upload_id() -> str:
     return f"{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}_{secrets.token_hex(4)}"
 
 
+def _require_filename(file: UploadFile) -> str:
+    """Return the upload's filename or raise 400.
+
+    Routes pre-filter to truthy filenames, but an ``assert`` for that invariant
+    is stripped under ``python -O``; this guard always runs.
+    """
+    filename = file.filename
+    if not filename:
+        raise HTTPException(status_code=400, detail="File is missing a filename")
+    return filename
+
+
 def _document_label(doc: Any, fallback_doc_id: str) -> str:
     """Best display label for a Document — title, then source path, then doc id."""
     if doc is None:
@@ -783,8 +795,8 @@ def create_app(
                 )
             total_bytes = 0
             for file in upload_files:
-                assert file.filename is not None  # pre-filtered to truthy filenames
-                ext = Path(file.filename).suffix.lower()
+                filename = _require_filename(file)
+                ext = Path(filename).suffix.lower()
                 if not ext:
                     raise HTTPException(
                         status_code=400,
@@ -804,7 +816,7 @@ def create_app(
                             "MB total per request)"
                         ),
                     )
-                target = upload_dir / Path(file.filename).name
+                target = upload_dir / Path(filename).name
                 target.write_bytes(content)
                 saved.append(target)
         except HTTPException:
