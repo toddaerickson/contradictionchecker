@@ -673,7 +673,7 @@ def create_app(
 
     @app.get("/corpora/sidebar", response_class=HTMLResponse)
     def corpora_sidebar(request: Request, active: str | None = Query(default=None)) -> HTMLResponse:
-        """Sidebar fragment used by the ``corpus-created`` HTMX trigger.
+        """Sidebar fragment used by the ``corpus-created`` / ``run-started`` triggers.
 
         Returns the ``cc_sidebar.html`` partial — corpora list + new-corpus
         button — without the surrounding ``<aside>`` so the caller can
@@ -686,8 +686,8 @@ def create_app(
             corpora = _list_corpora_with_counts(store)
             # Honour ?active=<id> when valid; otherwise fall back to the same
             # picker the full-page shell uses so a trigger-driven refresh
-            # (corpus-created / run-started / sse:done) keeps a sensible row
-            # highlighted instead of clearing it.
+            # (corpus-created / run-started) keeps a sensible row highlighted
+            # instead of clearing it.
             active_corpus_id = _pick_active_corpus_id(store, corpora, active)
         finally:
             store.close()
@@ -699,13 +699,16 @@ def create_app(
 
     @app.get("/corpora/{corpus_id}/cost-gauge", response_class=HTMLResponse)
     def corpora_cost_gauge(request: Request, corpus_id: str) -> HTMLResponse:
-        """Header cost-gauge fragment, refetched on ``run-started`` / ``sse:done``.
+        """Header cost-gauge fragment, refetched on the ``run-started`` trigger.
 
         The gauge gates its SSE on the active corpus having a live run (see
         ``cc_cost_gauge.html``) — that is the fix for the idle EventSource
-        reconnect flood. Because the gating is server-rendered, the gauge must
-        re-render when a run begins or ends so it can open/close its progress
-        stream without a full page reload; this endpoint returns that wrapper.
+        reconnect flood. Because the gating is server-rendered, the gauge
+        re-renders on ``run-started`` to open its progress stream without a
+        full page reload; on completion the stream parks reconnection via the
+        ``retry:`` directive (the bundled htmx-sse extension has no
+        ``sse-close``), so the wrapper need not refetch until the next run or
+        page load. This endpoint returns that wrapper.
         """
         store, audit = _open_audit()
         try:
