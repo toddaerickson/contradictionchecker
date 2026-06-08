@@ -149,3 +149,20 @@ def test_scope_enabled_unknown_bucket_pairs_against_all() -> None:
     # c pairs with a and b; a-b is suppressed
     assert result.n_judged == 2
     assert result.n_suppressed == 1
+
+
+def test_reference_assertion_excluded_from_pairing() -> None:
+    """A kind=definition assertion whose source is a usage/reference (no
+    `"Term" means`) is dropped before pairing, so the extractor's
+    reference-as-definition mistakes can't manufacture a spurious divergence."""
+    real = _def("docA", "Affiliated Lender", "any Lender that is an Affiliate of Holdings")
+    ref = Assertion.build(
+        "docB",
+        "Any Lender may assign its rights to an Affiliated Lender subject to the limitations.",
+        kind="definition",
+        term="Affiliated Lender",
+        definition_text="an Affiliated Lender subject to the limitations",
+    )
+    checker = DefinitionChecker(judge=FixtureDefinitionJudge({}))
+    findings = list(checker.find_inconsistencies(_pair(real, ref)))
+    assert findings == []  # reference dropped -> singleton group -> no pair

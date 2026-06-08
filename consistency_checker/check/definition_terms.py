@@ -9,10 +9,12 @@ terms (false positive).
 
 from __future__ import annotations
 
+import re
 import string
 
 _QUOTE_CHARS = ('"', "'", "“", "”", "‘", "’", "`")  # noqa: RUF001
 _STRIP_CHARS = string.punctuation + "".join(c for c in _QUOTE_CHARS if c not in string.punctuation)
+_QUOTE_CLASS = "[" + re.escape("".join(_QUOTE_CHARS)) + "]?"
 
 
 def canonicalize_term(raw: str) -> str:
@@ -47,6 +49,23 @@ def definitions_equivalent(a_text: str, b_text: str) -> bool:
         return " ".join(text.casefold().split()).strip(_STRIP_CHARS)
 
     return _norm(a_text) == _norm(b_text)
+
+
+def is_definitional(term: str | None, source_text: str | None) -> bool:
+    """True if ``source_text`` reads as a real definitional clause for ``term``.
+
+    A real legal definition is ``"Term" means / shall mean …``. The extractor
+    over-tags as definitions both *usages* of a capitalized defined term
+    ("…assign its rights to such Affiliated Lender…") and *cross-references*
+    ("has the meaning set forth in Section X"); comparing those is meaningless.
+    This gate keeps only assertions whose source has the term immediately
+    followed by a defining verb. Conservative — like :func:`canonicalize_term`,
+    it would rather drop a real definition than admit a reference.
+    """
+    if not term or not source_text:
+        return False
+    pattern = _QUOTE_CLASS + re.escape(term) + _QUOTE_CLASS + r"\s*,?\s*(?:means|shall\s+mean)\b"
+    return re.search(pattern, source_text, re.IGNORECASE) is not None
 
 
 _LEGAL_SUFFIXES: tuple[str, ...] = (

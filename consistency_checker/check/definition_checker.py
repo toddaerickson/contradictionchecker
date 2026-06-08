@@ -25,6 +25,7 @@ from consistency_checker.check.definition_judge import (
 from consistency_checker.check.definition_terms import (
     canonicalize_term,
     definitions_equivalent,
+    is_definitional,
 )
 from consistency_checker.extract.schema import Assertion
 
@@ -133,6 +134,12 @@ class DefinitionChecker:
         out: dict[str, list[tuple[Assertion, str]]] = {}
         for a, org_key in definitions:
             if a.kind != "definition" or a.term is None:
+                continue
+            # The extractor over-tags usages/cross-references of a capitalized
+            # defined term as definitions; comparing those manufactures spurious
+            # divergences. Keep only assertions whose source is a real
+            # `"Term" means …` clause.
+            if not is_definitional(a.term, a.assertion_text):
                 continue
             canonical = canonicalize_term(a.term)
             if not canonical:
