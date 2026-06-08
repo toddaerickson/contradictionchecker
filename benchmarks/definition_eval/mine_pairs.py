@@ -21,7 +21,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-from consistency_checker.check.definition_terms import canonicalize_term
+from consistency_checker.check.definition_terms import (
+    canonicalize_term,
+    is_definitional,
+)
 from consistency_checker.extract.schema import Assertion, Corpus
 from consistency_checker.index.assertion_store import AssertionStore
 
@@ -54,6 +57,10 @@ def build_candidates(definitions: list[Assertion], max_pairs: int) -> list[dict[
     groups: dict[str, list[Assertion]] = {}
     for a in definitions:
         if a.kind != "definition" or a.term is None or a.definition_text is None:
+            continue
+        # Mirror the production detector: keep only real `"Term" means …`
+        # clauses, not usages/cross-references the extractor mis-tagged.
+        if not is_definitional(a.term, a.assertion_text):
             continue
         canon = canonicalize_term(a.term)
         if not canon:

@@ -285,3 +285,18 @@ def test_labeler_escapes_script_close_in_embedded_json(tmp_path: Path) -> None:
     body = client.get("/").text
     assert "</script><script>alert(1)" not in body
     assert "<\\/script>" in body  # neutralized form present
+
+
+def test_build_candidates_excludes_reference_assertions():
+    """A kind=definition assertion whose source is a usage/reference (no
+    `"Term" means`) is dropped — the eval candidate set must not pair the
+    extractor's reference-as-definition mistakes against real definitions."""
+    real = _defn("d1", "Affiliated Lender", "any Lender that is an Affiliate of Holdings")
+    ref = Assertion.build(
+        "d2",
+        "Any Lender may assign its rights to an Affiliated Lender subject to limitations.",
+        kind="definition",
+        term="Affiliated Lender",
+        definition_text="an Affiliated Lender subject to limitations",
+    )
+    assert build_candidates([real, ref], max_pairs=100) == []  # ref dropped -> singleton
