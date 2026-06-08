@@ -1,7 +1,8 @@
-<dialog class="cc-modal {% if success %}cc-modal--success{% elif error %}cc-modal--error{% endif %}">
+<dialog class="cc-modal {% if success %}cc-modal--success{% elif error %}cc-modal--error{% endif %}"
+        role="dialog" aria-modal="true" aria-labelledby="cc-add-files-title">
   {% if success %}
     <header class="cc-modal-head">
-      <h2 class="cc-modal-title">Files added</h2>
+      <h2 class="cc-modal-title" id="cc-add-files-title">Files added</h2>
     </header>
     <div class="cc-modal-body">
       <p>
@@ -16,7 +17,7 @@
     </footer>
   {% else %}
     <header class="cc-modal-head">
-      <h2 class="cc-modal-title">Add files — {{ corpus_name }}</h2>
+      <h2 class="cc-modal-title" id="cc-add-files-title">Add files — {{ corpus_name }}</h2>
     </header>
     <form class="cc-modal-form"
           hx-post="/corpora/{{ corpus_id }}/add"

@@ -1,6 +1,7 @@
-<dialog class="cc-modal {% if error %}cc-modal--error{% endif %}">
+<dialog class="cc-modal {% if error %}cc-modal--error{% endif %}"
+        role="dialog" aria-modal="true" aria-labelledby="cc-rename-title">
   <header class="cc-modal-head">
-    <h2 class="cc-modal-title">Rename corpus</h2>
+    <h2 class="cc-modal-title" id="cc-rename-title">Rename corpus</h2>
   </header>
   <form class="cc-modal-form"
         hx-post="/corpora/{{ corpus_id }}/rename"
@@ -16,6 +17,8 @@
              required
              minlength="1"
              maxlength="80"
+             pattern="[^\\\/:&quot;*?&lt;&gt;\|]+"
+             title="Cannot contain \ / : &quot; * ? &lt; &gt; |"
              value="{{ corpus_name }}"
              autofocus>
     </label>

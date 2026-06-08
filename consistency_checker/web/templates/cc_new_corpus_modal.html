@@ -1,7 +1,8 @@
-<dialog class="cc-modal {% if success %}cc-modal--success{% elif error %}cc-modal--error{% endif %}">
+<dialog class="cc-modal {% if success %}cc-modal--success{% elif error %}cc-modal--error{% endif %}"
+        role="dialog" aria-modal="true" aria-labelledby="cc-new-corpus-title">
   {% if success %}
     <header class="cc-modal-head">
-      <h2 class="cc-modal-title">{{ 'Ingest started' if ingest_started else 'Corpus created' }}</h2>
+      <h2 class="cc-modal-title" id="cc-new-corpus-title">{{ 'Ingest started' if ingest_started else 'Corpus created' }}</h2>
     </header>
     <div class="cc-modal-body">
       {% if ingest_started %}
@@ -27,7 +28,7 @@
     </footer>
   {% else %}
     <header class="cc-modal-head">
-      <h2 class="cc-modal-title">New corpus</h2>
+      <h2 class="cc-modal-title" id="cc-new-corpus-title">New corpus</h2>
     </header>
     <form class="cc-modal-form"
           hx-post="/corpora/new"
@@ -45,6 +46,8 @@
                required
                minlength="1"
                maxlength="80"
+               pattern="[^\\\/:&quot;*?&lt;&gt;\|]+"
+               title="Cannot contain \ / : &quot; * ? &lt; &gt; |"
                value="{{ corpus_name or '' }}"
                placeholder="e.g. atkins-v2"
                autofocus>

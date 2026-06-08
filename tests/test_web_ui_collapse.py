@@ -205,6 +205,11 @@ def test_sidebar_progress_div_pins_its_own_swap_target(tmp_path: Path) -> None:
     descendants, so without an explicit override the SSE ``snapshot`` swap would
     fire into ``#cc-main`` and replace the findings list + toolbar with a
     one-line progress bar on every page load. Pin it to the slot itself.
+
+    The slot only renders its SSE attributes for a corpus with an *active*
+    (pending/running) run — idle corpora render a plain ``<div>`` so the
+    browser's EventSource doesn't reconnect-loop against an endpoint that
+    closes immediately. Seed an active run so the SSE markup is present.
     """
     import re
 
@@ -212,6 +217,7 @@ def test_sidebar_progress_div_pins_its_own_swap_target(tmp_path: Path) -> None:
     store = AssertionStore(cfg.db_path)
     store.migrate()
     cid = store.get_or_create_corpus("Corpus One", "/one", "moonshot")
+    AuditLogger(store).begin_run(corpus_id=cid, run_status="running")
     store.close()
 
     client = _client(cfg)
@@ -221,6 +227,47 @@ def test_sidebar_progress_div_pins_its_own_swap_target(tmp_path: Path) -> None:
     progress_tag = m.group(0)
     assert 'sse-swap="snapshot"' in progress_tag
     assert 'hx-target="this"' in progress_tag
+
+
+def test_idle_corpus_sidebar_opens_no_sse(tmp_path: Path) -> None:
+    """A corpus with no active run must NOT open an SSE progress stream.
+
+    Idle SSE connections to ``/progress`` close immediately and the browser's
+    EventSource reconnect-loops (~every 3s), flooding the console. The slot is
+    gated on an active run, so an idle corpus renders a plain ``<div>``.
+    """
+    import re
+
+    cfg = _config(tmp_path)
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    cid = store.get_or_create_corpus("Idle One", "/idle", "moonshot")
+    store.close()
+
+    client = _client(cfg)
+    body = client.get(f"/?corpus={cid}").text
+    m = re.search(r'<div class="cc-corpus-progress"[^>]*>', body)
+    assert m is not None, "sidebar progress div not found"
+    assert "sse-connect" not in m.group(0)
+
+
+def test_cost_gauge_endpoint_gates_sse_on_active_run(tmp_path: Path) -> None:
+    """The header cost gauge opens its SSE stream only while a run is active."""
+    cfg = _config(tmp_path)
+    store = AssertionStore(cfg.db_path)
+    store.migrate()
+    cid = store.get_or_create_corpus("Gauge One", "/gauge", "moonshot")
+    store.close()
+
+    client = _client(cfg)
+    idle = client.get(f"/corpora/{cid}/cost-gauge").text
+    assert "sse-connect" not in idle
+
+    store = AssertionStore(cfg.db_path)
+    AuditLogger(store).begin_run(corpus_id=cid, run_status="running")
+    store.close()
+    active = client.get(f"/corpora/{cid}/cost-gauge").text
+    assert f'sse-connect="/corpora/{cid}/progress"' in active
 
 
 # --- 4) findings panel shows findings from active corpus ----------------
