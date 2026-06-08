@@ -155,3 +155,18 @@ def test_require_filename_rejects_missing_name(bad_name: str | None) -> None:
     with pytest.raises(HTTPException) as exc_info:
         _require_filename(SimpleNamespace(filename=bad_name))  # type: ignore[arg-type]
     assert exc_info.value.status_code == 400
+
+
+def test_new_corpus_name_pattern_escapes_v_flag_reserved_chars(tmp_path: Path) -> None:
+    """The corpus-name `pattern` must escape `/` and `|`.
+
+    Modern browsers compile the HTML `pattern` attribute with the RegExp `v`
+    flag, under which `/` and `|` are reserved inside a character class — an
+    unescaped one makes the whole pattern invalid, so the browser silently
+    ignores it and accepts e.g. "bad/name" client-side (failing only with a
+    server 400). Pin the escaped pattern so a revert can't silently disable
+    client validation. Verified valid under both the `u` and `v` flags.
+    """
+    cfg = _config(tmp_path)
+    body = _client(cfg).get("/corpora/new/modal").text
+    assert r'pattern="[^\\\/:&quot;*?&lt;&gt;\|]+"' in body
