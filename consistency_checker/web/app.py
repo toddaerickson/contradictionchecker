@@ -83,6 +83,15 @@ PROGRESS_MAX_ITERATIONS: int = 3600
 # for a short tail so the row settles cleanly in the sidebar before the SSE
 # extension closes. Tests set this to 0.
 PROGRESS_DONE_TAIL_SECONDS: float = 5.0
+# SSE `retry:` directive (ms) sent before an *intentional* stream close (run
+# finished / no run / server error). The bundled htmx-sse extension does not
+# support `sse-close`, so the browser's native EventSource would otherwise
+# reconnect every few seconds against an endpoint with nothing left to stream.
+# A large retry parks that reconnect until the row is re-rendered (which drops
+# the SSE element entirely) on the next `run-started` refresh. The active-run
+# poll deliberately does NOT set this, so a mid-run network blip still recovers
+# on the default ~3s retry.
+PROGRESS_NO_RECONNECT_SSE: str = "retry: 86400000\n\n"
 
 
 def _generate_upload_id() -> str:
@@ -408,7 +417,7 @@ def create_app(
     _DEFINITION_VERDICTS = ("definition_divergent",)
 
     def _list_corpora_with_counts(store: AssertionStore) -> list[dict[str, Any]]:
-        """Sidebar rows: corpora + per-corpus (n_assertions, n_runs)."""
+        """Sidebar rows: corpora + per-corpus (n_assertions, n_runs, has_active_run)."""
         rows: list[dict[str, Any]] = []
         for c in store.list_corpora():
             n_assertions = store.stats(corpus_id=c.corpus_id)["assertions"]
@@ -417,12 +426,22 @@ def create_app(
                 (c.corpus_id,),
             ).fetchone()
             n_runs = int(n_runs_row[0]) if n_runs_row else 0
+            # Only an active (pending/running) run has live progress worth
+            # streaming. Idle corpora must NOT open an SSE connection — the
+            # endpoint closes immediately when idle and the browser's
+            # EventSource then reconnect-loops (~every 3s). See cc_sidebar.html.
+            active_row = store._conn.execute(
+                "SELECT 1 FROM pipeline_runs "
+                "WHERE corpus_id = ? AND run_status IN ('pending', 'running') LIMIT 1",
+                (c.corpus_id,),
+            ).fetchone()
             rows.append(
                 {
                     "corpus_id": c.corpus_id,
                     "corpus_name": c.corpus_name,
                     "n_assertions": n_assertions,
                     "n_runs": n_runs,
+                    "has_active_run": active_row is not None,
                 }
             )
         return rows
@@ -665,15 +684,51 @@ def create_app(
         store, _audit = _open_audit()
         try:
             corpora = _list_corpora_with_counts(store)
-            active_corpus_id = (
-                active if active and any(c["corpus_id"] == active for c in corpora) else None
-            )
+            # Honour ?active=<id> when valid; otherwise fall back to the same
+            # picker the full-page shell uses so a trigger-driven refresh
+            # (corpus-created / run-started / sse:done) keeps a sensible row
+            # highlighted instead of clearing it.
+            active_corpus_id = _pick_active_corpus_id(store, corpora, active)
         finally:
             store.close()
         return templates.TemplateResponse(
             request,
             "cc_sidebar.html",
             {"corpora": corpora, "active_corpus_id": active_corpus_id},
+        )
+
+    @app.get("/corpora/{corpus_id}/cost-gauge", response_class=HTMLResponse)
+    def corpora_cost_gauge(request: Request, corpus_id: str) -> HTMLResponse:
+        """Header cost-gauge fragment, refetched on ``run-started`` / ``sse:done``.
+
+        The gauge gates its SSE on the active corpus having a live run (see
+        ``cc_cost_gauge.html``) — that is the fix for the idle EventSource
+        reconnect flood. Because the gating is server-rendered, the gauge must
+        re-render when a run begins or ends so it can open/close its progress
+        stream without a full page reload; this endpoint returns that wrapper.
+        """
+        store, audit = _open_audit()
+        try:
+            corpora = _list_corpora_with_counts(store)
+            active_corpus = next((c for c in corpora if c["corpus_id"] == corpus_id), None)
+            spent_usd: float | None = None
+            if active_corpus is not None:
+                last_run = _most_recent_run_for_corpus(store, corpus_id)
+                if last_run is not None:
+                    run_obj = audit.get_run(last_run["run_id"])
+                    if run_obj is not None:
+                        spent_usd = _compute_run_cost(run_obj, audit)
+        finally:
+            store.close()
+        return templates.TemplateResponse(
+            request,
+            "cc_cost_gauge.html",
+            {
+                "active_corpus_id": corpus_id if active_corpus is not None else None,
+                "active_corpus": active_corpus,
+                "spent_usd": spent_usd,
+                "max_cost": config.max_cost_usd,
+            },
         )
 
     @app.get("/corpora/new/modal", response_class=HTMLResponse)
@@ -1748,9 +1803,10 @@ def create_app(
             for _ in range(max_iter):
                 snapshot = _read_latest_run_snapshot(corpus_id)
                 if snapshot is None:
-                    # No run yet, or corpus has none. Tell the client we're
-                    # done so it doesn't hold the connection open.
+                    # No run yet, or corpus has none. Park reconnection and
+                    # close — there is nothing to stream.
                     yield "data: " + _render_progress_snapshot({"status": "pending"}) + "\n\n"
+                    yield PROGRESS_NO_RECONNECT_SSE
                     yield 'event: done\ndata: {"type":"done"}\n\n'
                     return
 
@@ -1766,18 +1822,26 @@ def create_app(
                 if snapshot["status"] in {"done", "failed"}:
                     terminal_emits += 1
                     if terminal_emits >= max_terminal_emits:
+                        # Run finished: park reconnection so the closed stream
+                        # doesn't reconnect-loop until the row is re-rendered.
+                        yield PROGRESS_NO_RECONNECT_SSE
                         yield 'event: done\ndata: {"type":"done"}\n\n'
                         return
 
                 await asyncio.sleep(poll_seconds)
         except Exception as exc:
             _log.exception("SSE progress generator failed for corpus %s: %s", corpus_id, exc)
-            # Emit an `error` event so the client knows the stream died for
-            # a server-side reason, then a `done` so the EventSource closes
-            # cleanly instead of looping.
+            # Emit an `error` event so the client knows the stream died for a
+            # server-side reason, then park reconnection + close so it doesn't
+            # loop on a persistent fault.
             yield 'event: error\ndata: {"type":"error","message":"server error"}\n\n'
+            yield PROGRESS_NO_RECONNECT_SSE
+            yield 'event: done\ndata: {"type":"done"}\n\n'
+            return
 
-        # Exhausted the iteration cap (or hit the except above) — close cleanly.
+        # Exhausted the iteration cap while the run was still active: let the
+        # client reconnect (default retry) and keep watching. A later poll will
+        # hit the idle/terminal path above and park reconnection then.
         yield 'event: done\ndata: {"type":"done"}\n\n'
 
     @app.get("/corpora/{corpus_id}/progress")

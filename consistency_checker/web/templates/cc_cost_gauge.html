@@ -1,0 +1,19 @@
+<div class="cc-cost-gauge" id="cc-cost-gauge"
+     {% if active_corpus_id %}
+     hx-get="/corpora/{{ active_corpus_id }}/cost-gauge"
+     hx-trigger="run-started from:body"
+     hx-target="this"
+     hx-swap="outerHTML"
+     {% endif %}
+     {% if active_corpus and active_corpus.has_active_run %}
+     hx-ext="sse"
+     sse-connect="/corpora/{{ active_corpus_id }}/progress"
+     {% endif %}
+     title="Estimated cost (upper bound) for the active corpus's most recent run.">
+  {# Idle corpora render no SSE attrs — that is the fix for the EventSource
+     reconnect flood. The gauge refetches itself on `run-started` to connect
+     once a run begins; on completion the stream parks reconnection (server
+     `retry:` directive) so the closed connection does not loop. The inner
+     span owns the live `cost_update` swap. #}
+  <span sse-swap="cost_update" hx-target="this" hx-swap="innerHTML">{% include "cc__cost_gauge.html" %}</span>
+</div>

@@ -15,15 +15,7 @@
   <body class="cc-collapsed-body">
     <header class="cc-header cc-collapsed-header">
       <h1 class="cc-header__title">contradiction-checker</h1>
-      <div class="cc-cost-gauge" id="cc-cost-gauge"
-           hx-ext="sse"
-           {% if active_corpus_id %}sse-connect="/corpora/{{ active_corpus_id }}/progress"{% endif %}
-           sse-swap="cost_update"
-           hx-target="this"
-           hx-swap="innerHTML"
-           title="Estimated cost (upper bound) for the active corpus's most recent run.">
-        {% include "cc__cost_gauge.html" %}
-      </div>
+      {% include "cc_cost_gauge.html" %}
       <button type="button" class="cc-settings-cog" disabled
               aria-label="Settings (unavailable)"
               title="Settings drawer — out of scope for ADR-0017"><span aria-hidden="true">⚙</span></button>
@@ -31,7 +23,8 @@
     <div class="cc-shell">
       <aside class="cc-sidebar" id="cc-sidebar"
              hx-get="/corpora/sidebar"
-             hx-trigger="corpus-created from:body"
+             hx-vals='js:{active: new URLSearchParams(window.location.search).get("corpus") || ""}'
+             hx-trigger="corpus-created from:body, run-started from:body"
              hx-swap="innerHTML">
         {% include "cc_sidebar.html" %}
       </aside>
@@ -41,7 +34,8 @@
     </div>
     <div id="cc-modal-region"></div>
     <div id="cc-drawer-region" class="cc-drawer-region" hidden></div>
-    <dialog id="cc-diff-dialog" class="cc-dialog">
+    <dialog id="cc-diff-dialog" class="cc-dialog"
+            role="dialog" aria-modal="true" aria-label="Definition comparison">
       <div id="cc-diff-content"></div>
       <button type="button" class="cc-button" onclick="document.getElementById('cc-diff-dialog').close()">Close</button>
     </dialog>
@@ -75,6 +69,24 @@
         var first = dlg.querySelector('[autofocus]')
           || dlg.querySelector('input, select, textarea, button, [href]');
         if (first) first.focus();
+      });
+    })();
+    </script>
+    <script>
+    // Sidebar active-row highlight follows the clicked corpus. A row click only
+    // swaps #cc-main (the findings pane), so the server-rendered active class
+    // would otherwise stay on the previously-active row until a full reload.
+    // Server refreshes stay consistent via the sidebar's hx-vals (URL ?corpus).
+    (function () {
+      document.body.addEventListener('click', function (e) {
+        var row = e.target.closest && e.target.closest('.cc-corpus-row');
+        if (!row) return;
+        document.querySelectorAll('.cc-corpus-row--active').forEach(function (el) {
+          el.classList.remove('cc-corpus-row--active');
+          el.removeAttribute('aria-current');
+        });
+        row.classList.add('cc-corpus-row--active');
+        row.setAttribute('aria-current', 'true');
       });
     })();
     </script>
