@@ -89,7 +89,7 @@ def run(pairs_path: Path, config_path: Path | None) -> dict[str, Any]:
         row = json.loads(line)
         a = _assertion("doc_a", row["term"], row["def_a"])
         b = _assertion("doc_b", row["term"], row["def_b"])
-        findings = list(checker.find_inconsistencies([a, b]))
+        findings = list(checker.find_inconsistencies([(a, ""), (b, "")]))
         verdict = findings[0].verdict.verdict if findings else "uncertain"
         predicted = _predicted_label(verdict)
         correct = predicted == row["label"]
