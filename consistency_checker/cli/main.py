@@ -81,10 +81,15 @@ def _bootstrap() -> None:
 def _load_config(config_path: Path | None) -> Config:
     path = config_path or Path("config.yml")
     if not path.exists():
-        raise typer.BadParameter(
-            f"Config file {path} not found. Run `consistency-check init` to "
-            f"create a starter config.yml and .env in the current directory."
+        # Only nudge toward `init` for the default config.yml — `init` writes to
+        # the cwd, so it wouldn't help a user who named an explicit --config path.
+        hint = (
+            " Run `consistency-check init` to create a starter config.yml and .env "
+            "in the current directory."
+            if path == Path("config.yml")
+            else ""
         )
+        raise typer.BadParameter(f"Config file {path} not found.{hint}")
     return Config.from_yaml(path)
 
 

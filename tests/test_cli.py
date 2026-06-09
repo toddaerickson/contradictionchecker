@@ -1688,3 +1688,22 @@ def test_init_both_exist_is_a_noop(
     # neither file was touched
     assert "custom" in (tmp_path / "config.yml").read_text()
     assert "existing" in (tmp_path / ".env").read_text()
+
+
+def test_missing_default_config_error_points_to_init(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)  # empty dir, no config.yml
+    result = runner.invoke(app, ["check", "--corpus", "x"])
+    assert result.exit_code != 0
+    assert "consistency-check init" in result.output
+
+
+def test_missing_explicit_config_does_not_suggest_init(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["check", "--corpus", "x", "--config", "nope.yml"])
+    assert result.exit_code != 0
+    assert "not found" in result.output
+    assert "init" not in result.output  # init wouldn't create the named path
