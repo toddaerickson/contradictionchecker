@@ -81,8 +81,68 @@ def _bootstrap() -> None:
 def _load_config(config_path: Path | None) -> Config:
     path = config_path or Path("config.yml")
     if not path.exists():
-        raise typer.BadParameter(f"Config file {path} not found.")
+        # Only nudge toward `init` for the default config.yml — `init` writes to
+        # the cwd, so it wouldn't help a user who named an explicit --config path.
+        hint = (
+            " Run `consistency-check init` to create a starter config.yml and .env "
+            "in the current directory."
+            if path == Path("config.yml")
+            else ""
+        )
+        raise typer.BadParameter(f"Config file {path} not found.{hint}")
     return Config.from_yaml(path)
+
+
+_STARTER_CONFIG = """\
+# consistency-checker configuration. Edit as needed.
+# corpus_dir is required by the schema; the web UI ignores it (uploads land in
+# data_dir/uploads/) — it only matters for `consistency-check ingest <dir>`.
+corpus_dir: ./corpus
+
+# Judge + extractor provider. moonshot (Kimi) is the default; it reads
+# MOONSHOT_API_KEY from the .env in this directory. If you change the provider,
+# set judge_model to match: kimi-k2.6 (moonshot), claude-sonnet-4-6 (anthropic),
+# gpt-4o (openai).
+judge_provider: moonshot
+judge_model: kimi-k2.6
+
+data_dir: ./data/store
+log_dir: ./data/logs
+"""
+
+_STARTER_ENV = """\
+# Moonshot (Kimi) API key — required for atomic-fact extraction and the judge.
+# Get one at https://platform.moonshot.ai/ and paste it after the = below.
+MOONSHOT_API_KEY=
+"""
+
+
+@app.command(help="Write a starter config.yml and .env into the current directory.")
+def init(
+    force: bool = typer.Option(False, "--force", help="Overwrite existing config.yml / .env."),
+) -> None:
+    """Bootstrap a working directory for a fresh install.
+
+    Writes ``config.yml`` and a ``.env`` template so ``serve`` / ``ingest`` /
+    ``check`` run without hand-authoring config. Existing files are left
+    untouched unless ``--force`` is passed.
+    """
+    wrote_any = False
+    for name, body in (("config.yml", _STARTER_CONFIG), (".env", _STARTER_ENV)):
+        path = Path(name)
+        if path.exists() and not force:
+            typer.echo(f"Skipped {name} (already exists; pass --force to overwrite).")
+            continue
+        path.write_text(body, encoding="utf-8")
+        typer.echo(f"Wrote {name}")
+        wrote_any = True
+    if wrote_any:
+        typer.echo(
+            "\nNext: add your key to .env (MOONSHOT_API_KEY=...), then run "
+            "`consistency-check serve --open`."
+        )
+    else:
+        typer.echo("\nNothing to do — both files exist. Pass --force to overwrite.")
 
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})

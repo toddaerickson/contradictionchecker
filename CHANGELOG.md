@@ -6,6 +6,17 @@ the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-06-08
+
+First-run polish for `pip`/`pipx` installs.
+
+### Added
+
+- **`consistency-check init`** — writes a starter `config.yml` and a `.env`
+  template into the current directory so a fresh install runs without
+  hand-authoring config. Skips existing files unless `--force` is passed. The
+  "config.yml not found" error now points at it.
+
 ## [0.4.0] — 2026-06-06
 
 First public PyPI release. Since 0.3.0 the product reorients around the
@@ -65,6 +76,18 @@ job, and the **Moonshot/Kimi** provider plus **OCR** for scanned PDFs land.
   probe debug-logs unexpected failures instead of swallowing them silently; and
   upload filename validation uses an explicit `400` guard rather than an
   `assert` that `python -O` strips.
+- **Definition detector compares only real definitions.** An `is_definitional`
+  gate keeps only assertions whose source reads `"Term" means / shall mean …`,
+  dropping the extractor's mis-tagged *usages* of a capitalized defined term and
+  *cross-references* — which were being paired against real definitions and
+  reported as spurious divergences (on one real credit agreement ~half the
+  tagged "definitions" were references).
+- **Web UI: SSE reconnect flood + accessibility.** Idle corpora no longer open a
+  reconnect-looping progress stream (gated on an active run; an SSE `retry:`
+  directive parks reconnection on completion); dialogs gained
+  `role`/`aria-modal`/`aria-labelledby`; the sidebar active-row highlight
+  follows the selected corpus; and corpus-name validation is enforced
+  client-side (a `pattern` valid under the RegExp `v` flag).
 
 ### Removed — judge confidence score (ADR-0018)
 
