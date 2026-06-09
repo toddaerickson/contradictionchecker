@@ -23,7 +23,7 @@ See [`docs/decisions/0015-pairwise-opt-in.md`](docs/decisions/0015-pairwise-opt-
 
 ## Install
 
-From PyPI (once published):
+From PyPI:
 
 ```sh
 pipx install consistency-checker   # isolated CLI install (recommended)
@@ -48,16 +48,14 @@ uv sync
 ## Quickstart
 
 ```sh
-# 1. Copy and edit config
-cp config.example.yml config.yml
-# Set corpus_dir, choose judge_provider (anthropic | openai). The API key
-# is read from the environment, NEVER from config.yml — config.yml is
-# safe to commit; your key is not.
+# 1. Scaffold a working directory (writes config.yml + a .env template here)
+consistency-check init
+# From source instead of a pipx install, use: cp config.example.yml config.yml
 
-# 2. Set credentials for whichever provider you chose
-# Prefer your corporate secret manager or a .gitignore'd .env file over
-# baking the key into your shell rc. See docs/corporate-setup.md §3.
-export ANTHROPIC_API_KEY=...      # or OPENAI_API_KEY=...
+# 2. Put your API key in the .env that `init` created (NEVER in config.yml —
+# config.yml is safe to commit; your key is not). The default provider is
+# Moonshot/Kimi; edit config.yml's judge_provider for anthropic | openai.
+# .env:  MOONSHOT_API_KEY=...       (or ANTHROPIC_API_KEY / OPENAI_API_KEY)
 
 # 3a. Web UI flow (single-page UI, ADR-0017)
 uv run consistency-check serve --open    # browser opens to http://127.0.0.1:8000

@@ -1636,3 +1636,55 @@ def test_warn_if_model_download_logs_unexpected_lookup_error(
     with caplog.at_level(logging.DEBUG, logger="consistency_checker.cli.main"):
         _warn_if_model_download_needed("some/model")  # must not raise
     assert any("cache backend exploded" in r.getMessage() for r in caplog.records)
+
+
+# --- init: bootstrap config.yml + .env for a fresh (pip-installed) checkout ---
+
+
+def test_init_creates_config_and_env(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["init"])
+    assert result.exit_code == 0, result.output
+    cfg = tmp_path / "config.yml"
+    env = tmp_path / ".env"
+    assert cfg.exists() and env.exists()
+    loaded = Config.from_yaml(cfg)  # generated config must be valid + loadable
+    assert loaded.judge_provider == "moonshot"
+    assert "MOONSHOT_API_KEY" in env.read_text()
+
+
+def test_init_does_not_overwrite_existing(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("corpus_dir: ./custom\n")
+    result = runner.invoke(app, ["init"])
+    assert result.exit_code == 0, result.output
+    assert "custom" in (tmp_path / "config.yml").read_text()  # preserved, not clobbered
+
+
+def test_init_force_overwrites(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("corpus_dir: ./custom\n")
+    result = runner.invoke(app, ["init", "--force"])
+    assert result.exit_code == 0, result.output
+    body = (tmp_path / "config.yml").read_text()
+    assert "custom" not in body and "moonshot" in body
+
+
+def test_init_both_exist_is_a_noop(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("corpus_dir: ./custom\n")
+    (tmp_path / ".env").write_text("MOONSHOT_API_KEY=existing\n")
+    result = runner.invoke(app, ["init"])
+    assert result.exit_code == 0, result.output
+    assert "Nothing to do" in result.output
+    # neither file was touched
+    assert "custom" in (tmp_path / "config.yml").read_text()
+    assert "existing" in (tmp_path / ".env").read_text()
