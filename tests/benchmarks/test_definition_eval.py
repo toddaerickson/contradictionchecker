@@ -300,3 +300,33 @@ def test_build_candidates_excludes_reference_assertions():
         definition_text="an Affiliated Lender subject to limitations",
     )
     assert build_candidates([real, ref], max_pairs=100) == []  # ref dropped -> singleton
+
+
+def test_harness_run_passes_org_tuples_to_checker(tmp_path):
+    """run() must hand (Assertion, org_key) tuples to the checker — the org-scope
+    API. Passing bare Assertions makes DefinitionChecker._group raise on unpack;
+    this exercises the full run() path with the fixture judge (no LLM)."""
+    import json
+
+    from benchmarks.definition_eval.harness import run
+
+    cfg = tmp_path / "config.yml"
+    cfg.write_text(
+        "corpus_dir: ./c\njudge_provider: fixture\njudge_model: x\ndata_dir: ./d\nlog_dir: ./l\n"
+    )
+    pairs = tmp_path / "pairs.jsonl"
+    pairs.write_text(
+        json.dumps(
+            {
+                "pair_id": "p1",
+                "category": "review",
+                "term": "Quorum",
+                "def_a": "a majority of the directors",
+                "def_b": "two-thirds of the directors",
+                "label": "divergent",
+            }
+        )
+        + "\n"
+    )
+    result = run(pairs, cfg)  # raised "cannot unpack non-iterable Assertion" before the fix
+    assert result["metrics"]["n"] == 1
